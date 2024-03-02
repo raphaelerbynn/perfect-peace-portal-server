@@ -33,7 +33,4 @@ const classFee = sequelize.define(
   }
 );
 
-sequelize.options.logging = console.log;
-classFee.sync();
-
 export default classFee;

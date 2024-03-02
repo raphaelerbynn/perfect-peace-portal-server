@@ -42,5 +42,4 @@ const allowance = sequelize.define('allowance', {
     ]
   });
 
-
 export default allowance;

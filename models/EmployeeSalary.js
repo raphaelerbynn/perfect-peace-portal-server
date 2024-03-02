@@ -17,7 +17,7 @@ const employeeSalary = sequelize.define('employeeSalary', {
         model: 'Teacher',
         key: 'teacher_id'
       },
-      field: 'teacher_id'
+      field: 'teacherId'
     },
     salaryId: {
       type: DataTypes.INTEGER,
@@ -26,7 +26,7 @@ const employeeSalary = sequelize.define('employeeSalary', {
         model: 'Salary',
         key: 'salary_id'
       },
-      field: 'salary_id'
+      field: 'salaryId'
     }
   }, {
     sequelize,
@@ -43,6 +43,5 @@ const employeeSalary = sequelize.define('employeeSalary', {
       },
     ]
   });
-
 
 export default employeeSalary

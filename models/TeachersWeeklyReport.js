@@ -17,7 +17,7 @@ const _ = sequelize.define('teachersWeeklyReport', {
         model: 'Teacher',
         key: 'teacher_id'
       },
-      field: 'teacher_id'
+      field: 'teacherId'
     },
     class: {
       type: DataTypes.STRING(20),

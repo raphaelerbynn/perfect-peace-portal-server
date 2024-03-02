@@ -7,6 +7,8 @@ import Class from "./Class.js";
 import ClassFee from "./ClassFee.js";
 import EmployeeSalary from "./EmployeeSalary.js";
 import Event from "./Event.js";
+import AccountCategory from "./AccountCategory.js";
+import Income from "./Income.js";
 import Expense from "./Expense.js";
 import ExtraClasses from "./ExtraClasses.js";
 import Fee from "./Fee.js";
@@ -50,11 +52,11 @@ Teacher.hasMany(EmployeeSalary, {
   foreignKey: "teacherId",
 });
 
-// Expense.belongsTo(Student, { as: 'student', foreignKey: 'studentId' });
-// Student.hasMany(Expense, { as: 'expenses', foreignKey: 'studentId' });
+Expense.belongsTo(AccountCategory, { foreignKey: 'accountCategoryId' });
+AccountCategory.hasMany(Expense, { foreignKey: 'accountCategoryId' });
 
-// ExtraClasses.belongsTo(Teacher, { as: 'classTeacher', foreignKey: 'teacherId' });
-// Teacher.hasMany(ExtraClasses, { as: 'extraClasses', foreignKey: 'teacherId' });
+Income.belongsTo(AccountCategory, { foreignKey: 'accountCategoryId' });
+AccountCategory.hasMany(Income, { foreignKey: 'accountCategoryId' });
 
 Fee.belongsTo(Class, { as: "class", foreignKey: "classId" });
 Class.hasMany(Fee, { as: "classFees", foreignKey: "classId" });
@@ -128,6 +130,8 @@ export {
   EmployeeSalary,
   Event,
   Expense,
+  Income,
+  AccountCategory,
   ExtraClasses,
   Fee,
   FeedingFee,

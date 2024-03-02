@@ -9,6 +9,8 @@ import { errorHandler } from "./utils/errorHandling.js";
 import { countRequests, requestCount, undefinedEndpoint } from "./utils/middlewares.js";
 import dotenv from "dotenv";
 import cors from "cors"
+import sequelize from "./config/database.js";
+import { accountRouter } from "./routes/accountRoutes.js";
 
 dotenv.config();
 const app = express();
@@ -29,6 +31,7 @@ app.use("/", generalRouter);
 app.use("/", studentRouter);
 app.use("/", authRouter);
 app.use("/", fileRouter);
+app.use("/", accountRouter);
 
 app.get("/test", async (req, res) => {
     res.json(await getStudents());
@@ -41,6 +44,14 @@ app.get('/requestCount', (req, res) => {
 
 app.use(undefinedEndpoint);
 app.use(errorHandler);
+
+sequelize.authenticate()
+  .then(() => {
+    console.log('Connection has been established successfully.');
+  })
+  .catch((err) => {
+    console.error('Unable to connect to the database:', err);
+  });
 
 app.listen(PORT, () =>
     console.log(`📡 server running on port ${PORT}`)

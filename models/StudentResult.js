@@ -94,5 +94,7 @@ const _ = sequelize.define('studentResult', {
     ]
   });
 
+  
+
 
 export default _

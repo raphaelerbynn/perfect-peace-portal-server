@@ -48,5 +48,7 @@ const _ = sequelize.define('totalAttendance', {
     ]
   });
 
+  
+
 
 export default _

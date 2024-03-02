@@ -1,4 +1,4 @@
-import { createExpense, createFeeding, createBusFee, createExtraClasses, getBusFee, getExpense, getExtraClasses, getFeeding, removeBusFee, removeExpense, removeExtraClasses, removeFeeding } from "../services/account.js";
+import { createFeeding, createBusFee, createExtraClasses, getBusFee, getExtraClasses, getFeeding, removeBusFee, removeExtraClasses, removeFeeding } from "../services/account.js";
 import { createClassAttendance, removeAttendance, getAttendance } from "../services/attendance.js";
 import { createClass, createClassFee, editClassFee, removeClass } from "../services/classes.js";
 import { createFee, getFeesData, getOneFee, removeFee } from "../services/fee.js";
@@ -164,17 +164,6 @@ const fetchFeeding = async (req, res, next) => {
   const values = req.query;
   try {
     const data = await getFeeding(values);
-    res.json(data);
-  } catch (error) {
-    console.log(error);
-    next(error);
-  }
-}
-
-const fetchExpense = async (req, res, next) => {
-  const values = req.query;
-  try {
-    const data = await getExpense(values);
     res.json(data);
   } catch (error) {
     console.log(error);
@@ -448,18 +437,6 @@ const addSalaryPayment = async (req, res, next) => {
   }
 };
 
-const addExpense = async (req, res, next) => {
-  const values = req.body;
-  // console.log(values);
-  try {
-    const data = await createExpense(values);
-    res.json(data);
-  } catch (error) {
-    console.log(error);
-    next(error);
-  }
-};
-
 const addFeeding = async (req, res, next) => {
   const values = req.body;
   // console.log(values);
@@ -675,17 +652,6 @@ const deleteClass = async (req, res, next) => {
   }
 }
 
-const deleteExpense = async (req, res, next) => {
-  const id = req.params.expense_id;
-  try {
-    const data = await removeExpense(id);
-    res.json(data);
-  } catch (error) {
-    console.log(error)
-    next(error)
-  }
-}
-
 const deleteFeeding = async (req, res, next) => {
   const id = req.params.feeding_id;
   try {
@@ -818,7 +784,6 @@ export {
   fetchFees,
   fetchOneFee,
   fetchFeeding,
-  fetchExpense,
   fetchExtraClasses,
   fetchBusFee,
   fetchSalary,
@@ -836,7 +801,6 @@ export {
   addSubject,
   addSalary,
   addSalaryPayment,
-  addExpense,
   addFeeding,
   addBusFee,
   addExtraClasses,
@@ -854,7 +818,6 @@ export {
   deleteSalary,
   deleteSalaryPayment,
   deleteClass,
-  deleteExpense,
   deleteFeeding,
   deleteExtraClasses,
   deleteBusFee,

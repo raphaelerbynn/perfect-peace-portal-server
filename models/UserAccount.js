@@ -31,7 +31,7 @@ const _ = sequelize.define('userAccount', {
         model: 'Teacher',
         key: 'teacher_id'
       },
-      field: 'teacher_id'
+      field: 'teacherId'
     }
   }, {
     sequelize,
@@ -49,5 +49,6 @@ const _ = sequelize.define('userAccount', {
     ]
   });
 
+  // _.sync()
 
 export default _

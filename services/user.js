@@ -3,8 +3,8 @@ import { Student, Teacher, UserAccount } from "../models/index.js";
 
 
 const getManagementUser = async (username, password, category) => {
-    // const test = await UserAccount.findAll();
-    // console.log(test)
+    const test = await UserAccount.findAll();
+    console.log("test::::", test)
     const result = await UserAccount.findOne({
         where: {
             username: username,
