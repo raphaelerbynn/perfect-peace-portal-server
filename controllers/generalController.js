@@ -1,6 +1,6 @@
 import { createFeeding, createBusFee, createExtraClasses, getBusFee, getExtraClasses, getFeeding, removeBusFee, removeExtraClasses, removeFeeding } from "../services/account.js";
 import { createClassAttendance, removeAttendance, getAttendance } from "../services/attendance.js";
-import { createClass, createClassFee, editClassFee, removeClass } from "../services/classes.js";
+import { createClass, createClassFee, editClass, editClassFee, removeClass, removeClassFee } from "../services/classes.js";
 import { createFee, getFeesData, getOneFee, removeFee } from "../services/fee.js";
 import { getNews } from "../services/news.js";
 import { _assignSalary, createAllowance, createDeduction, createSalary, createSalaryPayment, getAllowance, getDeductions, getEmployeeSalary, getOneAllowance, getOneDeduction, getOneSalary, getSalary, getSalaryPayment, removeAllowance, removeDeductions, removeSalary, removeSalaryPayment } from "../services/payroll.js";
@@ -539,11 +539,25 @@ const updateStaff = async (req, res, next) => {
   }
 };
 
-const updateClassFee = async (req, res, next) => {
+const updateClass = async (req, res, next) => {
   const values = req.body;
+  const id = req.params.class_id
 
   try {
-    const data = await editClassFee(values);
+    const data = await editClass(values, id);
+    res.json(data);
+  } catch (error) {
+    console.log(error);
+    next(error);
+  }
+};
+
+const updateClassFee = async (req, res, next) => {
+  const values = req.body;
+  const id = req.params.class_fee_id
+
+  try {
+    const data = await editClassFee(values, id);
     res.json(data);
   } catch (error) {
     console.log(error);
@@ -645,6 +659,17 @@ const deleteClass = async (req, res, next) => {
   const id = req.params.class_id;
   try {
     const data = await removeClass(id);
+    res.json(data);
+  } catch (error) {
+    console.log(error)
+    next(error)
+  }
+}
+
+const deleteClassFee = async (req, res, next) => {
+  const id = req.params.class_fee_id;
+  try {
+    const data = await removeClassFee(id);
     res.json(data);
   } catch (error) {
     console.log(error)
@@ -808,6 +833,7 @@ export {
 
   updateStudent,
   updateStaff,
+  updateClass,
   updateClassFee,
 
   deleteStudent,
@@ -818,6 +844,7 @@ export {
   deleteSalary,
   deleteSalaryPayment,
   deleteClass,
+  deleteClassFee,
   deleteFeeding,
   deleteExtraClasses,
   deleteBusFee,

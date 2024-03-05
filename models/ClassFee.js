@@ -19,6 +19,10 @@ const classFee = sequelize.define(
       type: DataTypes.INTEGER,
       allowNull: true,
       field: "class_id",
+      references: {
+        model: 'Class',
+        key: 'class_id'
+      },
     },
     amount: {
       type: DataTypes.INTEGER,
@@ -32,5 +36,7 @@ const classFee = sequelize.define(
     timestamps: false,
   }
 );
+
+// classFee.sync()
 
 export default classFee;

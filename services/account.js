@@ -78,9 +78,17 @@ const getExpense = async (data) => {
     return await Expense.findAll({
       where: {
         date: {
-          [Op.eq]: literal(`CONVERT(DATE, '${startDate}', 126)`),
+          date: literal(`CONVERT('${startDate}', DATE)`),
         },
       },
+      include: [
+        {
+          model: AccountCategory,
+          as: "accountCategory",
+          attributes: ["name"],
+        },
+      ],
+      order: [['expenseId', 'DESC']],
     });
   } else {
     const startDate = new Date(data.startDate).toISOString();
@@ -88,10 +96,18 @@ const getExpense = async (data) => {
     return await Expense.findAll({
       where: {
         date: {
-          [Op.gte]: literal(`CONVERT(DATE, '${startDate}', 126)`),
-          [Op.lte]: literal(`CONVERT(DATE, '${endDate}', 126)`),
+          [Op.gte]: literal(`DATE_FORMAT('${startDate}', '%Y-%m-%d')`),
+          [Op.lte]: literal(`DATE_FORMAT('${endDate}', '%Y-%m-%d')`),
         },
       },
+      include: [
+        {
+          model: AccountCategory,
+          as: "accountCategory",
+          attributes: ["name"],
+        },
+      ],
+      order: [['expenseId', 'DESC']],
     });
   }
 };
@@ -100,14 +116,21 @@ const getIncome = async (data) => {
   if (!data.startDate || data.all === "true") {
     return await getAllIncome();
   } else if (data.startDate && data.startDate === data.endDate) {
-    console.log("data start:::", data.startDate)
     const startDate = new Date(data?.startDate)?.toISOString();
     return await Income.findAll({
       where: {
         date: {
-          [Op.eq]: literal(`CONVERT(DATE, '${startDate}', 126)`),
+          date: literal(`CONVERT('${startDate}', DATE)`),
         },
       },
+      include: [
+        {
+          model: AccountCategory,
+          as: "accountCategory",
+          attributes: ["name"],
+        },
+      ],
+      order: [['incomeId', 'DESC']],
     });
   } else {
     const startDate = new Date(data?.startDate).toISOString();
@@ -115,10 +138,18 @@ const getIncome = async (data) => {
     return await Income.findAll({
       where: {
         date: {
-          [Op.gte]: literal(`CONVERT(DATE, '${startDate}', 126)`),
-          [Op.lte]: literal(`CONVERT(DATE, '${endDate}', 126)`),
+          [Op.gte]: literal(`DATE_FORMAT('${startDate}', '%Y-%m-%d')`),
+          [Op.lte]: literal(`DATE_FORMAT('${endDate}', '%Y-%m-%d')`),
         },
       },
+      include: [
+        {
+          model: AccountCategory,
+          as: "accountCategory",
+          attributes: ["name"],
+        },
+      ],
+      order: [['incomeId', 'DESC']],
     });
   }
 };
@@ -215,8 +246,15 @@ const removeBusFee = async (id) => {
 // new architecture
 
 //account category
-export const getAccountCategory = async () => {
-  return await AccountCategory.findAll({ raw: true });
+export const getAccountCategory = async (type) => {
+  const data = type ? await AccountCategory.findAll({ 
+      where: {
+        type: type,
+      },
+      raw: true
+   }) : await AccountCategory.findAll({ raw: true });
+
+   return data
 };
 
 export const createAccountCategory = async (data) => {

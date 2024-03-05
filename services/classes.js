@@ -80,7 +80,7 @@ const createClassFee = async (data) => {
   });
 }
 
-const editClassFee = async (data) => {
+const editClassFee = async (data, id) => {
   // console.log("Data::", data);
   return await ClassFee.update({
     name: data?.name,
@@ -88,33 +88,22 @@ const editClassFee = async (data) => {
   },
   {
     where: {
-      classFeeId: data?.classFeeId
+      classFeeId: id
     }
   });
 }
 
-const editClass = async (data) => {
+const editClass = async (data, id) => {
   const updatedClass = await Class.update(
     {
       name: data?.name,
       section: data?.section,
-      capacity: data?.capacity,
       teacher_id: data?.teacher_id,
-
-      //fees dismantled
-      tuition: data?.tuitionFee,
-      firstAid: data?.firstAidFee,
-      pta: data?.ptaFee,
-      water: data?.waterFee,
-      maintenance: data?.maintenanceFee,
-      stationary: data?.stationaryFee,
-      cocurricular: data?.cocurricular,
-
       fees: data?.fees,
     },
     {
       where: {
-        class_id: data.class_id,
+        class_id: id,
       },
     }
   );
@@ -133,7 +122,7 @@ const editClass = async (data) => {
     // console.log(updateTeacher);
   }
 
-  return newClass;
+  return updatedClass;
 };
 
 const removeClass = async (id) => {
@@ -157,4 +146,14 @@ const removeClass = async (id) => {
   return deletedClass;
 };
 
-export { createClass, removeClass, classes, createClassFee, editClassFee };
+const removeClassFee = async (id) => {
+  const deletedClassFee = await ClassFee.destroy({
+    where: {
+      class_fee_id: id,
+    },
+  });
+
+  return deletedClassFee;
+};
+
+export { createClass, removeClass, classes, createClassFee, editClassFee, removeClassFee, editClass };

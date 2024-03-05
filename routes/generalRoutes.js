@@ -16,6 +16,7 @@ import {
   deleteAttendance,
   deleteBusFee,
   deleteClass,
+  deleteClassFee,
   deleteExtraClasses,
   deleteFee,
   deleteFeeding,
@@ -46,6 +47,7 @@ import {
   fetchUserDetails,
   markAttendance,
   resetPin,
+  updateClass,
   updateClassFee,
   updatePassword,
   updateStaff,
@@ -107,10 +109,12 @@ router.post("/assign-salary", assignSalary);
 router.put("/update-student/:student_id", updateStudent);
 router.put("/update-staff/:teacher_id", updateStaff);
 router.put("/update-class-fee/:class_fee_id", updateClassFee);
+router.put("/update-class/:class_id", updateClass);
 
 router.delete("/delete-student/:student_id", deleteStudent);
 router.delete("/delete-staff/:teacher_id", deleteStaff);
 router.delete("/delete-class/:class_id", deleteClass);
+router.delete("/delete-class-fee/:class_fee_id", deleteClassFee);
 router.delete("/delete-result", deleteResult);
 router.delete("/delete-fee/:fee_id", deleteFee);
 router.delete("/delete-subject/:subject_id", deleteSubject);

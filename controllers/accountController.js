@@ -2,8 +2,9 @@ import { createAccountCategory, createExpense, createIncome, getAccountCategory,
 
 //category
 export const fetchAccountCategory = async (req, res, next) => {
+  const type = req.query.type
   try {
-    const _accountCatgory = await getAccountCategory();
+    const _accountCatgory = await getAccountCategory(type);
     res.status(200).json(_accountCatgory);
   } catch (error) {
     next(error);
