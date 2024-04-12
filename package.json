@@ -6,7 +6,9 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "nodemon ./index"
+    "dev": "nodemon ./src/index",
+    "build": "babel src -d dist",
+    "start": "node dist/index.js"
   },
   "author": "",
   "license": "ISC",
@@ -30,6 +32,9 @@
     "tedious": "^16.1.0"
   },
   "devDependencies": {
+    "@babel/cli": "^7.23.9",
+    "@babel/core": "^7.24.0",
+    "@babel/preset-env": "^7.24.0",
     "@flydotio/dockerfile": "^0.4.10"
   }
 }
