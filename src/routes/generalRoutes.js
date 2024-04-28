@@ -60,8 +60,8 @@ import {
   fetchSubject,
 } from "../controllers/onlyTeacherController.js";
 import { fetchExpenseGraph, fetchFeesGraph, fetchFeesVsExpenseGraph, fetchIncomeGraph } from "../controllers/graphDataController.js";
-import students from "../../students.json" assert { type: "json" };
-import { Class, KgAssessment, KgCalcValues, Parent, Student, StudentMarks, StudentResult, Subject, Teacher, UserAccount } from "../models/index.js";
+// import students from "../../students.json" assert { type: "json" };
+// import { Class, KgAssessment, KgCalcValues, Parent, Student, StudentMarks, StudentResult, Subject, Teacher, UserAccount } from "../models/index.js";
 
 
 const router = Router();
@@ -140,77 +140,77 @@ router.get("/fees-vs-expense-graph", fetchFeesVsExpenseGraph);
 
 
 //data imports
-router.get("/import-students", async (req, res, next) => {
-  try{
-    // const arr1 = await Student.findAll({ raw: true })
-    // const idNotInArr1 = students.filter(student1 => !arr1.some(student2 => student1.student_id == student2.studentId))
-    // console.log(students.length)
-    // for ( let student of idNotInArr1) {
-    //   const data = {
-    //     ...student,
-    //     studentId: student.student_id,
-    //     fName: student.f_name,
-    //     mName: student.m_name,
-    //     lName: student.l_name,
-    //     dateRegistered: student.date_registered,
-    //     dateUpdated: student.date_updated,
-    //     parentId: student.parent_id,
-    //     classId: student.class_id,
-    //     feesPaid: student.fees_paid,
-    //     feesOwing: student.fees_owing,
-    //   }
-    //   console.log("🚀", data)
-    //   const result = await Student.create(data)
-    // }
+// router.get("/import-students", async (req, res, next) => {
+//   try{
+//     // const arr1 = await Student.findAll({ raw: true })
+//     // const idNotInArr1 = students.filter(student1 => !arr1.some(student2 => student1.student_id == student2.studentId))
+//     // console.log(students.length)
+//     // for ( let student of idNotInArr1) {
+//     //   const data = {
+//     //     ...student,
+//     //     studentId: student.student_id,
+//     //     fName: student.f_name,
+//     //     mName: student.m_name,
+//     //     lName: student.l_name,
+//     //     dateRegistered: student.date_registered,
+//     //     dateUpdated: student.date_updated,
+//     //     parentId: student.parent_id,
+//     //     classId: student.class_id,
+//     //     feesPaid: student.fees_paid,
+//     //     feesOwing: student.fees_owing,
+//     //   }
+//     //   console.log("🚀", data)
+//     //   const result = await Student.create(data)
+//     // }
 
-    const studentData = students.map(student => ({
-      ...student,
-        kgAssessmentId: student.kg_assessment_id,
-        needsImprovement: student.needs_improvement,
-        notApplicable: student.not_applicable,
-        studentId: student.student_id,
-        classScore: student.class_score,
-        examScore: student.exam_score,
-        totalScore: student.total_score
-    }));
+//     const studentData = students.map(student => ({
+//       ...student,
+//         kgAssessmentId: student.kg_assessment_id,
+//         needsImprovement: student.needs_improvement,
+//         notApplicable: student.not_applicable,
+//         studentId: student.student_id,
+//         classScore: student.class_score,
+//         examScore: student.exam_score,
+//         totalScore: student.total_score
+//     }));
 
-    const createdStudentMarks = await KgAssessment.bulkCreate(studentData);
+//     const createdStudentMarks = await KgAssessment.bulkCreate(studentData);
     
-    createdStudentMarks.forEach(studentMark => {
-      if (studentMark._options.isNewRecord) {
-        console.info('StudentMark created: 🚀', studentMark.toJSON());
-      } else {
-        console.warn('StudentMark already exists: 📜', studentMark.toJSON());
-      }
-    });
-    // const studentData = students.map(student => ({
-    //   ...student,
-    //     parentId: student.parent_id,
-    //     fName: student.f_name,
-    //     lName: student.l_name,
-    //     createdAt: student.created_at
-    // }));
+//     createdStudentMarks.forEach(studentMark => {
+//       if (studentMark._options.isNewRecord) {
+//         console.info('StudentMark created: 🚀', studentMark.toJSON());
+//       } else {
+//         console.warn('StudentMark already exists: 📜', studentMark.toJSON());
+//       }
+//     });
+//     // const studentData = students.map(student => ({
+//     //   ...student,
+//     //     parentId: student.parent_id,
+//     //     fName: student.f_name,
+//     //     lName: student.l_name,
+//     //     createdAt: student.created_at
+//     // }));
 
-    // const createdStudentMarks = await Parent.bulkCreate(studentData, {
-    //   ignoreDuplicates: true,
-    // });
+//     // const createdStudentMarks = await Parent.bulkCreate(studentData, {
+//     //   ignoreDuplicates: true,
+//     // });
     
-    // createdStudentMarks.forEach(studentMark => {
-    //   if (studentMark._options.isNewRecord) {
-    //     console.info('StudentMark created: 🚀', studentMark.toJSON());
-    //   } else {
-    //     console.warn('StudentMark already exists: 📜', studentMark.toJSON());
-    //   }
-    // });
+//     // createdStudentMarks.forEach(studentMark => {
+//     //   if (studentMark._options.isNewRecord) {
+//     //     console.info('StudentMark created: 🚀', studentMark.toJSON());
+//     //   } else {
+//     //     console.warn('StudentMark already exists: 📜', studentMark.toJSON());
+//     //   }
+//     // });
 
     
   
 
-    res.status(201).json({idNotInArr1: "done"})
-  } catch(err){
-    console.log(err)
-    next(err)
-  }
-});
+//     res.status(201).json({idNotInArr1: "done"})
+//   } catch(err){
+//     console.log(err)
+//     next(err)
+//   }
+// });
 
 export { router as generalRouter };

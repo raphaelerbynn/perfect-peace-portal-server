@@ -110,7 +110,9 @@ const fetchClassResult = async (req, res, next) => {
   const values = req.query;
   try {
     const results = await getClassResult(values);
+    console.log(results)
     const marks = await getClassMarks(values);
+    // console.log(marks)
 
     const data = results.map((result) => {
         const { studentId } = result.dataValues;

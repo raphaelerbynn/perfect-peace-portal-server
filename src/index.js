@@ -33,6 +33,10 @@ app.use("/", authRouter);
 app.use("/", fileRouter);
 app.use("/", accountRouter);
 
+app.get("/", async (req, res) => {
+    res.send("Welcome to Perfect Peace API");
+});
+
 app.get("/test", async (req, res) => {
     res.json(await getStudents());
 });
