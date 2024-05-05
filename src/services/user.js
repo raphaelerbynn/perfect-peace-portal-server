@@ -1,6 +1,6 @@
 import { Op } from "sequelize";
 import sequelize from "../config/database.js";
-import { Student, Teacher, UserAccount } from "../models/index.js";
+import { Class, ClassFee, Parent, Student, Teacher, UserAccount } from "../models/index.js";
 
 
 const getManagementUser = async (data) => {
@@ -34,49 +34,70 @@ const signUpManagementUser = async (data) => {
 
 //portal
 const getStudentDetails = async (indexNumber) => {
-
-    const query = `SELECT
-    \`dbo.Student\`.*,
-    \`dbo.Student\`.student_id,
-    \`dbo.Student\`.class_id,
-    \`dbo.Student\`.f_name AS f_name,
-    \`dbo.Student\`.m_name AS m_name,
-    \`dbo.Student\`.l_name AS l_name,
-    \`dbo.Parent\`.f_name AS pf_name,
-    \`dbo.Parent\`.l_name AS pl_name,
-    \`dbo.Parent\`.contact,
-    \`dbo.Parent\`.contact1,
-    \`dbo.Parent\`.relationship,
-    \`dbo.Parent\`.occupation,
-    \`dbo.Class\`.tuition,
-    \`dbo.Class\`.firstAid,
-    \`dbo.Class\`.pta,
-    \`dbo.Class\`.water,
-    \`dbo.Class\`.maintenance,
-    \`dbo.Class\`.stationary,
-    \`dbo.Class\`.cocurricular,
-    \`dbo.Class\`.fees AS fees
-  FROM
-    \`dbo.Student\`
-  LEFT JOIN
-    \`dbo.Parent\` ON \`dbo.Student\`.parent_id = \`dbo.Parent\`.parent_id
-  LEFT JOIN
-    \`dbo.Fee\` ON \`dbo.Student\`.student_id = \`dbo.Fee\`.student_id
-  LEFT JOIN
-    \`dbo.Class\` ON \`dbo.Student\`.class_id = \`dbo.Class\`.class_id
-  WHERE
-    \`dbo.Student\`.student_id = :indexNumber
-  ORDER BY
-    \`dbo.Fee\`.fee_id DESC
-  LIMIT 1`
-
-    const results = await sequelize.query(query, {
-        replacements: { indexNumber },
-        type: sequelize.QueryTypes.SELECT
+    const student = await Student.findAll({
+        include: [
+            {
+                model: Parent,
+                as: "parent",
+            },
+            {
+                model: Class,
+                as: "class_",
+                include: [
+                    {
+                    model: ClassFee, 
+                    as: "classFee", 
+                    },
+                ],
+            }
+        ],
+        where: {
+            student_id: indexNumber
+        }
     });
 
+//     const query = `SELECT
+//     \`dbo.Student\`.*,
+//     \`dbo.Student\`.student_id,
+//     \`dbo.Student\`.class_id,
+//     \`dbo.Student\`.f_name AS f_name,
+//     \`dbo.Student\`.m_name AS m_name,
+//     \`dbo.Student\`.l_name AS l_name,
+//     \`dbo.Parent\`.f_name AS pf_name,
+//     \`dbo.Parent\`.l_name AS pl_name,
+//     \`dbo.Parent\`.contact,
+//     \`dbo.Parent\`.contact1,
+//     \`dbo.Parent\`.relationship,
+//     \`dbo.Parent\`.occupation,
+//     \`dbo.Class\`.tuition,
+//     \`dbo.Class\`.firstAid,
+//     \`dbo.Class\`.pta,
+//     \`dbo.Class\`.water,
+//     \`dbo.Class\`.maintenance,
+//     \`dbo.Class\`.stationary,
+//     \`dbo.Class\`.cocurricular,
+//     \`dbo.Class\`.fees AS fees
+//   FROM
+//     \`dbo.Student\`
+//   LEFT JOIN
+//     \`dbo.Parent\` ON \`dbo.Student\`.parent_id = \`dbo.Parent\`.parent_id
+//   LEFT JOIN
+//     \`dbo.Fee\` ON \`dbo.Student\`.student_id = \`dbo.Fee\`.student_id
+//   LEFT JOIN
+//     \`dbo.Class\` ON \`dbo.Student\`.class_id = \`dbo.Class\`.class_id
+//   WHERE
+//     \`dbo.Student\`.student_id = :indexNumber
+//   ORDER BY
+//     \`dbo.Fee\`.fee_id DESC
+//   LIMIT 1`
 
-    return results;
+//     const results = await sequelize.query(query, {
+//         replacements: { indexNumber },
+//         type: sequelize.QueryTypes.SELECT
+//     });
+
+
+    return student;
         
 }
 

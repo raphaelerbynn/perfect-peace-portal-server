@@ -1,4 +1,4 @@
-import { getFeeCheck, getFeeList } from "../services/fee.js";
+import { getFeeCheck, getLastFee } from "../services/fee.js";
 import { getNurseryResults, getResults, getResultDetails } from "../services/results.js";
 
 
@@ -75,11 +75,11 @@ const fetchFeeCheck = async (req, res) => {
     }
 }
 
-const fetchFeeList = async (req, res, next) => {
+const fetchLastPaid = async (req, res, next) => {
     const { id } = req.params.user;
 
     try {
-        const data = await getFeeList(id);
+        const data = await getLastFee(id);
         res.json(data);
     } catch (error) {
         console.log(error)
@@ -92,5 +92,5 @@ export {
     fetchNurseryResults,
     fetchFeeCheck,
     fetchResultDetails,
-    fetchFeeList
+    fetchLastPaid
 }

@@ -75,27 +75,17 @@ const getFeeCheck = async () => {
   });
 };
 
-const getFeeList = async (indexNumber) => {
-  const student = await Student.findOne({
-    where: {
-      student_id: indexNumber,
-    },
-    attributes: ["class"],
-  });
-
-  if (student) {
-    const studentClass = student.class;
-
-    const classDetails = await Class.findOne({
+const getLastFee = async (indexNumber) => {
+    const lastFee = Fee.findAll({
       where: {
-        name: studentClass,
+        studentId: indexNumber
       },
-    });
+      limit: 1,
+      order: [['fee_id', 'DESC']]
+    })
 
-    return classDetails;
-  } else {
-    return null;
-  }
+    return lastFee;
+  
 };
 
-export { createFee, removeFee, getFeeCheck, getFeeList, getFeesData, getOneFee };
+export { createFee, removeFee, getFeeCheck, getLastFee, getFeesData, getOneFee };
