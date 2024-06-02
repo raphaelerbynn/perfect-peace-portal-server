@@ -43,6 +43,7 @@ import {
   fetchOneFee,
   fetchOneSalary,
   fetchOneStudentResult,
+  fetchOneKGStudentResult,
   fetchSalary,
   fetchSalaryPayment,
   fetchUserDetails,
@@ -53,6 +54,7 @@ import {
   updatePassword,
   updateStaff,
   updateStudent,
+  fetchClassKGResult,
 } from "../controllers/generalController.js";
 import { authenticateUser } from "../utils/middlewares.js";
 import {
@@ -77,6 +79,8 @@ router.get("/students", fetchAllStudents);
 router.get("/staff", fetchAllStaff);
 router.get("/student-results", fetchClassResult);
 router.get("/student-marks", fetchOneStudentResult);
+router.get("/kg-assessment", fetchOneKGStudentResult);
+router.get("/student-kg-results", fetchClassKGResult);
 router.get("/student-attendance", fetchAttendance);
 router.get("/fees", fetchFees);
 router.get("/fees/:fee_id", fetchOneFee);

@@ -63,17 +63,27 @@ const _ = sequelize.define('kgAssessment', {
       field: 'student_id'
     },
     classScore: {
-      type: DataTypes.STRING(5),
+      type: DataTypes.INTEGER,
       allowNull: true,
       field: 'class_score'
     },
     examScore: {
-      type: DataTypes.STRING(5),
+      type: DataTypes.INTEGER,
       allowNull: true,
       field: 'exam_score'
     },
+    classScorePercentage: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      field: 'class_score_percentage'
+    },
+    examScorePercentage: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      field: 'exam_score_percentage'
+    },
     totalScore: {
-      type: DataTypes.STRING(5),
+      type: DataTypes.INTEGER,
       allowNull: true,
       field: 'total_score'
     },
@@ -97,5 +107,6 @@ const _ = sequelize.define('kgAssessment', {
     ]
   });
 
+// _.sync()
 
 export default _

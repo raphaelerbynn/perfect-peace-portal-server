@@ -83,6 +83,8 @@ const createKGResult = async (data) => {
   const startDate = moment(`${currentYear}-01-01`, "YYYY-MM-DD").format();
   const endDate = moment(`${currentYear}-12-31`, "YYYY-MM-DD").format();
 
+  console.info(data)
+
   await KgAssessment.destroy({
     where: {
       studentId: data?.studentId,
@@ -98,7 +100,7 @@ const createKGResult = async (data) => {
   const response = await KgAssessment.create({
     studentId: data?.studentId, //
     assessment: data?.assessment, //
-    category: data?.category, //
+    category: data?.category.toUpperCase(), //
     satisfactory: data?.satisfactory, //
     improved: data?.improved, //
     needsImprovement: data?.needsImprovement, //
@@ -107,6 +109,8 @@ const createKGResult = async (data) => {
     term: data?.term, //
     class: data?.class, //
     date: Date.now(),
+    classScorePercentage: data?.classScorePercentage || null, //
+    examScorePercentage: data?.examScorePercentage || null, //
     classScore: data?.classScore, //
     examScore: data?.examScore, //
     totalScore: data?.totalScore, //
@@ -204,6 +208,35 @@ const getClassResult = async (data) => {
   });
 
   
+
+  return response;
+};
+
+const getOneStudentKGResult = async (data) => {
+  const response = await KgAssessment.findAll({
+    where: {
+      class: data?.class,
+      term: data?.term,
+      [Op.and]: [sequelize.literal(`date LIKE '%${data?.year}%'`)],
+      studentId: data?.studentId,
+    },
+    raw: true
+  });
+
+
+  return response;
+};
+
+const getKGResultByClassAndTerm = async (data) => {
+  const response = await KgAssessment.findAll({
+    where: {
+      class: data?.class,
+      term: data?.term,
+      [Op.and]: [sequelize.literal(`date LIKE '%${data?.year}%'`)]
+    },
+    raw: true
+  });
+
 
   return response;
 };
@@ -353,6 +386,8 @@ export {
   getClassMarks,
   getOneStudentMarks,
   getOneStudentResult,
+  getOneStudentKGResult,
+  getKGResultByClassAndTerm,
   createMarksResult,
   createResult,
   createKGResult,

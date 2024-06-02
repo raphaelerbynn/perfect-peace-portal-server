@@ -17,7 +17,9 @@ import {
   getClassResult,
   getOneStudentMarks,
   getOneStudentResult,
+  getOneStudentKGResult,
   removeResult,
+  getKGResultByClassAndTerm,
 } from "../services/results.js";
 import {
   createStaff,
@@ -39,6 +41,7 @@ import {
   getStudentDetails,
   getTeacherDetails,
 } from "../services/user.js";
+import { transformReturningKGResult } from "../utils/func.js";
 
 // management
 const fetchAllStudents = async (req, res, next) => {
@@ -135,23 +138,53 @@ const fetchClassResult = async (req, res, next) => {
   }
 };
 
+const fetchClassKGResult = async (req, res, next) => {
+  const values = req.query;
+  try {
+    const data = await getKGResultByClassAndTerm(values);
+
+    const results = data.reduce((acc, item) => {
+      const { studentId } = item;
+
+      if (!acc[studentId]) {
+        acc[studentId] = {
+          studentId,
+          promoted: item.promoted,
+          class: item.class,
+          term: item.term,
+          result: []
+        };
+      }
+
+      acc[studentId].result.push(item);
+      return acc;
+    }, {})
+
+    res.json(Object.values(results));
+  } catch (error) {
+    console.log(error);
+    next(error);
+  }
+};
+
+const fetchOneKGStudentResult = async (req, res, next) => {
+  const values = req.query;
+  try {
+    const result = await getOneStudentKGResult(values);
+    const formattedData = transformReturningKGResult(result);
+    res.json(formattedData);
+  } catch (error) {
+    console.log(error);
+    next(error);
+  }
+};
+
 const fetchOneStudentResult = async (req, res, next) => {
   const values = req.query;
   try {
     const result = await getOneStudentResult(values);
     const marks = await getOneStudentMarks(values);
 
-        // const { studentId } = result.dataValues;
-        // const studentMarks = marks.filter((mark) => {
-        //     if (mark.studentId === studentId) {
-        //       return mark;
-        //     }
-        // });
-
-        // return {
-        // ...result.dataValues,
-        //   marks: studentMarks,
-        // };
 
     res.json({
       ...result[0]?.dataValues,
@@ -430,16 +463,84 @@ const addResult = async (req, res, next) => {
 
 const addKGResult = async (req, res, next) => {
   const values = req.body;
-  const kgResultsData = values?.results;
+  const languageDevelopmentData = values?.languageDevelopment;
+  const personalDevelopmentData = values?.personalDevelopment;
+  const physicalDevelopmentData = values?.physicalDevelopment;
+  const cognitiveDevelopmentData = values?.cognitiveDevelopment;
+  const academicProgressData = values?.academicProgress;
+
   try {
-    const promises = kgResultsData?.map((result) => createKGResult({
-      ...result,
+    const languageDevelopmentPromises = Object.entries(languageDevelopmentData).map(([key, value]) => createKGResult({
+      assessment: key,
+      category: "Language Development (Reading, Listening and Oral Skills)",
+      satisfactory: value === "satisfactory" ? 1 : 0, //
+      improved: value === "improved" ? 1 : 0,
+      needsImprovement: value === "needs_improvement" ? 1 : 0,
+      unsatisfactory: value === "unsatisfactory" ? 1 : 0,
+      notApplicable: value === "not_applicable" ? 1 : 0,
       class: values.class,
       term: values.term,
-      studentId: values.studentId
+      studentId: values.studentId,
+      promoted: values.promotedTo
+    }));
+    const personalDevelopmentPromises = Object.entries(personalDevelopmentData).map(([key, value]) => createKGResult({
+      assessment: key,
+      category: "Personal / Social / Emotional Development",
+      satisfactory: value === "satisfactory" ? 1 : 0, //
+      improved: value === "improved" ? 1 : 0,
+      needsImprovement: value === "needs_improvement" ? 1 : 0,
+      unsatisfactory: value === "unsatisfactory" ? 1 : 0,
+      notApplicable: value === "not_applicable" ? 1 : 0,
+      class: values.class,
+      term: values.term,
+      studentId: values.studentId,
+      promoted: values.promotedTo
+    }));
+    const physicalDevelopmentPromises = Object.entries(physicalDevelopmentData).map(([key, value]) => createKGResult({
+      assessment: key,
+      category: "Physical Development",
+      satisfactory: value === "satisfactory" ? 1 : 0, //
+      improved: value === "improved" ? 1 : 0,
+      needsImprovement: value === "needs_improvement" ? 1 : 0,
+      unsatisfactory: value === "unsatisfactory" ? 1 : 0,
+      notApplicable: value === "not_applicable" ? 1 : 0,
+      class: values.class,
+      term: values.term,
+      studentId: values.studentId,
+      promoted: values.promotedTo
+    }));
+    const cognitiveDevelopmentPromises = Object.entries(cognitiveDevelopmentData).map(([key, value]) => createKGResult({
+      assessment: key,
+      category: "Cognitive Development (Position, Direction, Thinking)",
+      satisfactory: value === "satisfactory" ? 1 : 0, //
+      improved: value === "improved" ? 1 : 0,
+      needsImprovement: value === "needs_improvement" ? 1 : 0,
+      unsatisfactory: value === "unsatisfactory" ? 1 : 0,
+      notApplicable: value === "not_applicable" ? 1 : 0,
+      class: values.class,
+      term: values.term,
+      studentId: values.studentId,
+      promoted: values.promotedTo
+    }));
+    const academicProgressPromises = Object.entries(academicProgressData).map(([key, value]) => createKGResult({
+      assessment: key,
+      category: "Academic Progress/Examination Scores",
+      classScorePercentage: value?.classP, //
+      examScorePercentage: value?.examP, //
+      classScore: value?.classScore, //
+      examScore: value?.examScore, //
+      totalScore: value?.totalScore, 
+      class: values.class,
+      term: values.term,
+      studentId: values.studentId,
+      promoted: values.promotedTo,
     }));
     const results = await Promise.all([
-      ...promises
+      ...languageDevelopmentPromises,
+      ...personalDevelopmentPromises,
+      ...physicalDevelopmentPromises,
+      ...cognitiveDevelopmentPromises,
+      ...academicProgressPromises
     ]);
 
     // results.forEach((result) => {
@@ -837,6 +938,8 @@ export {
   fetchClassResult,
   fetchClassMarks,
   fetchOneStudentResult,
+  fetchOneKGStudentResult,
+  fetchClassKGResult,
   fetchAttendance,
   fetchFees,
   fetchOneFee,
