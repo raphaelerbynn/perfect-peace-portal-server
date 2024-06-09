@@ -93,6 +93,8 @@ const addTermAttendance = async () => {
         ...totalAttendancePromises
     ]);
 
+    await Attendance.destroy()
+
     return results
 
 }
