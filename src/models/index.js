@@ -116,6 +116,9 @@ Student.hasMany(TotalAttendance, {
 UserAccount.belongsTo(Teacher, { as: "teacher", foreignKey: "teacherId" });
 Teacher.hasMany(UserAccount, { as: "userAccounts", foreignKey: "teacherId" });
 
+Attendance.belongsTo(Term, { as: "term", foreignKey: "termId" });
+Term.hasMany(Attendance, { as: "attendances", foreignKey: "termId" });
+
 Student.hasMany(Fee, {
   foreignKey: "studentId",
   as: "fee",

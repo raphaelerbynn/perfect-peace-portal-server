@@ -1,4 +1,4 @@
-import { getBusFeeGraph, getExpenseGraph, getExtraClassesGraph, getFeedingGraph, getFeesGraph } from "../services/graph.js";
+import { getBusFeeGraph, getExpenseGraph, getExtraClassesGraph, getFeedingGraph, getFeesGraph, getIncomeGraph } from "../services/graph.js";
 
 const fetchExpenseGraph = async (req, res, next) => {
     const _values = req.query;
@@ -17,15 +17,10 @@ const fetchExpenseGraph = async (req, res, next) => {
 const fetchIncomeGraph = async (req, res, next) => {
     const _values = req.query;
     try {
-      const _busfee = await getBusFeeGraph(_values);
-      const _feeding = await getFeedingGraph(_values);
-      const _extraClasses = await getExtraClassesGraph(_values);
-      
+      const data = await getIncomeGraph(_values);
       res.json({
         groupBy: _values.groupBy,
-        busFee: _busfee,
-        feeding: _feeding,
-        extraClasses: _extraClasses,
+        values: data
       });
     } catch (error) {
       console.log(error);
@@ -38,6 +33,7 @@ const fetchFeesGraph = async (req, res, next) => {
     try {
       const data = await getFeesGraph(_values);
 
+      console.log(data)
       res.json({
         groupBy: _values.groupBy,
         values: data
@@ -64,6 +60,8 @@ const fetchFeesVsExpenseGraph = async (req, res, next) => {
       next(error);
     }
   }
+
+
 
 export {
     fetchExpenseGraph, fetchIncomeGraph, fetchFeesGraph, fetchFeesVsExpenseGraph

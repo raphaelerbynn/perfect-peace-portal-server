@@ -9,10 +9,25 @@ const term = sequelize.define('term', {
       primaryKey: true,
       field: 'term_id'
     },
+    startDate: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+      field: 'start_date'
+    },
     endDate: {
       type: DataTypes.DATEONLY,
       allowNull: true,
       field: 'end_date'
+    },
+    autoCloseDate: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+      field: 'auto_close_date'
+    },
+    active: {
+      type: DataTypes.BOOLEAN,
+      allowNull: true,
+      field: 'active'
     }
   }, {
     sequelize,
@@ -29,6 +44,8 @@ const term = sequelize.define('term', {
       },
     ]
   });
+
+// term.sync()
 
 
 

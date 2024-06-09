@@ -23,14 +23,22 @@ const _ = sequelize.define('totalAttendance', {
       type: DataTypes.INTEGER,
       allowNull: true
     },
+    sick: {
+      type: DataTypes.INTEGER,
+      allowNull: true
+    },
     attendance: {
       type: DataTypes.INTEGER,
       allowNull: true
     },
-    termEndDate: {
-      type: DataTypes.DATEONLY,
+    termId: {
+      type: DataTypes.INTEGER,
       allowNull: true,
-      field: 'term_end_date'
+      references: {
+        model: 'Term',
+        key: 'term_id'
+      },
+      field: 'term_id'
     }
   }, {
     sequelize,
@@ -47,6 +55,8 @@ const _ = sequelize.define('totalAttendance', {
       },
     ]
   });
+
+  // _.sync()
 
   
 

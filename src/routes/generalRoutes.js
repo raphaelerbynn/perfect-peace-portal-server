@@ -55,6 +55,12 @@ import {
   updateStaff,
   updateStudent,
   fetchClassKGResult,
+  fetchAttendanceCount,
+  addTerm,
+  fetchActiveTerm,
+  closeTerm,
+  updateTerm,
+  calculateTotalAttendance,
 } from "../controllers/generalController.js";
 import { authenticateUser } from "../utils/middlewares.js";
 import {
@@ -75,6 +81,8 @@ router.get("/class", fetchClass);
 router.get("/subject", fetchSubject);
 
 router.get("/events", fetchNews);
+router.get("/active-term", fetchActiveTerm);
+router.get("/close-term", closeTerm);
 router.get("/students", fetchAllStudents);
 router.get("/staff", fetchAllStaff);
 router.get("/student-results", fetchClassResult);
@@ -82,6 +90,7 @@ router.get("/student-marks", fetchOneStudentResult);
 router.get("/kg-assessment", fetchOneKGStudentResult);
 router.get("/student-kg-results", fetchClassKGResult);
 router.get("/student-attendance", fetchAttendance);
+router.get("/student-attendance-count", fetchAttendanceCount);
 router.get("/fees", fetchFees);
 router.get("/fees/:fee_id", fetchOneFee);
 router.get("/feeding", fetchFeeding);
@@ -93,6 +102,7 @@ router.get("/allowances", fetchAllowances);
 router.get("/salary/:salary_id", fetchOneSalary);
 router.get("/salary-payment", fetchSalaryPayment);
 router.get("/employee-salary", fetchEmployeeSalary);
+router.get("/calculate-term-attendance", calculateTotalAttendance);
 // router.get("/teachers-weekly-report", fetchWeeklyReport);
 
 router.post("/add-student", addStudent);
@@ -108,6 +118,7 @@ router.post("/add-feeding", addFeeding);
 router.post("/add-bus-fee", addBusFee);
 router.post("/add-extra-classes", addExtraClasses);
 router.post("/add-class-fee", addClassFee);
+router.post("/add-term", addTerm);
 // router.post("/ass-teachers-weekly-report", addWeeklyReport);
 // router.post("/add-event", addEvent);
 
@@ -119,6 +130,7 @@ router.put("/update-student/:student_id", updateStudent);
 router.put("/update-staff/:teacher_id", updateStaff);
 router.put("/update-class-fee/:class_fee_id", updateClassFee);
 router.put("/update-class/:class_id", updateClass);
+router.put("/update-term/:term_id", updateTerm);
 
 router.delete("/delete-student/:student_id", deleteStudent);
 router.delete("/delete-staff/:teacher_id", deleteStaff);

@@ -1,12 +1,12 @@
 import { Op } from "sequelize";
 import sequelize from "../config/database.js";
-import { BusFee, Expense, ExtraClasses, Fee, FeedingFee } from "../models/index.js";
+import { BusFee, Expense, ExtraClasses, Fee, FeedingFee, Income } from "../models/index.js";
 
 const getExpenseGraph = async (data) => {
   let groupFunction;
   const { groupBy, year, month, week } = data;
   if (groupBy === "week") {
-    groupFunction = sequelize.literal("DATEPART(DAY, date)");
+    groupFunction = sequelize.literal(`DAYOFMONTH(date)`);
     if (year && month && week) {
       return await Expense.findAll({
         attributes: [
@@ -22,7 +22,7 @@ const getExpenseGraph = async (data) => {
               month
             ),
             sequelize.where(
-              sequelize.literal(`DATEPART(WEEK, date)`),
+              sequelize.literal(`DAYOFMONTH(date)`),
               4 * Number(month) + Number(week)
             ),
           ],
@@ -32,7 +32,7 @@ const getExpenseGraph = async (data) => {
       throw new Error("Year missing");
     }
   } else if (groupBy === "month") {
-    groupFunction = sequelize.literal("DATEPART(DAY, date)");
+    groupFunction = sequelize.literal(`DAY(date)`);
     if (year && month) {
       return await Expense.findAll({
         attributes: [
@@ -54,7 +54,7 @@ const getExpenseGraph = async (data) => {
       throw new Error("Year or month missing");
     }
   } else if (groupBy === "year") {
-    groupFunction = sequelize.literal("DATEPART(MONTH, date)");
+    groupFunction = sequelize.literal(`MONTH(date)`);
     if (year) {
       return await Expense.findAll({
         attributes: [
@@ -72,8 +72,90 @@ const getExpenseGraph = async (data) => {
       throw new Error("Year missing");
     }
   } else {
-    groupFunction = sequelize.literal("DATEPART(YEAR, date)");
+    groupFunction = sequelize.literal(`YEAR(date)`);
     return await Expense.findAll({
+      attributes: [
+        [groupFunction, "label"],
+        [sequelize.fn("SUM", sequelize.col("amount")), "totalAmount"],
+      ],
+      group: groupFunction,
+    });
+  }
+};
+
+
+const getIncomeGraph = async (data) => {
+  let groupFunction;
+  const { groupBy, year, month, week } = data;
+  if (groupBy === "week") {
+    groupFunction = sequelize.literal(`DAYOFMONTH(date)`);
+    if (year && month && week) {
+      return await Income.findAll({
+        attributes: [
+          [groupFunction, "label"],
+          [sequelize.fn("SUM", sequelize.col("amount")), "totalAmount"],
+        ],
+        group: groupFunction,
+        where: {
+          [Op.and]: [
+            sequelize.where(sequelize.fn("YEAR", sequelize.col("date")), year),
+            sequelize.where(
+              sequelize.fn("MONTH", sequelize.col("date")),
+              month
+            ),
+            sequelize.where(
+              sequelize.literal(`DAYOFMONTH(date)`),
+              4 * Number(month) + Number(week)
+            ),
+          ],
+        },
+      });
+    } else {
+      throw new Error("Year missing");
+    }
+  } else if (groupBy === "month") {
+    groupFunction = sequelize.literal(`DAY(date)`);
+    if (year && month) {
+      return await Income.findAll({
+        attributes: [
+          [groupFunction, "label"],
+          [sequelize.fn("SUM", sequelize.col("amount")), "totalAmount"],
+        ],
+        group: groupFunction,
+        where: {
+          [Op.and]: [
+            sequelize.where(sequelize.fn("YEAR", sequelize.col("date")), year),
+            sequelize.where(
+              sequelize.fn("MONTH", sequelize.col("date")),
+              month
+            ),
+          ],
+        },
+      });
+    } else {
+      throw new Error("Year or month missing");
+    }
+  } else if (groupBy === "year") {
+    groupFunction = sequelize.literal(`MONTH(date)`);
+    if (year) {
+      return await Income.findAll({
+        attributes: [
+          [groupFunction, "label"],
+          [sequelize.fn("SUM", sequelize.col("amount")), "totalAmount"],
+        ],
+        group: groupFunction,
+        where: {
+          [Op.and]: [
+            sequelize.where(sequelize.fn("YEAR", sequelize.col("date")), year),
+          ],
+        },
+      });
+    } else {
+      throw new Error("Year missing");
+    }
+  } else {
+    groupFunction = sequelize.literal(`YEAR(date)`);
+    return await Income.findAll({
       attributes: [
         [groupFunction, "label"],
         [sequelize.fn("SUM", sequelize.col("amount")), "totalAmount"],
@@ -153,7 +235,7 @@ const getBusFeeGraph = async (data) => {
       throw new Error("Year missing");
     }
   } else {
-    groupFunction = sequelize.literal("DATEPART(YEAR, date)");
+    groupFunction = sequelize.literal("YEAR(date)");
     const response = BusFee.findAll({
       attributes: [
         [groupFunction, "label"],
@@ -333,7 +415,7 @@ const getFeesGraph = async (data) => {
   let groupFunction;
   const { groupBy, year, month, week } = data;
   if (groupBy === "week") {
-    groupFunction = sequelize.literal("DATEPART(DAY, date_paid)");
+    groupFunction = sequelize.literal("DAYOFMONTH(date_paid)");
     if (year && month && week) {
       return await Fee.findAll({
         attributes: [
@@ -349,7 +431,7 @@ const getFeesGraph = async (data) => {
               month
             ),
             sequelize.where(
-              sequelize.literal(`DATEPART(WEEK, date_paid)`),
+              sequelize.literal(`DAYOFMONTH(date_paid)`),
               4 * Number(month) + Number(week)
             ),
           ],
@@ -359,7 +441,7 @@ const getFeesGraph = async (data) => {
       throw new Error("Year missing");
     }
   } else if (groupBy === "month") {
-    groupFunction = sequelize.literal("DATEPART(DAY, date_paid)");
+    groupFunction = sequelize.literal("DAY(date_paid)");
     if (year && month) {
       return await Fee.findAll({
         attributes: [
@@ -381,7 +463,7 @@ const getFeesGraph = async (data) => {
       throw new Error("Year or month missing");
     }
   } else if (groupBy === "year") {
-    groupFunction = sequelize.literal("DATEPART(MONTH, date_paid)");
+    groupFunction = sequelize.literal("MONTH(date_paid)");
     if (year) {
       return await Fee.findAll({
         attributes: [
@@ -399,7 +481,7 @@ const getFeesGraph = async (data) => {
       throw new Error("Year missing");
     }
   } else {
-    groupFunction = sequelize.literal("DATEPART(YEAR, date_paid)");
+    groupFunction = sequelize.literal("YEAR(date_paid)");
     const response = Fee.findAll({
       attributes: [
         [groupFunction, "label"],
@@ -411,4 +493,4 @@ const getFeesGraph = async (data) => {
   }
 };
 
-export { getExpenseGraph, getBusFeeGraph, getFeedingGraph, getExtraClassesGraph, getFeesGraph };
+export { getExpenseGraph, getBusFeeGraph, getFeedingGraph, getExtraClassesGraph, getFeesGraph, getIncomeGraph };

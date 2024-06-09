@@ -1,5 +1,5 @@
 import { createFeeding, createBusFee, createExtraClasses, getBusFee, getExtraClasses, getFeeding, removeBusFee, removeExtraClasses, removeFeeding } from "../services/account.js";
-import { createClassAttendance, removeAttendance, getAttendance } from "../services/attendance.js";
+import { createClassAttendance, removeAttendance, getAttendance, totalAttendanceMarked, addTermAttendance } from "../services/attendance.js";
 import { createClass, createClassFee, editClass, editClassFee, removeClass, removeClassFee } from "../services/classes.js";
 import { createFee, getFeesData, getOneFee, removeFee } from "../services/fee.js";
 import { getNews } from "../services/news.js";
@@ -28,7 +28,7 @@ import {
   removeStaff,
 } from "../services/staff.js";
 import { createSubject, removeSubject } from "../services/subject.js";
-import { getTerm } from "../services/term.js";
+import { editTerm, getTerm, setTerm, inactivateTerms } from "../services/term.js";
 import {
   createStudent,
   editStudent,
@@ -87,6 +87,17 @@ const fetchAttendance = async (req, res, next) => {
   }
 };
 
+const fetchAttendanceCount = async (req, res, next) => {
+  const values = req.query;
+  try {
+    const data = await totalAttendanceMarked(values);
+    res.json(data);
+  } catch (error) {
+    console.log(error);
+    next(error);
+  }
+};
+
 const fetchFees = async (req, res, next) => {
   const values = req.query;
   try {
@@ -102,6 +113,26 @@ const fetchOneFee = async (req, res, next) => {
   const id = req.params.fee_id;
   try {
     const data = await getOneFee(id);
+    res.json(data);
+  } catch (error) {
+    console.log(error);
+    next(error);
+  }
+};
+
+const fetchActiveTerm = async (req, res, next) => {
+  try {
+    const data = await getTerm();
+    res.json(data);
+  } catch (error) {
+    console.log(error);
+    next(error);
+  }
+};
+
+const closeTerm = async (req, res, next) => {
+  try {
+    const data = await inactivateTerms();
     res.json(data);
   } catch (error) {
     console.log(error);
@@ -375,6 +406,17 @@ const addSubject = async (req, res, next) => {
   }
 };
 
+const addTerm = async (req, res, next) => {
+  const values = req.body;
+  try {
+    const data = await setTerm(values);
+    res.json(data);
+  } catch (error) {
+    console.log(error);
+    next(error);
+  }
+};
+
 const addClassFee = async (req, res, next) => {
   const values = req.body;
   console.log("Data::", values);
@@ -636,6 +678,16 @@ const markAttendance = async (req, res, next) => {
   }
 };
 
+const calculateTotalAttendance = async (req, res, next) => {
+  try {
+    const totalAttendance = await addTermAttendance();
+    res.json(totalAttendance);
+  } catch (error) {
+    console.log(error);
+    next(error);
+  }
+}
+
 const assignSalary = async (req, res, next) => {
   const values = req.body;
   try {
@@ -697,6 +749,21 @@ const updateClassFee = async (req, res, next) => {
     next(error);
   }
 };
+
+
+const updateTerm = async (req, res, next) => {
+  const values = req.body;
+  const id = req.params.term_id
+
+  try {
+    const data = await editTerm(values, id);
+    res.json(data);
+  } catch (error) {
+    console.log(error);
+    next(error);
+  }
+};
+
 
 const deleteStudent = async (req, res, next) => {
   const student_id = req.params.student_id;
@@ -941,8 +1008,11 @@ export {
   fetchOneKGStudentResult,
   fetchClassKGResult,
   fetchAttendance,
+  fetchAttendanceCount,
   fetchFees,
   fetchOneFee,
+  fetchActiveTerm,
+  closeTerm,
   fetchFeeding,
   fetchExtraClasses,
   fetchBusFee,
@@ -966,11 +1036,13 @@ export {
   addBusFee,
   addExtraClasses,
   addClassFee,
+  addTerm,
 
   updateStudent,
   updateStaff,
   updateClass,
   updateClassFee,
+  updateTerm,
 
   deleteStudent,
   deleteStaff,
@@ -987,6 +1059,7 @@ export {
   deleteAttendance,
 
   markAttendance,
+  calculateTotalAttendance,
   assignSalary,
 
   fetchNews,

@@ -22,6 +22,8 @@ const createMarksResult = async (data) => {
       },
     });
 
+    //add term ids to student marks
+
     const response = await StudentMarks.create({
       studentId: data?.studentId,
       subjectId: data?.subjectId,
@@ -57,6 +59,8 @@ const createResult = async (data) => {
       },
     },
   });
+
+  //add term ids to student results
 
   const response = await StudentResult.create({
     studentId: data?.studentId, //
@@ -96,6 +100,8 @@ const createKGResult = async (data) => {
       },
     },
   });
+
+  //add term ids to assessments
 
   const response = await KgAssessment.create({
     studentId: data?.studentId, //

@@ -17,7 +17,21 @@ const attendance = sequelize.define('attendance', {
     studentId: {
       type: DataTypes.INTEGER,
       allowNull: true,
+      references: {
+        model: 'Student',
+        key: 'student_id'
+      },
       field: 'student_id'
+    },
+    termId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      field: 'term_id',
+      references: {
+        model: 'Term',
+        key: 'term_id'
+      },
+      field: 'term_id'
     },
     status: {
       type: DataTypes.CHAR(10),
@@ -48,6 +62,8 @@ const attendance = sequelize.define('attendance', {
       },
     ]
   });
+
+  // attendance.sync()
   
 
 export default attendance
