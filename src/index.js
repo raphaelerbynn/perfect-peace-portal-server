@@ -11,6 +11,7 @@ import dotenv from "dotenv";
 import cors from "cors"
 import sequelize from "./config/database.js";
 import { accountRouter } from "./routes/accountRoutes.js";
+import { communicationRouter } from "./routes/communicationRoutes.js";
 
 dotenv.config();
 const app = express();
@@ -32,6 +33,8 @@ app.use("/", studentRouter);
 app.use("/", authRouter);
 app.use("/", fileRouter);
 app.use("/", accountRouter);
+
+app.use("/communication", communicationRouter);
 
 app.get("/", async (req, res) => {
     res.send("Welcome to Perfect Peace API");

@@ -1,6 +1,8 @@
 import {
+  changeManagementUserPassword,
   getManagementUser,
   getStudentUser,
+  getTeacherDetails,
   getTeacherUser,
   signUpManagementUser,
   studentSignUp,
@@ -8,6 +10,7 @@ import {
 } from "../services/user.js";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
+import { sendPasswordConfirmationCode } from "../services/auth.js";
 dotenv.config();
 
 const jwt_secret_key = process.env.JWT_KEY;
@@ -121,6 +124,79 @@ const signupManagement = async (req, res, next) => {
   }
 };
 
+const sendStaffPasswordOTP = async (req, res, next) => {
+  const userId = req.params.userId;
+
+  try {
+    const user = await getTeacherDetails(userId);
+    // console.log(user);
+    if (user.length < 1) {
+      res.status(404);
+      throw Error("User not found");
+    }
+    const teacherContact = user[0]?.phone || "";
+    if (!teacherContact) {
+      res.status(404);
+      throw Error("Contact not found, contact administrator to update your profile");
+    }
+
+    const OTP = Math.floor(1000 + Math.random() * 9000);
+    const code = OTP.toString().padStart(4, "0");
+
+    const token = jwt.sign({ userId, code }, process.env.JWT_KEY, { expiresIn: '30m' });
+
+    const result = await sendPasswordConfirmationCode(code, teacherContact);
+    console.log(result)
+    res.status(200).json({ message: "Password reset code sent to your contact", token });
+
+  } catch (err) {
+    console.log(err);
+    next(err);
+  }
+}
+
+const resetForgottenPassword = async (req, res, next) => {
+  const { token, code, newPassword } = req.body;
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_KEY);
+    console.log(decoded)
+    if (!decoded) {
+      res.status(403);
+      throw Error("Invalid token");
+    }
+
+    if (decoded.code !== code) {
+      res.status(403);
+      throw Error("Invalid code");
+    }
+
+
+    const currentTime = Math.floor(Date.now() / 1000);
+    if (decoded.exp < currentTime) {
+      res.status(403);
+      throw Error("Expired token");
+    }
+
+    const user = await getTeacherDetails(decoded.userId);
+    if (user.length < 1) {
+      res.status(404);
+      throw Error("User not found");
+    }
+
+    const updateResult = await changeManagementUserPassword(decoded.userId, newPassword);
+    if (updateResult[0] === 0) {
+      res.status(404);
+      throw Error("Error resetting password");
+    }
+    
+    res.status(200).json({ message: "Password reset successful" });
+    
+  } catch (err) {
+    console.log(err);
+    next(err);
+  }
+}
+
 export {
   signin,
   signup,
@@ -128,4 +204,6 @@ export {
   //management
   signinManagement,
   signupManagement,
+  sendStaffPasswordOTP,
+  resetForgottenPassword
 };

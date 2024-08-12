@@ -3,6 +3,7 @@ import { Class, ClassFee, Parent, Student } from "../models/index.js";
 export const getStudents = async () => {
     try {
         const students = await Student.findAll({
+            attributes: { exclude: ['password'] },
             include: [
                 {
                     model: Parent,

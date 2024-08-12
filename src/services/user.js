@@ -4,8 +4,6 @@ import { Class, ClassFee, Parent, Student, Teacher, UserAccount } from "../model
 
 
 const getManagementUser = async (data) => {
-    // const test = await UserAccount.findAll();
-    // console.log("test::::", test)
     const result = await UserAccount.findOne({
         where: {
             [Op.or]: [
@@ -188,11 +186,20 @@ const changeStudentPassword = async (id, password) => {
     )
 }
 
+const changeManagementUserPassword = async (id, password) => {
+    return await UserAccount.update(
+        { password: password },
+        { where: {
+            teacherId: id
+        }}
+    )
+}
 
 export {
 
     getManagementUser,
     signUpManagementUser,
+    changeManagementUserPassword,
 
     //portal
     getStudentDetails,
