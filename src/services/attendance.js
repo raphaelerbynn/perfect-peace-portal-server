@@ -1,5 +1,5 @@
 import sequelize from "../config/database.js";
-import { Attendance, Term, TotalAttendance } from "../models/index.js";
+import { Attendance, Student, Term, TotalAttendance } from "../models/index.js";
 import { getTerm } from "./term.js";
 
 const createClassAttendance = async (data) => {
@@ -93,11 +93,63 @@ const addTermAttendance = async () => {
         ...totalAttendancePromises
     ]);
 
-    await Attendance.destroy()
+    await Attendance.destroy({
+        truncate: true,
+    })
 
     return results
 
 }
+
+// const addTermAttendance = async () => {
+//     const term = await getTerm();
+//     if (!term?.termId) {
+//         throw new Error("Term data is missing. Ensure `getTerm` fetches a valid term.");
+//     }
+
+//     const validStudentIds = await Student.findAll({
+//         attributes: ['studentId'],
+//         raw: true,
+//     });
+//     const validIdsSet = new Set(validStudentIds.map(student => student.studentId));
+
+//     const attendances = await Attendance.findAll({
+//         attributes: {
+//             include: [
+//                 [sequelize.fn('SUM', sequelize.literal(`CASE WHEN status = 'Present' THEN 1 ELSE 0 END`)), 'present'],
+//                 [sequelize.fn('SUM', sequelize.literal(`CASE WHEN status = 'Sick' THEN 1 ELSE 0 END`)), 'sick'],
+//                 [sequelize.fn('SUM', sequelize.literal(`CASE WHEN status = 'Absent' THEN 1 ELSE 0 END`)), 'absent'],
+//                 [sequelize.fn('COUNT', sequelize.col('status')), 'attendance']
+//             ],
+//             exclude: ['attendanceId', 'status', 'dateMarked', 'dateEnd']
+//         },
+//         raw: true,
+//         group: ['studentId']
+//     });
+
+//     const filteredAttendances = attendances.filter(attendance => 
+//         validIdsSet.has(attendance.studentId)
+//     );
+
+//     for (const attendance of filteredAttendances) {
+//         const _totalAttendance = {
+//             studentId: attendance.studentId,
+//             present: attendance.present,
+//             sick: attendance.sick,
+//             attendance: attendance.attendance,
+//             termId: attendance.termId || term?.termId,
+//         };
+
+//         try {
+//             await TotalAttendance.create(_totalAttendance);
+//         } catch (err) {
+//             console.error(`Failed to insert record for studentId: ${attendance.studentId}`, err);
+//         }
+//     }
+
+//     await Attendance.destroy();
+// };
+
 
 export {
     createClassAttendance,
