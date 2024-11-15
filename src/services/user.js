@@ -8,6 +8,7 @@ const getManagementUser = async (data) => {
         where: {
             [Op.or]: [
                 { username: data?.username || "" },
+                { teacherId: data?.username?.split("/")?.[1] || "" },
                 { email: data?.email || "" },
                 { teacherId: data?.staffId || -1}
             ],
