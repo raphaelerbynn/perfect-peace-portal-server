@@ -1,9 +1,56 @@
-import { createFeeding, createBusFee, createExtraClasses, getBusFee, getExtraClasses, getFeeding, removeBusFee, removeExtraClasses, removeFeeding } from "../services/account.js";
-import { createClassAttendance, removeAttendance, getAttendance, totalAttendanceMarked, addTermAttendance } from "../services/attendance.js";
-import { createClass, createClassFee, editClass, editClassFee, removeClass, removeClassFee } from "../services/classes.js";
-import { createFee, getFeesData, getOneFee, removeFee } from "../services/fee.js";
+import {
+  createFeeding,
+  createBusFee,
+  createExtraClasses,
+  getBusFee,
+  getExtraClasses,
+  getFeeding,
+  removeBusFee,
+  removeExtraClasses,
+  removeFeeding,
+} from "../services/account.js";
+import {
+  createClassAttendance,
+  removeAttendance,
+  getAttendance,
+  totalAttendanceMarked,
+  addTermAttendance,
+} from "../services/attendance.js";
+import {
+  createClass,
+  createClassFee,
+  editClass,
+  editClassFee,
+  removeClass,
+  removeClassFee,
+} from "../services/classes.js";
+import {
+  createFee,
+  getFeesData,
+  getOneFee,
+  removeFee,
+} from "../services/fee.js";
+import { sendSMSMessage } from "../services/messaging.js";
 import { getNews } from "../services/news.js";
-import { _assignSalary, createAllowance, createDeduction, createSalary, createSalaryPayment, getAllowance, getDeductions, getEmployeeSalary, getOneAllowance, getOneDeduction, getOneSalary, getSalary, getSalaryPayment, removeAllowance, removeDeductions, removeSalary, removeSalaryPayment } from "../services/payroll.js";
+import {
+  _assignSalary,
+  createAllowance,
+  createDeduction,
+  createSalary,
+  createSalaryPayment,
+  getAllowance,
+  getDeductions,
+  getEmployeeSalary,
+  getOneAllowance,
+  getOneDeduction,
+  getOneSalary,
+  getSalary,
+  getSalaryPayment,
+  removeAllowance,
+  removeDeductions,
+  removeSalary,
+  removeSalaryPayment,
+} from "../services/payroll.js";
 import {
   getStudentContact,
   getTeacherContact,
@@ -28,10 +75,16 @@ import {
   removeStaff,
 } from "../services/staff.js";
 import { createSubject, removeSubject } from "../services/subject.js";
-import { editTerm, getTerm, setTerm, inactivateTerms } from "../services/term.js";
+import {
+  editTerm,
+  getTerm,
+  setTerm,
+  inactivateTerms,
+} from "../services/term.js";
 import {
   createStudent,
   editStudent,
+  getParentContact,
   getStudents,
   removeStudent,
 } from "../services/test.js";
@@ -144,23 +197,23 @@ const fetchClassResult = async (req, res, next) => {
   const values = req.query;
   try {
     const results = await getClassResult(values);
-    console.log(results)
+    console.log(results);
     const marks = await getClassMarks(values);
     // console.log(marks)
 
     const data = results.map((result) => {
-        const { studentId } = result.dataValues;
-        const studentMarks = marks.filter((mark) => {
-            if (mark.studentId === studentId) {
-              return mark;
-            }
-        });
+      const { studentId } = result.dataValues;
+      const studentMarks = marks.filter((mark) => {
+        if (mark.studentId === studentId) {
+          return mark;
+        }
+      });
 
-        return {
+      return {
         ...result.dataValues,
-          marks: studentMarks,
-        };
-    })
+        marks: studentMarks,
+      };
+    });
 
     res.json(data);
   } catch (error) {
@@ -183,13 +236,13 @@ const fetchClassKGResult = async (req, res, next) => {
           promoted: item.promoted,
           class: item.class,
           term: item.term,
-          result: []
+          result: [],
         };
       }
 
       acc[studentId].result.push(item);
       return acc;
-    }, {})
+    }, {});
 
     res.json(Object.values(results));
   } catch (error) {
@@ -216,7 +269,6 @@ const fetchOneStudentResult = async (req, res, next) => {
     const result = await getOneStudentResult(values);
     const marks = await getOneStudentMarks(values);
 
-
     res.json({
       ...result[0]?.dataValues,
       marks: marks,
@@ -236,7 +288,7 @@ const fetchFeeding = async (req, res, next) => {
     console.log(error);
     next(error);
   }
-}
+};
 
 const fetchExtraClasses = async (req, res, next) => {
   const values = req.query;
@@ -247,7 +299,7 @@ const fetchExtraClasses = async (req, res, next) => {
     console.log(error);
     next(error);
   }
-}
+};
 
 const fetchBusFee = async (req, res, next) => {
   const values = req.query;
@@ -258,7 +310,7 @@ const fetchBusFee = async (req, res, next) => {
     console.log(error);
     next(error);
   }
-}
+};
 
 const fetchSalary = async (req, res, next) => {
   try {
@@ -271,11 +323,23 @@ const fetchSalary = async (req, res, next) => {
         let netAmount = 0;
 
         const allowancesData = await getAllowance(salary?.dataValues?.salaryId);
-        const allowances = allowancesData ? allowancesData.reduce((acc, curr) => acc + Number(curr.dataValues.amount), 0) : 0;
-        
-        const deductionsData = await getDeductions(salary?.dataValues?.salaryId);
-        const deductions = deductionsData ? deductionsData.reduce((acc, curr) => acc + Number(curr.dataValues.amount), 0) : 0;
-        
+        const allowances = allowancesData
+          ? allowancesData.reduce(
+              (acc, curr) => acc + Number(curr.dataValues.amount),
+              0
+            )
+          : 0;
+
+        const deductionsData = await getDeductions(
+          salary?.dataValues?.salaryId
+        );
+        const deductions = deductionsData
+          ? deductionsData.reduce(
+              (acc, curr) => acc + Number(curr.dataValues.amount),
+              0
+            )
+          : 0;
+
         grossAmount = Number(amount) + Number(allowances);
         netAmount = grossAmount + Number(deductions);
         return {
@@ -290,7 +354,7 @@ const fetchSalary = async (req, res, next) => {
     console.log(error);
     next(error);
   }
-}
+};
 
 //dont use
 const fetchDeductions = async (req, res, next) => {
@@ -301,7 +365,7 @@ const fetchDeductions = async (req, res, next) => {
     console.log(error);
     next(error);
   }
-}
+};
 
 //dont use
 const fetchAllowances = async (req, res, next) => {
@@ -312,7 +376,7 @@ const fetchAllowances = async (req, res, next) => {
     console.log(error);
     next(error);
   }
-}
+};
 
 const fetchOneSalary = async (req, res, next) => {
   const id = req.params.salary_id;
@@ -325,12 +389,12 @@ const fetchOneSalary = async (req, res, next) => {
       salary,
       deductions,
       allowances,
-    }
+    };
     res.json(data);
   } catch (error) {
-    next(error)
+    next(error);
   }
-}
+};
 
 const fetchSalaryPayment = async (req, res, next) => {
   const values = req.query;
@@ -434,6 +498,15 @@ const addFee = async (req, res, next) => {
   // console.log(values);
   try {
     const data = await createFee(values);
+
+    const parentSystemContact = await getParentContact(values?.studentId);
+    if (!parentSystemContact.includes(values?.contact) && values?.contact) {
+      parentSystemContact.push(values?.contact);
+    }
+    await sendSMSMessage(
+      `Hello, we received your payment of GHc${values.currentPaid} via ${values.paymentMode}. Balance left for your ward is  GHc${values.remaining}. Fee ID #${data.feeId}. Thank you! - Perfect Peace`,
+      parentSystemContact
+    );
     res.json(data);
   } catch (error) {
     console.log(error);
@@ -451,24 +524,24 @@ const addSalary = async (req, res, next) => {
     const deductionPromises = deductions?.map((deduction) => {
       const newDeduction = {
         ...deduction,
-        salaryId: salary.salaryId
-      }
+        salaryId: salary.salaryId,
+      };
       return createDeduction(newDeduction);
     });
     const allowancePromises = allowances?.map((allowance) => {
       const newAllowance = {
-      ...allowance,
-        salaryId: salary.salaryId
-      }
+        ...allowance,
+        salaryId: salary.salaryId,
+      };
       return createAllowance(newAllowance);
     });
-    
+
     const results = await Promise.allSettled([
       ...deductionPromises,
-      ...allowancePromises
+      ...allowancePromises,
     ]);
 
-    res.json({salary, results});
+    res.json({ salary, results });
   } catch (error) {
     console.log(error);
     next(error);
@@ -479,16 +552,15 @@ const addResult = async (req, res, next) => {
   const values = req.body;
   const marksData = values?.results;
   try {
-    const promises = marksData?.map((mark) => createMarksResult({
-      ...mark,
-      class: values.class,
-      term: values.term,
-      studentId: values.studentId
-    }));
-    const results = await Promise.all([
-      ...promises,
-      createResult(values),
-    ]);
+    const promises = marksData?.map((mark) =>
+      createMarksResult({
+        ...mark,
+        class: values.class,
+        term: values.term,
+        studentId: values.studentId,
+      })
+    );
+    const results = await Promise.all([...promises, createResult(values)]);
 
     // results.forEach((result) => {
     //   if (result.status === 'rejected') {
@@ -512,77 +584,96 @@ const addKGResult = async (req, res, next) => {
   const academicProgressData = values?.academicProgress;
 
   try {
-    const languageDevelopmentPromises = Object.entries(languageDevelopmentData).map(([key, value]) => createKGResult({
-      assessment: key,
-      category: "Language Development (Reading, Listening and Oral Skills)",
-      satisfactory: value === "satisfactory" ? 1 : 0, //
-      improved: value === "improved" ? 1 : 0,
-      needsImprovement: value === "needs_improvement" ? 1 : 0,
-      unsatisfactory: value === "unsatisfactory" ? 1 : 0,
-      notApplicable: value === "not_applicable" ? 1 : 0,
-      class: values.class,
-      term: values.term,
-      studentId: values.studentId,
-      promoted: values.promotedTo
-    }));
-    const personalDevelopmentPromises = Object.entries(personalDevelopmentData).map(([key, value]) => createKGResult({
-      assessment: key,
-      category: "Personal / Social / Emotional Development",
-      satisfactory: value === "satisfactory" ? 1 : 0, //
-      improved: value === "improved" ? 1 : 0,
-      needsImprovement: value === "needs_improvement" ? 1 : 0,
-      unsatisfactory: value === "unsatisfactory" ? 1 : 0,
-      notApplicable: value === "not_applicable" ? 1 : 0,
-      class: values.class,
-      term: values.term,
-      studentId: values.studentId,
-      promoted: values.promotedTo
-    }));
-    const physicalDevelopmentPromises = Object.entries(physicalDevelopmentData).map(([key, value]) => createKGResult({
-      assessment: key,
-      category: "Physical Development",
-      satisfactory: value === "satisfactory" ? 1 : 0, //
-      improved: value === "improved" ? 1 : 0,
-      needsImprovement: value === "needs_improvement" ? 1 : 0,
-      unsatisfactory: value === "unsatisfactory" ? 1 : 0,
-      notApplicable: value === "not_applicable" ? 1 : 0,
-      class: values.class,
-      term: values.term,
-      studentId: values.studentId,
-      promoted: values.promotedTo
-    }));
-    const cognitiveDevelopmentPromises = Object.entries(cognitiveDevelopmentData).map(([key, value]) => createKGResult({
-      assessment: key,
-      category: "Cognitive Development (Position, Direction, Thinking)",
-      satisfactory: value === "satisfactory" ? 1 : 0, //
-      improved: value === "improved" ? 1 : 0,
-      needsImprovement: value === "needs_improvement" ? 1 : 0,
-      unsatisfactory: value === "unsatisfactory" ? 1 : 0,
-      notApplicable: value === "not_applicable" ? 1 : 0,
-      class: values.class,
-      term: values.term,
-      studentId: values.studentId,
-      promoted: values.promotedTo
-    }));
-    const academicProgressPromises = Object.entries(academicProgressData).map(([key, value]) => createKGResult({
-      assessment: key,
-      category: "Academic Progress/Examination Scores",
-      classScorePercentage: value?.classP, //
-      examScorePercentage: value?.examP, //
-      classScore: value?.classScore, //
-      examScore: value?.examScore, //
-      totalScore: value?.totalScore, 
-      class: values.class,
-      term: values.term,
-      studentId: values.studentId,
-      promoted: values.promotedTo,
-    }));
+    const languageDevelopmentPromises = Object.entries(
+      languageDevelopmentData
+    ).map(([key, value]) =>
+      createKGResult({
+        assessment: key,
+        category: "Language Development (Reading, Listening and Oral Skills)",
+        satisfactory: value === "satisfactory" ? 1 : 0, //
+        improved: value === "improved" ? 1 : 0,
+        needsImprovement: value === "needs_improvement" ? 1 : 0,
+        unsatisfactory: value === "unsatisfactory" ? 1 : 0,
+        notApplicable: value === "not_applicable" ? 1 : 0,
+        class: values.class,
+        term: values.term,
+        studentId: values.studentId,
+        promoted: values.promotedTo,
+      })
+    );
+    const personalDevelopmentPromises = Object.entries(
+      personalDevelopmentData
+    ).map(([key, value]) =>
+      createKGResult({
+        assessment: key,
+        category: "Personal / Social / Emotional Development",
+        satisfactory: value === "satisfactory" ? 1 : 0, //
+        improved: value === "improved" ? 1 : 0,
+        needsImprovement: value === "needs_improvement" ? 1 : 0,
+        unsatisfactory: value === "unsatisfactory" ? 1 : 0,
+        notApplicable: value === "not_applicable" ? 1 : 0,
+        class: values.class,
+        term: values.term,
+        studentId: values.studentId,
+        promoted: values.promotedTo,
+      })
+    );
+    const physicalDevelopmentPromises = Object.entries(
+      physicalDevelopmentData
+    ).map(([key, value]) =>
+      createKGResult({
+        assessment: key,
+        category: "Physical Development",
+        satisfactory: value === "satisfactory" ? 1 : 0, //
+        improved: value === "improved" ? 1 : 0,
+        needsImprovement: value === "needs_improvement" ? 1 : 0,
+        unsatisfactory: value === "unsatisfactory" ? 1 : 0,
+        notApplicable: value === "not_applicable" ? 1 : 0,
+        class: values.class,
+        term: values.term,
+        studentId: values.studentId,
+        promoted: values.promotedTo,
+      })
+    );
+    const cognitiveDevelopmentPromises = Object.entries(
+      cognitiveDevelopmentData
+    ).map(([key, value]) =>
+      createKGResult({
+        assessment: key,
+        category: "Cognitive Development (Position, Direction, Thinking)",
+        satisfactory: value === "satisfactory" ? 1 : 0, //
+        improved: value === "improved" ? 1 : 0,
+        needsImprovement: value === "needs_improvement" ? 1 : 0,
+        unsatisfactory: value === "unsatisfactory" ? 1 : 0,
+        notApplicable: value === "not_applicable" ? 1 : 0,
+        class: values.class,
+        term: values.term,
+        studentId: values.studentId,
+        promoted: values.promotedTo,
+      })
+    );
+    const academicProgressPromises = Object.entries(academicProgressData).map(
+      ([key, value]) =>
+        createKGResult({
+          assessment: key,
+          category: "Academic Progress/Examination Scores",
+          classScorePercentage: value?.classP, //
+          examScorePercentage: value?.examP, //
+          classScore: value?.classScore, //
+          examScore: value?.examScore, //
+          totalScore: value?.totalScore,
+          class: values.class,
+          term: values.term,
+          studentId: values.studentId,
+          promoted: values.promotedTo,
+        })
+    );
     const results = await Promise.all([
       ...languageDevelopmentPromises,
       ...personalDevelopmentPromises,
       ...physicalDevelopmentPromises,
       ...cognitiveDevelopmentPromises,
-      ...academicProgressPromises
+      ...academicProgressPromises,
     ]);
 
     // results.forEach((result) => {
@@ -649,27 +740,25 @@ const addExtraClasses = async (req, res, next) => {
 //needs more test
 const markAttendance = async (req, res, next) => {
   const values = req.body;
-  console.log(values)
+  console.log(values);
 
   try {
     await removeAttendance(values);
     const termData = await getTerm();
-    
+
     const promises = values.studentAttendance?.map((mark) => {
       const data = {
         ...mark,
         class: values.class,
         dateMarked: values.dateMarked,
-        dateEnd: termData?.dataValues?.endDate
-      }
+        dateEnd: termData?.dataValues?.endDate,
+      };
       createClassAttendance(data);
     });
 
-    console.log(promises)
+    console.log(promises);
 
-    const results = await Promise.all([
-      ...promises
-    ]);
+    const results = await Promise.all([...promises]);
 
     res.json(results);
   } catch (error) {
@@ -686,7 +775,7 @@ const calculateTotalAttendance = async (req, res, next) => {
     console.log(error);
     next(error);
   }
-}
+};
 
 const assignSalary = async (req, res, next) => {
   const values = req.body;
@@ -694,9 +783,9 @@ const assignSalary = async (req, res, next) => {
     const data = await _assignSalary(values);
     res.json(data);
   } catch (error) {
-    next(error)
+    next(error);
   }
-}
+};
 
 const updateStudent = async (req, res, next) => {
   const values = req.body;
@@ -726,7 +815,7 @@ const updateStaff = async (req, res, next) => {
 
 const updateClass = async (req, res, next) => {
   const values = req.body;
-  const id = req.params.class_id
+  const id = req.params.class_id;
 
   try {
     const data = await editClass(values, id);
@@ -739,7 +828,7 @@ const updateClass = async (req, res, next) => {
 
 const updateClassFee = async (req, res, next) => {
   const values = req.body;
-  const id = req.params.class_fee_id
+  const id = req.params.class_fee_id;
 
   try {
     const data = await editClassFee(values, id);
@@ -750,10 +839,9 @@ const updateClassFee = async (req, res, next) => {
   }
 };
 
-
 const updateTerm = async (req, res, next) => {
   const values = req.body;
-  const id = req.params.term_id
+  const id = req.params.term_id;
 
   try {
     const data = await editTerm(values, id);
@@ -763,7 +851,6 @@ const updateTerm = async (req, res, next) => {
     next(error);
   }
 };
-
 
 const deleteStudent = async (req, res, next) => {
   const student_id = req.params.student_id;
@@ -803,7 +890,7 @@ const deleteResult = async (req, res, next) => {
     res.json(data);
   } catch (error) {
     console.log(error);
-    next(error)
+    next(error);
   }
 };
 
@@ -813,10 +900,10 @@ const deleteFee = async (req, res, next) => {
     const data = await removeFee(id);
     res.json(data);
   } catch (error) {
-    console.log(error)
-    next(error)
+    console.log(error);
+    next(error);
   }
-}
+};
 
 const deleteSubject = async (req, res, next) => {
   const id = req.params.subject_id;
@@ -824,10 +911,10 @@ const deleteSubject = async (req, res, next) => {
     const data = await removeSubject(id);
     res.json(data);
   } catch (error) {
-    console.log(error)
-    next(error)
+    console.log(error);
+    next(error);
   }
-}
+};
 
 const deleteSalary = async (req, res, next) => {
   const id = req.params.salary_id;
@@ -835,14 +922,14 @@ const deleteSalary = async (req, res, next) => {
     const data = await Promise.allSettled([
       removeDeductions(id),
       removeAllowance(id),
-      removeSalary(id)
+      removeSalary(id),
     ]);
     res.json(data);
   } catch (error) {
-    console.log(error)
-    next(error)
+    console.log(error);
+    next(error);
   }
-}
+};
 
 const deleteSalaryPayment = async (req, res, next) => {
   const id = req.params.payment_id;
@@ -850,10 +937,10 @@ const deleteSalaryPayment = async (req, res, next) => {
     const data = await removeSalaryPayment(id);
     res.json(data);
   } catch (error) {
-    console.log(error)
-    next(error)
+    console.log(error);
+    next(error);
   }
-}
+};
 
 const deleteClass = async (req, res, next) => {
   const id = req.params.class_id;
@@ -861,10 +948,10 @@ const deleteClass = async (req, res, next) => {
     const data = await removeClass(id);
     res.json(data);
   } catch (error) {
-    console.log(error)
-    next(error)
+    console.log(error);
+    next(error);
   }
-}
+};
 
 const deleteClassFee = async (req, res, next) => {
   const id = req.params.class_fee_id;
@@ -872,10 +959,10 @@ const deleteClassFee = async (req, res, next) => {
     const data = await removeClassFee(id);
     res.json(data);
   } catch (error) {
-    console.log(error)
-    next(error)
+    console.log(error);
+    next(error);
   }
-}
+};
 
 const deleteFeeding = async (req, res, next) => {
   const id = req.params.feeding_id;
@@ -883,10 +970,10 @@ const deleteFeeding = async (req, res, next) => {
     const data = await removeFeeding(id);
     res.json(data);
   } catch (error) {
-    console.log(error)
-    next(error)
+    console.log(error);
+    next(error);
   }
-}
+};
 
 const deleteExtraClasses = async (req, res, next) => {
   const id = req.params.extraclasses_id;
@@ -894,10 +981,10 @@ const deleteExtraClasses = async (req, res, next) => {
     const data = await removeExtraClasses(id);
     res.json(data);
   } catch (error) {
-    console.log(error)
-    next(error)
+    console.log(error);
+    next(error);
   }
-}
+};
 
 const deleteBusFee = async (req, res, next) => {
   const id = req.params.busfee_id;
@@ -905,10 +992,10 @@ const deleteBusFee = async (req, res, next) => {
     const data = await removeBusFee(id);
     res.json(data);
   } catch (error) {
-    console.log(error)
-    next(error)
+    console.log(error);
+    next(error);
   }
-}
+};
 
 const deleteAttendance = async (req, res, next) => {
   const values = req.body;
@@ -916,10 +1003,10 @@ const deleteAttendance = async (req, res, next) => {
     const data = await removeAttendance(values);
     res.json(data);
   } catch (error) {
-    console.log(error)
-    next(error)
+    console.log(error);
+    next(error);
   }
-}
+};
 
 //portal
 const fetchNews = async (req, res, next) => {
@@ -1022,7 +1109,6 @@ export {
   fetchOneSalary,
   fetchSalaryPayment,
   fetchEmployeeSalary,
-
   addStudent,
   addStaff,
   addClass,
@@ -1037,13 +1123,11 @@ export {
   addExtraClasses,
   addClassFee,
   addTerm,
-
   updateStudent,
   updateStaff,
   updateClass,
   updateClassFee,
   updateTerm,
-
   deleteStudent,
   deleteStaff,
   deleteResult,
@@ -1057,11 +1141,9 @@ export {
   deleteExtraClasses,
   deleteBusFee,
   deleteAttendance,
-
   markAttendance,
   calculateTotalAttendance,
   assignSalary,
-
   fetchNews,
   fetchUserDetails,
   resetPin,

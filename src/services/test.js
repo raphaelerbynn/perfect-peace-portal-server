@@ -27,6 +27,36 @@ export const getStudents = async () => {
     }
 }
 
+export const getParentContact = async (id) => {
+    try {
+        const student = await Student.findOne({
+            attributes: [],
+            where: {
+                studentId: id
+            },
+            include: [
+                {
+                    model: Parent,
+                    as: "parent",
+                }
+            ],
+        });
+        const contacts = []
+        if (student) {
+            const { contact, contact1 } = student.parent;
+            if (contact) {
+                contacts.push(contact);
+            }
+            if (contact1) {
+                contacts.push(contact1);
+            }
+        }
+        return contacts;
+    } catch (error) {
+        console.log(error);
+    }
+}
+
 export const createStudent = async (data) => {
     try {
         const _class = await Class.findAll({

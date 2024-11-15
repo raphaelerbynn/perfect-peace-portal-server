@@ -3,11 +3,12 @@ import axios from "axios";
 const arkesel_key = process.env.ARKESEL_KEY;
 
 const sendSMSMessage = async (message, contacts) => {
+  const filteredContacts = contacts.filter(contact => /^\d{10}$/.test(contact));
 
   const data = {
     sender: "PPeace Sch",
     message: message,
-    recipients: contacts,
+    recipients: filteredContacts,
   };
 
   const config = {
