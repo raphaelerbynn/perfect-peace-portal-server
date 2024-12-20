@@ -4,7 +4,7 @@ import { getTerm } from "./term.js";
 
 const createClassAttendance = async (data) => {
     const term = await getTerm()
-    console.log("term :::", term)
+    // console.log("term :::", term)
 
     const attendance = await Attendance.create({
         studentId: data?.studentId,

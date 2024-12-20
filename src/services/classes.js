@@ -95,7 +95,7 @@ const editClassFee = async (data, id) => {
 }
 
 const editClass = async (data, id) => {
-  console.log(id, data)
+  // console.log(id, data)
   await Class.update(
     {
       name: data?.name,
@@ -117,7 +117,7 @@ const editClass = async (data, id) => {
       },
       raw: true 
     });
-    console.log(updatedClass)
+    // console.log(updatedClass)
     
     const updateTeacher = await Teacher.update(
       {
@@ -166,4 +166,22 @@ const removeClassFee = async (id) => {
   return deletedClassFee;
 };
 
-export { createClass, removeClass, classes, createClassFee, editClassFee, removeClassFee, editClass };
+const getClassIdByName = async (name) => {
+  if (!name) {
+    throw new Error('Class name is required');
+  }
+
+  const result = await Class.findOne({
+    attributes: ["classId"],
+    where: { name },
+    raw: true
+  });
+
+  if (!result) {
+    return null;
+  }
+
+  return result.classId;
+};
+
+export { createClass, removeClass, classes, createClassFee, editClassFee, removeClassFee, editClass, getClassIdByName };

@@ -61,6 +61,7 @@ import {
   closeTerm,
   updateTerm,
   calculateTotalAttendance,
+  fetchTerms,
 } from "../controllers/generalController.js";
 import { authenticateUser } from "../utils/middlewares.js";
 import {
@@ -82,6 +83,7 @@ router.get("/subject", fetchSubject);
 
 router.get("/events", fetchNews);
 router.get("/active-term", fetchActiveTerm);
+router.get("/terms", fetchTerms);
 router.get("/close-term", closeTerm);
 router.get("/students", fetchAllStudents);
 router.get("/staff", fetchAllStaff);

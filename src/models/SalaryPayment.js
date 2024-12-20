@@ -10,9 +10,15 @@ const _ = sequelize.define('salaryPayment', {
       primaryKey: true,
       field: 'salary_payment_id'
     },
-    name: {
-      type: DataTypes.STRING(50),
-      allowNull: true
+    teacherId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'Teacher',
+        key: 'teacher_id'
+      },
+      onDelete: 'SET NULL',
+      field: 'teacher_id'
     },
     amount: {
       type: DataTypes.STRING(15),
@@ -53,5 +59,6 @@ const _ = sequelize.define('salaryPayment', {
     ]
   });
 
+  // _.sync()
 
 export default _

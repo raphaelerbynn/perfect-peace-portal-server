@@ -1,4 +1,5 @@
-import { Class, ClassFee, Parent, Student } from "../models/index.js";
+import { Class, ClassFee, KgAssessment, Parent, Student, StudentResult } from "../models/index.js";
+import { getTerm } from "./term.js";
 
 export const getStudents = async () => {
     try {
@@ -52,6 +53,55 @@ export const getParentContact = async (id) => {
             }
         }
         return contacts;
+    } catch (error) {
+        console.log(error);
+    }
+}
+
+export const promoteStudents = async () => {
+    const term = await getTerm()
+    try {
+        const allPromotedStudents = await StudentResult.findAll({
+            attributes: ["studentId", "promotedTo"],
+            where: {
+                termId: term.termId,
+                term: "3"
+            },
+            raw: true
+        })
+        allPromotedStudents.forEach(async (student) => {
+            const response = await Student.update({
+                classId: await getClassIdByName(student.promotedTo),
+                class: student.promotedTo
+            }, {
+                where: {
+                    studentId: student.studentId
+                }
+            });
+        })
+        console.log("🥳 Promoted students successfully")
+        
+        const allPromotedKgStudents = await KgAssessment.findAll({
+            attributes: ["studentId", "promoted"],
+            where: {
+                termId: term.termId,
+                term: "3",
+                category: "Language Development (Reading, Listening and Oral Skills)"
+            },
+            raw: true
+        })
+        allPromotedKgStudents.forEach(async (student) => {
+            const response = await Student.update({
+                classId: await getClassIdByName(student.promoted),
+                class: student.promoted
+            }, {
+                where: {
+                    studentId: student.studentId
+                }
+            })
+        })
+        console.log("🥳 Promoted KG students successfully")
+        return
     } catch (error) {
         console.log(error);
     }

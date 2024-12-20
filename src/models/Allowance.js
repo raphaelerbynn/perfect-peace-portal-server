@@ -16,7 +16,7 @@ const allowance = sequelize.define('allowance', {
         model: 'Salary',
         key: 'salary_id'
       },
-      field: 'salary_id'
+      // field: 'salary_id'
     },
     title: {
       type: DataTypes.STRING(50),
@@ -41,5 +41,7 @@ const allowance = sequelize.define('allowance', {
       },
     ]
   });
+
+  // allowance.sync()
 
 export default allowance;

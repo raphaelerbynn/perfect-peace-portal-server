@@ -47,7 +47,16 @@ const _ = sequelize.define('kgAssessment', {
     },
     term: {
       type: DataTypes.STRING(10),
-      allowNull: true
+      allowNull: true,
+    },
+    termId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'Term',
+        key: 'term_id'
+      },
+      field: 'termId'
     },
     class: {
       type: DataTypes.STRING(10),
@@ -87,6 +96,15 @@ const _ = sequelize.define('kgAssessment', {
       allowNull: true,
       field: 'total_score'
     },
+    termId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'Term',
+        key: 'term_id'
+      },
+      field: 'term_id'
+    },
     promoted: {
       type: DataTypes.STRING(20),
       allowNull: true
@@ -107,6 +125,6 @@ const _ = sequelize.define('kgAssessment', {
     ]
   });
 
-// _.sync()
+// _.sync();
 
 export default _

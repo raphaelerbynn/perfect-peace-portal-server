@@ -1,14 +1,6 @@
 import { Sequelize } from 'sequelize';
-// import config from './config.js';
 import dotenv from "dotenv";
 dotenv.config();
-// const env = 'development';
-// const dbConfig = config[env];
-
-// process.env.DB_USERNAME,
-//       password: process.env.DB_PASSWORD,
-//       database: process.env.DB_NAME,
-//       host: process.env.DB_HOST,
 
 const sequelize = new Sequelize(
   process.env.DB_NAME,
@@ -17,10 +9,13 @@ const sequelize = new Sequelize(
   {
     host: process.env.DB_HOST,
     dialect: "mysql",
+    pool: {
+      max: 5,
+      min: 0,
+      acquire: 30000,
+      idle: 10000
+    }
   }
 );
-
-// sequelize.options.logging = console.log;
-// sequelize.sync();
 
 export default sequelize;

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { addAccountCategory, addExpense, addIncome, deleteAccountCategory, deleteExpense, deleteIncome, fetchAccountCategory, fetchExpense, fetchIncome } from "../controllers/accountController.js";
+import { addSalary } from "../controllers/generalController.js";
 
 const router = Router();
 

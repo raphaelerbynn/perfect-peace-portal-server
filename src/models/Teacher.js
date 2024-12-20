@@ -49,6 +49,15 @@ const _ = sequelize.define('teacher', {
       type: DataTypes.STRING(50),
       allowNull: true
     },
+    salaryId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'Salary',
+        key: 'salary_id'
+      },
+      field: 'salary_id'
+    },
     staffPosition: {
       type: DataTypes.STRING(100),
       allowNull: true,
@@ -99,5 +108,5 @@ const _ = sequelize.define('teacher', {
     ]
   });
 
-
+// _.sync();
 export default _

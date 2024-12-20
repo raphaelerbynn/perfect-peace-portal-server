@@ -6,7 +6,7 @@ import { studentRouter } from "./routes/onlyStudentRoutes.js";
 import { authRouter } from "./routes/authRoutes.js";
 import { fileRouter } from "./routes/fileRoutes.js";
 import { errorHandler } from "./utils/errorHandling.js";
-import { countRequests, requestCount, undefinedEndpoint } from "./utils/middlewares.js";
+import { authenticateManagementUser, countRequests, requestCount, undefinedEndpoint } from "./utils/middlewares.js";
 import dotenv from "dotenv";
 import cors from "cors"
 import sequelize from "./config/database.js";
@@ -26,15 +26,15 @@ const limiter = rateLimit({
 app.use(express.json());
 app.use(cors());
 // app.use(limiter);
-app.use(countRequests);
+// app.use(countRequests);
 
-app.use("/", generalRouter);
-app.use("/", studentRouter);
 app.use("/", authRouter);
+app.use("/", studentRouter);
 app.use("/", fileRouter);
-app.use("/", accountRouter);
+app.use("/", authenticateManagementUser, generalRouter);
+app.use("/", authenticateManagementUser, accountRouter);
 
-app.use("/communication", communicationRouter);
+app.use("/communication", authenticateManagementUser, communicationRouter);
 
 app.get("/", async (req, res) => {
     res.send("Welcome to Perfect Peace API");

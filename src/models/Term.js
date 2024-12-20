@@ -9,6 +9,11 @@ const term = sequelize.define('term', {
       primaryKey: true,
       field: 'term_id'
     },
+    term: {
+      type: DataTypes.STRING(10),
+      allowNull: true,
+      field: 'term'
+    },
     startDate: {
       type: DataTypes.DATEONLY,
       allowNull: true,
@@ -45,7 +50,7 @@ const term = sequelize.define('term', {
     ]
   });
 
-// term.sync()
+// term.sync() 
 
 
 

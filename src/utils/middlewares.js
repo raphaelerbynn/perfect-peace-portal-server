@@ -37,7 +37,6 @@ const authenticateUser = (req, res, next) => {
 
 
 const authenticateManagementUser = (req, res, next) => {
-
     try{
         const authHeader = req.headers.authorization;
         if (!authHeader){

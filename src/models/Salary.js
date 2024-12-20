@@ -37,5 +37,6 @@ const _ = sequelize.define('salary', {
     ]
   });
 
+  // _.sync();
 
 export default _

@@ -54,8 +54,17 @@ const _ = sequelize.define('studentResult', {
       allowNull: true
     },
     term: {
-      type: DataTypes.STRING(50),
-      allowNull: true
+      type: DataTypes.STRING(10),
+      allowNull: true,
+    },
+    termId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'Term',
+        key: 'term_id'
+      },
+      field: 'term_id'
     },
     conduct: {
       type: DataTypes.TEXT,
@@ -94,7 +103,7 @@ const _ = sequelize.define('studentResult', {
     ]
   });
 
-  
+// _.sync();
 
 
 export default _

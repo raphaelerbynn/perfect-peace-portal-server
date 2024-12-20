@@ -80,6 +80,7 @@ import {
   getTerm,
   setTerm,
   inactivateTerms,
+  getTerms,
 } from "../services/term.js";
 import {
   createStudent,
@@ -183,6 +184,16 @@ const fetchActiveTerm = async (req, res, next) => {
   }
 };
 
+const fetchTerms = async (req, res, next) => {
+  try {
+    const data = await getTerms();
+    res.json(data);
+  } catch (error) {
+    console.log(error);
+    next(error);
+  }
+};
+
 const closeTerm = async (req, res, next) => {
   try {
     const data = await inactivateTerms();
@@ -197,7 +208,7 @@ const fetchClassResult = async (req, res, next) => {
   const values = req.query;
   try {
     const results = await getClassResult(values);
-    console.log(results);
+    // console.log(results);
     const marks = await getClassMarks(values);
     // console.log(marks)
 
@@ -483,7 +494,7 @@ const addTerm = async (req, res, next) => {
 
 const addClassFee = async (req, res, next) => {
   const values = req.body;
-  console.log("Data::", values);
+  // console.log("Data::", values);
   try {
     const data = await createClassFee(values);
     res.json(data);
@@ -516,8 +527,8 @@ const addFee = async (req, res, next) => {
 
 const addSalary = async (req, res, next) => {
   const values = req.body;
-  const deductions = values?.deductions;
-  const allowances = values?.allowances;
+  const deductions = values?.deductions || [];
+  const allowances = values?.allowances || [];
   // console.log(values);
   try {
     const salary = await createSalary(values);
@@ -557,6 +568,7 @@ const addResult = async (req, res, next) => {
         ...mark,
         class: values.class,
         term: values.term,
+        termId: values.termId,
         studentId: values.studentId,
       })
     );
@@ -597,6 +609,7 @@ const addKGResult = async (req, res, next) => {
         notApplicable: value === "not_applicable" ? 1 : 0,
         class: values.class,
         term: values.term,
+        termId: values.termId,
         studentId: values.studentId,
         promoted: values.promotedTo,
       })
@@ -614,6 +627,7 @@ const addKGResult = async (req, res, next) => {
         notApplicable: value === "not_applicable" ? 1 : 0,
         class: values.class,
         term: values.term,
+        termId: values.termId,
         studentId: values.studentId,
         promoted: values.promotedTo,
       })
@@ -631,6 +645,7 @@ const addKGResult = async (req, res, next) => {
         notApplicable: value === "not_applicable" ? 1 : 0,
         class: values.class,
         term: values.term,
+        termId: values.termId,
         studentId: values.studentId,
         promoted: values.promotedTo,
       })
@@ -648,6 +663,7 @@ const addKGResult = async (req, res, next) => {
         notApplicable: value === "not_applicable" ? 1 : 0,
         class: values.class,
         term: values.term,
+        termId: values.termId,
         studentId: values.studentId,
         promoted: values.promotedTo,
       })
@@ -664,6 +680,7 @@ const addKGResult = async (req, res, next) => {
           totalScore: value?.totalScore,
           class: values.class,
           term: values.term,
+          termId: values.termId,
           studentId: values.studentId,
           promoted: values.promotedTo,
         })
@@ -740,7 +757,7 @@ const addExtraClasses = async (req, res, next) => {
 //needs more test
 const markAttendance = async (req, res, next) => {
   const values = req.body;
-  console.log(values);
+  // console.log(values);
 
   try {
     await removeAttendance(values);
@@ -756,7 +773,7 @@ const markAttendance = async (req, res, next) => {
       createClassAttendance(data);
     });
 
-    console.log(promises);
+    // console.log(promises);
 
     const results = await Promise.all([...promises]);
 
@@ -883,6 +900,7 @@ const deleteResult = async (req, res, next) => {
     class: info?.class,
     term: info?.term,
     date: info?.date,
+    termId: info?.termId,
   };
 
   try {
@@ -1099,6 +1117,7 @@ export {
   fetchFees,
   fetchOneFee,
   fetchActiveTerm,
+  fetchTerms,
   closeTerm,
   fetchFeeding,
   fetchExtraClasses,

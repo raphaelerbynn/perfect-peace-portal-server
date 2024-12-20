@@ -29,7 +29,16 @@ const _ = sequelize.define('kgCalcValues', {
       type: DataTypes.INTEGER,
       allowNull: true,
       field: 'class_percentage'
-    }
+    },
+    termId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'Term',
+        key: 'term_id'
+      },
+      field: 'term_id'
+    },
   }, {
     sequelize,
     tableName: 'KG_calc_values',
@@ -46,5 +55,6 @@ const _ = sequelize.define('kgCalcValues', {
     ]
   });
 
+// _.sync();
 
 export default _

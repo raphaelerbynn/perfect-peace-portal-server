@@ -75,6 +75,7 @@ const getEmployeeSalary = async () => {
 
 const createSalaryPayment = async (data) => {
     const response = await SalaryPayment.create({
+        teacherId: data?.teacherId,
         name: data?.name,
         amount: data?.amount,
         net: data?.net,

@@ -52,7 +52,7 @@ const getOneFee = async (id) => {
 }
 
 const getFeesData = async (data) => {
-  console.log(data)
+  // console.log(data)
   if (data.all === "true") {
     return await Fee.findAll();
   } else {

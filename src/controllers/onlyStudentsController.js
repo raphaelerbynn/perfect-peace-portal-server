@@ -33,7 +33,7 @@ const fetchNurseryResults = async (req, res, next) => {
 
     try {
         const results = await getNurseryResults(id);
-        console.log(results)
+        // console.log(results)
 
         const separateArrays = {};
         results.forEach((result) => {

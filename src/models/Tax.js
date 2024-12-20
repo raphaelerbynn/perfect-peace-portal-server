@@ -1,43 +1,47 @@
 import sequelize from "../config/database.js";
 import { DataTypes } from "sequelize";
 
-const deductions = sequelize.define('deductions', {
-    deductionsId: {
+const _ = sequelize.define('tax', {
+    taxId: {
+      autoIncrement: true,
       type: DataTypes.INTEGER,
       allowNull: false,
       primaryKey: true,
-      autoIncrement: true,
-      field: 'deductions_id'
+      field: 'tax_id'
     },
-    salaryId: {
-      type: DataTypes.INTEGER,
-      allowNull: true,
-      field: 'salary_id'
-    },
-    title: {
+    name: {
       type: DataTypes.STRING(50),
       allowNull: true
     },
     amount: {
       type: DataTypes.DECIMAL(18,0),
       allowNull: true
-    }
+    },
+    salaryId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'Salary',
+        key: 'salary_id'
+      },
+      field: 'salary_id'
+    },
   }, {
     sequelize,
-    tableName: 'Deductions',
+    tableName: 'Tax',
     schema: 'dbo',
     timestamps: false,
     indexes: [
       {
-        name: "PK__Deductio__54B3E81BFDA26B95",
+        name: "PK__Tax__A3C71C513F68B5A0",
         unique: true,
         fields: [
-          { name: "deductions_id" },
+          { name: "tax_id" },
         ]
       },
     ]
   });
 
-  // deductions.sync();
+  // _.sync();
 
-  export default deductions;
+export default _

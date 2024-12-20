@@ -63,7 +63,16 @@ const _ = sequelize.define('studentMarks', {
     },
     term: {
       type: DataTypes.STRING(10),
-      allowNull: true
+      allowNull: true,
+    },
+    termId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'Term',
+        key: 'term_id'
+      },
+      field: 'term_id'
     },
     date: {
       type: DataTypes.DATEONLY,
@@ -85,5 +94,7 @@ const _ = sequelize.define('studentMarks', {
     ]
   });
 
+
+_.sync();
 
 export default _

@@ -146,7 +146,7 @@ const sendStaffPasswordOTP = async (req, res, next) => {
     const token = jwt.sign({ userId, code }, process.env.JWT_KEY, { expiresIn: '30m' });
 
     const result = await sendPasswordConfirmationCode(code, teacherContact);
-    console.log(result)
+    // console.log(result)
     res.status(200).json({ message: "Password reset code sent to your contact", token });
 
   } catch (err) {
@@ -159,7 +159,7 @@ const resetForgottenPassword = async (req, res, next) => {
   const { token, code, newPassword } = req.body;
   try {
     const decoded = jwt.verify(token, process.env.JWT_KEY);
-    console.log(decoded)
+    // console.log(decoded)
     if (!decoded) {
       res.status(403);
       throw Error("Invalid token");

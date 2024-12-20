@@ -30,6 +30,7 @@ import TotalAttendance from "./TotalAttendance.js";
 import UserAccount from "./UserAccount.js";
 import Deductions from "./Deductions.js";
 import Term from "./Term.js";
+import Tax from "./Tax.js";
 
 Allowance.belongsTo(Salary, { as: "salary", foreignKey: "salaryId" });
 Salary.hasMany(Allowance, { as: "allowances", foreignKey: "salaryId" });
@@ -77,6 +78,8 @@ Student.hasMany(Notification, { as: "notifications", foreignKey: "studentId" });
 
 // SalaryPayment.belongsTo(Salary, { as: "salary", foreignKey: "salaryId" });
 // Salary.hasMany(SalaryPayment, { as: "salaryPayments", foreignKey: "salaryId" });
+Tax.belongsTo(Salary, { as: "salary", foreignKey: "salaryId" });
+Salary.hasMany(Tax, { as: "tax", foreignKey: "taxId" });
 
 StudentMarks.belongsTo(Student, { as: "student", foreignKey: "studentId" });
 Student.hasMany(StudentMarks, { as: "studentMarks", foreignKey: "studentId" });
@@ -155,5 +158,6 @@ export {
   FeeCheck,
   Deductions,
   Term,
+  Tax,
   ClassFee,
 };
