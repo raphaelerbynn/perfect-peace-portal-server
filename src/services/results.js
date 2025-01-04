@@ -191,7 +191,7 @@ const getClassMarks = async (data) => {
         FROM \`dbo.Student_marks\` s
         WHERE s.class = \`dbo.Student_marks\`.class
           AND s.term = \`dbo.Student_marks\`.term
-          AND YEAR(s.date) = YEAR(\`dbo.Student_marks\`.date)
+          AND s.term_id = \`dbo.Student_marks\`.term_id
           AND s.subject_id = \`dbo.Student_marks\`.subject_id 
           AND s.total_score > \`dbo.Student_marks\`.total_score
       ) AS subjectPosition
@@ -320,7 +320,7 @@ const getOneStudentMarks = async (data) => {
         FROM \`dbo.Student_marks\` s
         WHERE s.class = \`dbo.Student_marks\`.class
           AND s.term = \`dbo.Student_marks\`.term
-          AND YEAR(s.date) = YEAR(\`dbo.Student_marks\`.date)
+          AND s.term_id = \`dbo.Student_marks\`.term_id
           AND s.subject_id = \`dbo.Student_marks\`.subject_id 
           AND s.total_score > \`dbo.Student_marks\`.total_score
       ) AS subjectPosition
@@ -361,7 +361,7 @@ const getResults = async (indexNumber) => {
             FROM \`dbo.Student_marks\` s
             WHERE s.class=\`dbo.Student_marks\`.class
             AND s.term=\`dbo.Student_marks\`.term
-            AND YEAR(s.date)=YEAR(\`dbo.Student_marks\`.date)
+            AND s.term_id=\`dbo.Student_marks\`.term_id
             AND s.subject_id=\`dbo.Student_marks\`.subject_id 
             AND s.total_score > \`dbo.Student_marks\`.total_score
         ) AS subject_position
@@ -397,7 +397,7 @@ const getResultDetails = async (indexNumber) => {
     (SELECT COUNT(*) + 1 FROM \`dbo.Student_result\` s 
       WHERE s.class = \`dbo.Student_result\`.class
       AND s.term = \`dbo.Student_result\`.term
-      AND YEAR(s.date) = YEAR(\`dbo.Student_result\`.date)
+      AND s.term_id=\`dbo.Student_result\`.term_id
       AND s.raw_score > \`dbo.Student_result\`.raw_score
     ) AS position,
     (SELECT section FROM \`dbo.Class\` c 

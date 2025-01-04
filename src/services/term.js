@@ -1,6 +1,6 @@
 import { Op } from "sequelize";
 import Sequelize from "../config/database.js";
-import { StudentMarks, StudentResult, Term } from "../models/index.js";
+import { KgAssessment, KgCalcValues, StudentMarks, StudentResult, Term } from "../models/index.js";
 import { promoteStudents } from "./test.js";
 
 const getTerm = async () => {
@@ -69,20 +69,20 @@ const updateDecember2024TermIds = async () => {
 
 
     // Update StudentMarks
-    const marksResult = await StudentMarks.update(
+    const marksResult = await KgAssessment.update(
       { termId: 5 },
       december2024Condition
     );
 
     // Update StudentResult
-    const resultsResult = await StudentResult.update(
-      { termId: 5 },
-      december2024Condition
-    );
+    // const resultsResult = await KgCalcValues.update(
+    //   { termId: 5 },
+    //   december2024Condition
+    // );
     // console.log("⭕resultsResult", resultsResult)
     return {
-      marksUpdated: marksResult[0], // First element contains number of affected rows
-      resultsUpdated: resultsResult[0]
+      marksUpdated: marksResult[0] // First element contains number of affected rows
+    //   resultsUpdated: resultsResult[0]
     };
   } catch (error) {
     console.error('Error updating term_ids:', error);
