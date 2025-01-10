@@ -109,12 +109,15 @@ export const promoteStudents = async () => {
 
 export const createStudent = async (data) => {
     try {
-        const _class = await Class.findAll({
-            attributes: ["class_id", "fees"],
+        const _class = await Class.findOne({
+            attributes: ["class_id"],
             where: {
                 name: data.class
             }
         });
+
+        console.log(_class)
+        // return
 
         await Promise.allSettled([
             Student.create({
@@ -125,10 +128,9 @@ export const createStudent = async (data) => {
                 gender: data.gender,
                 class: data.class,
                 feesPaid: 0,
-                feesOwing: _class[0]?.fees,
                 address: data.address,
                 dateRegistered: Date.now(),
-                classId: _class[0]?.classId
+                classId: _class?.classId || _class?.class_id || _class?.dataValues?.class_id || _class?.dataValues?.classId
             }),
             Parent.create({
                 fName: data.pfName,
