@@ -1,4 +1,8 @@
+import { literal, Op } from "sequelize";
 import { Allowance, Deductions, EmployeeSalary, Salary, SalaryPayment, Teacher } from "../models/index.js";
+import { sendSMSMessage } from "./messaging.js";
+import { composeMessage } from "../utils/func.js";
+import { payroll_template } from "../utils/messageTemplates.js";
 
 
 const getSalary = async () => {
@@ -52,18 +56,50 @@ const getOneAllowance = async (id) => {
 }
 
 const getSalaryPayment = async (data) => {
+    
   if (data.all === "true") {
-    return await SalaryPayment.findAll();
-  } else {
-    const startDate = new Date(data.dateStart).toISOString();
-    const endDate = new Date(data.dateEnd).toISOString();
+    return await SalaryPayment.findAll({
+      order: [['datePaid', 'DESC']],
+    });
+  } 
+  else if (data.query) {
+    console.log(data)
+      const teachers = await Teacher.findAll({
+        where: {
+          [Op.or]: [
+            { fName: { [Op.like]: `%${data.query}%` } },
+            { lName: { [Op.like]: `%${data.query}%` } }
+          ],
+        },
+      });
+      const teacherIds = teachers.map((teacher) => teacher.teacherId);
+      return await SalaryPayment.findAll({
+        where: {
+          teacherId: teacherIds,
+        },
+        order: [['datePaid', 'DESC']],
+      });
+  }
+  else {
+    let startDate;
+    let endDate;
+    if (data.dateStart && data.dateEnd) {
+      startDate = new Date(data.dateStart).toISOString();
+      endDate = new Date(data.dateEnd).toISOString();
+    } else {
+      const now = new Date();
+      const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      startDate = firstDayOfMonth.toISOString();
+      endDate = now.toISOString();
+    }
     return await SalaryPayment.findAll({
       where: {
         datePaid: {
-          [Op.gte]: literal(`CONVERT(DATE, '${startDate}', 126)`),
-          [Op.lte]: literal(`CONVERT(DATE, '${endDate}', 126)`),
+          [Op.gte]: new Date(startDate),
+          [Op.lte]: new Date(endDate),
         },
       },
+      order: [['datePaid', 'DESC']],
     });
   }
 }
@@ -74,14 +110,30 @@ const getEmployeeSalary = async () => {
 }
 
 const createSalaryPayment = async (data) => {
+    const teacherData = await Teacher.findOne({
+        where: {
+            teacherId: data?.teacherId
+        }
+    })
+    if (teacherData?.phone) {
+        await sendSMSMessage(
+            composeMessage({...data, name: `${teacherData?.fName} ${teacherData?.lName}`}, payroll_template), 
+            [teacherData?.phone]
+        )
+    }
+
     const response = await SalaryPayment.create({
         teacherId: data?.teacherId,
-        name: data?.name,
         amount: data?.amount,
-        net: data?.net,
+        salaryId: data?.salaryId,
+        term: data?.term,
         salaryDate: data?.salaryDate,
         paymentMethod: data?.paymentMethod,
+        amountInWords: data?.amountInWords,
         datePaid: Date.now(),
+    },
+    {
+        raw: true
     });
 
     return response;
@@ -95,6 +147,15 @@ const createSalary = async (data) => {
     })
 
     return response;
+}
+
+const editSalary = (data, id) => {
+    return Salary.update(data, {
+        where: {
+            salaryId: id
+        },
+        raw: true
+    });
 }
 
 const createDeduction = async (data) => {
@@ -188,6 +249,8 @@ export {
     createSalary,
     createDeduction,
     createAllowance,
+
+    editSalary,
 
     removeSalary,
     removeDeductions,

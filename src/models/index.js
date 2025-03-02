@@ -35,6 +35,9 @@ import Tax from "./Tax.js";
 Allowance.belongsTo(Salary, { as: "salary", foreignKey: "salaryId" });
 Salary.hasMany(Allowance, { as: "allowances", foreignKey: "salaryId" });
 
+Teacher.belongsTo(Salary, { as: "salary", foreignKey: "salaryId" });
+Salary.hasMany(Teacher, { as: "teacher", foreignKey: "salaryId" });
+
 // Assignment.belongsTo(Student, { as: 'student', foreignKey: 'studentId' });
 // Student.hasMany(Assignment, { as: 'assignments', foreignKey: 'studentId' });
 

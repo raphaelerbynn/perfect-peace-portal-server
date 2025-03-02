@@ -24,9 +24,15 @@ const _ = sequelize.define('salaryPayment', {
       type: DataTypes.STRING(15),
       allowNull: true
     },
-    net: {
-      type: DataTypes.STRING(15),
-      allowNull: true
+    salaryId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'Salary',
+        key: 'salary_id'
+      },
+      onDelete: 'SET NULL',
+      field: 'salary_id'
     },
     salaryDate: {
       type: DataTypes.STRING(15),
@@ -38,10 +44,24 @@ const _ = sequelize.define('salaryPayment', {
       allowNull: true,
       field: 'payment_method'
     },
+    amountInWords: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      field: 'amount_in_words'
+    },
     datePaid: {
       type: DataTypes.DATEONLY,
       allowNull: true,
       field: 'date_paid'
+    },
+    term: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'Term',
+        key: 'term_id'
+      },
+      field: 'term'
     }
   }, {
     sequelize,

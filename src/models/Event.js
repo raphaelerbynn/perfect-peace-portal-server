@@ -23,7 +23,7 @@ const event = sequelize.define('event', {
       allowNull: true
     },
     time: {
-      type: DataTypes.TIME,
+      type: DataTypes.STRING,
       allowNull: true
     },
     created_at: {

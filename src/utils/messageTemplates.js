@@ -1,0 +1,3 @@
+export const payroll_template = `Hello {{name}}, your salary for the month {{salaryDate}} has been paid. Amount: GHc{{amount}}. Thank you! - Perfect Peace`;
+export const absentee_template = `Hello, your child {{childName}} is absent from school today. Thank you! - Perfect Peace`;
+export const present_template = `Hello, your child {{childName}} is present at school today. Thank you! - Perfect Peace`;

@@ -1,4 +1,5 @@
 import { Class, ClassFee, KgAssessment, Parent, Student, StudentResult } from "../models/index.js";
+import { isValidPhoneNumber } from "../utils/func.js";
 import { getTerm } from "./term.js";
 
 export const getStudents = async () => {
@@ -28,10 +29,10 @@ export const getStudents = async () => {
     }
 }
 
-export const getParentContact = async (id) => {
+export const getParentContact = async (id, forAttendance=false, status="") => {
     try {
         const student = await Student.findOne({
-            attributes: [],
+            attributes: ["fName", "mName", "lName"],
             where: {
                 studentId: id
             },
@@ -42,17 +43,19 @@ export const getParentContact = async (id) => {
                 }
             ],
         });
+        
         const contacts = []
         if (student) {
             const { contact, contact1 } = student.parent;
-            if (contact) {
+            if (isValidPhoneNumber(contact)) {
                 contacts.push(contact);
             }
-            if (contact1) {
+            if (isValidPhoneNumber(contact1)) {
                 contacts.push(contact1);
             }
         }
-        return contacts;
+        // console.log(contacts)
+        return forAttendance ? { childName: `${student.fName} ${student.mName} ${student.lName}`, contact: contacts?.[0], status: status.toLowerCase() } : contacts;
     } catch (error) {
         console.log(error);
     }

@@ -59,3 +59,18 @@ export function transformReturningKGResult(data) {
 
   return result;
 }
+
+export const composeMessage = (data, message) => {
+  Object.keys(data).forEach(key => {
+    const regex = new RegExp(`{{\\s*${key}\\s*}}`, 'g');
+    message = message.replace(regex, data[key]);
+  });
+
+  return message;
+};
+
+export const isValidPhoneNumber = (phone) => {
+  const cleanedPhone = phone.trim();
+  const phoneRegex = /^\+?\d{10,15}$/;
+  return phoneRegex.test(cleanedPhone);
+}

@@ -1,5 +1,5 @@
 import { Op } from "sequelize";
-import { Class, Teacher } from "../models/index.js";
+import { Class, Salary, Teacher } from "../models/index.js";
 
 export const getStaff = async () => {
   try {
@@ -9,6 +9,10 @@ export const getStaff = async () => {
           model: Class,
           as: "class_",
           attributes: ["name"],
+        },
+        {
+          model: Salary,
+          as: "salary",
         },
       ],
     });
@@ -82,6 +86,7 @@ export const editStaff = async (data, id) => {
         accountNumber: data.account,
         dateUpdated: Date.now(),
         classId: data.class,
+        salaryId: data.salaryId
       },
       {
         where: {

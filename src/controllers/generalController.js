@@ -31,13 +31,19 @@ import {
   removeFee,
 } from "../services/fee.js";
 import { sendSMSMessage } from "../services/messaging.js";
-import { getNews } from "../services/news.js";
+import {
+  getNews,
+  createEvent,
+  editEvent,
+  removeEvent,
+} from "../services/news.js";
 import {
   _assignSalary,
   createAllowance,
   createDeduction,
   createSalary,
   createSalaryPayment,
+  editSalary,
   getAllowance,
   getDeductions,
   getEmployeeSalary,
@@ -95,7 +101,8 @@ import {
   getStudentDetails,
   getTeacherDetails,
 } from "../services/user.js";
-import { transformReturningKGResult } from "../utils/func.js";
+import { composeMessage, transformReturningKGResult } from "../utils/func.js";
+import { absentee_template, present_template } from "../utils/messageTemplates.js";
 
 // management
 const fetchAllStudents = async (req, res, next) => {
@@ -330,10 +337,12 @@ const fetchSalary = async (req, res, next) => {
     const data = await Promise.all(
       salaries?.map(async (salary, index) => {
         let amount = salary?.dataValues?.amount;
-        let grossAmount = 0;
+        let totalAmountWithAllowance = 0;
         let netAmount = 0;
 
-        const allowancesData = await getAllowance(salary?.dataValues?.salaryId);
+        const allowancesData = await getAllowance(
+          salary?.dataValues?.salaryId || salary?.salaryId
+        );
         const allowances = allowancesData
           ? allowancesData.reduce(
               (acc, curr) => acc + Number(curr.dataValues.amount),
@@ -342,7 +351,7 @@ const fetchSalary = async (req, res, next) => {
           : 0;
 
         const deductionsData = await getDeductions(
-          salary?.dataValues?.salaryId
+          salary?.dataValues?.salaryId || salary?.salaryId
         );
         const deductions = deductionsData
           ? deductionsData.reduce(
@@ -351,12 +360,14 @@ const fetchSalary = async (req, res, next) => {
             )
           : 0;
 
-        grossAmount = Number(amount) + Number(allowances);
-        netAmount = grossAmount + Number(deductions);
+        totalAmountWithAllowance = Number(amount) + Number(allowances);
+        netAmount = totalAmountWithAllowance - Number(deductions);
         return {
           ...salary.dataValues,
           netAmount: netAmount,
-          grossAmount: grossAmount, // Optionally, format the result to two decimal places
+          grossAmount: amount,
+          allowances: allowancesData,
+          deductions: deductionsData,
         };
       })
     );
@@ -481,6 +492,17 @@ const addSubject = async (req, res, next) => {
   }
 };
 
+const addEvent = async (req, res, next) => {
+  const values = req.body;
+  try {
+    const data = await createEvent(values);
+    res.json(data);
+  } catch (error) {
+    console.log(error);
+    next(error);
+  }
+};
+
 const addTerm = async (req, res, next) => {
   const values = req.body;
   try {
@@ -547,12 +569,18 @@ const addSalary = async (req, res, next) => {
       return createAllowance(newAllowance);
     });
 
-    const results = await Promise.allSettled([
+    await Promise.allSettled([
       ...deductionPromises,
       ...allowancePromises,
     ]);
 
-    res.json({ salary, results });
+    res.json({ 
+      ...(salary?.dataValues || salary), 
+      grossAmount: values?.amount,
+      netAmount: Number(values?.amount) + allowances?.reduce((acc, cur) => acc + Number(cur.amount), 0) - deductions?.reduce((acc, cur) => acc + Number(cur.amount), 0),
+      allowances: allowances, 
+      deductions: deductions 
+    });
   } catch (error) {
     console.log(error);
     next(error);
@@ -760,22 +788,42 @@ const markAttendance = async (req, res, next) => {
   // console.log(values);
 
   try {
-    await removeAttendance(values);
-    const termData = await getTerm();
+    let parentContacts = []
+    const getParentContactPromises = values.studentAttendance?.map((mark) => {
+      return getParentContact(mark.studentId, true, mark.status);
+    })
 
-    const promises = values.studentAttendance?.map((mark) => {
+    const attendancePromises = values.studentAttendance?.map((mark) => {
       const data = {
         ...mark,
         class: values.class,
         dateMarked: values.dateMarked,
         dateEnd: termData?.dataValues?.endDate,
       };
-      createClassAttendance(data);
+      return createClassAttendance(data);
     });
 
-    // console.log(promises);
+    
+    const parentPromiseResults = await Promise.all(getParentContactPromises);
+    parentContacts = parentPromiseResults.filter((data) => data.contact)
 
-    const results = await Promise.all([...promises]);
+    const sendMessagePromises = parentContacts.slice(0, 5).map(data => {
+      return sendSMSMessage(
+        composeMessage(data, data.status === 'present' ? present_template : absentee_template),
+        [data.contact]
+      )
+    })
+
+
+
+    await removeAttendance(values);
+    const termData = await getTerm();
+
+
+    // // console.log(promises);
+
+    const results = await Promise.all([...attendancePromises]);
+    await Promise.all(sendMessagePromises);
 
     res.json(results);
   } catch (error) {
@@ -856,6 +904,19 @@ const updateClassFee = async (req, res, next) => {
   }
 };
 
+const updateEvent = async (req, res, next) => {
+  const values = req.body;
+  const id = req.params.news_id;
+
+  try {
+    const data = await editEvent(values, id);
+    res.json(data);
+  } catch (error) {
+    console.log(error);
+    next(error);
+  }
+};
+
 const updateTerm = async (req, res, next) => {
   const values = req.body;
   const id = req.params.term_id;
@@ -863,6 +924,50 @@ const updateTerm = async (req, res, next) => {
   try {
     const data = await editTerm(values, id);
     res.json(data);
+  } catch (error) {
+    console.log(error);
+    next(error);
+  }
+};
+
+const updateSalary = async (req, res, next) => {
+  const values = req.body;
+  const deductions = values?.deductions || [];
+  const allowances = values?.allowances || [];
+
+  const id = req.params.salary_id;
+
+  try {
+    await editSalary(values, id);
+
+    await Promise.allSettled([removeDeductions(id), removeAllowance(id)]);
+
+    const deductionPromises = deductions?.map((deduction) => {
+      const newDeduction = {
+        ...deduction,
+        salaryId: id,
+      };
+      return createDeduction(newDeduction);
+    });
+    const allowancePromises = allowances?.map((allowance) => {
+      const newAllowance = {
+        ...allowance,
+        salaryId: id,
+      };
+      return createAllowance(newAllowance);
+    });
+
+    await Promise.allSettled([
+      ...deductionPromises,
+      ...allowancePromises,
+    ]);
+    res.json({ 
+      ...values, 
+      grossAmount: values?.amount,
+      netAmount: Number(values?.amount) + allowances?.reduce((acc, cur) => acc + Number(cur.amount), 0) - deductions?.reduce((acc, cur) => acc + Number(cur.amount), 0),
+      allowances: allowances, 
+      deductions: deductions 
+    });
   } catch (error) {
     console.log(error);
     next(error);
@@ -927,6 +1032,17 @@ const deleteSubject = async (req, res, next) => {
   const id = req.params.subject_id;
   try {
     const data = await removeSubject(id);
+    res.json(data);
+  } catch (error) {
+    console.log(error);
+    next(error);
+  }
+};
+
+const deleteEvent = async (req, res, next) => {
+  const id = req.params.news_id;
+  try {
+    const data = await removeEvent(id);
     res.json(data);
   } catch (error) {
     console.log(error);
@@ -1135,6 +1251,7 @@ export {
   addKGResult,
   addFee,
   addSubject,
+  addEvent,
   addSalary,
   addSalaryPayment,
   addFeeding,
@@ -1147,6 +1264,8 @@ export {
   updateClass,
   updateClassFee,
   updateTerm,
+  updateEvent,
+  updateSalary,
   deleteStudent,
   deleteStaff,
   deleteResult,
@@ -1160,6 +1279,7 @@ export {
   deleteExtraClasses,
   deleteBusFee,
   deleteAttendance,
+  deleteEvent,
   markAttendance,
   calculateTotalAttendance,
   assignSalary,

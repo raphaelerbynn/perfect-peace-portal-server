@@ -62,6 +62,10 @@ import {
   updateTerm,
   calculateTotalAttendance,
   fetchTerms,
+  addEvent,
+  deleteEvent,
+  updateEvent,
+  updateSalary,
 } from "../controllers/generalController.js";
 import { authenticateUser } from "../utils/middlewares.js";
 import {
@@ -122,7 +126,7 @@ router.post("/add-extra-classes", addExtraClasses);
 router.post("/add-class-fee", addClassFee);
 router.post("/add-term", addTerm);
 // router.post("/ass-teachers-weekly-report", addWeeklyReport);
-// router.post("/add-event", addEvent);
+router.post("/add-news", addEvent);
 
 router.post("/mark-attendance", markAttendance);
 router.post("/delete-attendance", deleteAttendance);
@@ -133,6 +137,8 @@ router.put("/update-staff/:teacher_id", updateStaff);
 router.put("/update-class-fee/:class_fee_id", updateClassFee);
 router.put("/update-class/:class_id", updateClass);
 router.put("/update-term/:term_id", updateTerm);
+router.put("/update-news/:news_id", updateEvent);
+router.put("/update-salary/:salary_id", updateSalary);
 
 router.delete("/delete-student/:student_id", deleteStudent);
 router.delete("/delete-staff/:teacher_id", deleteStaff);
@@ -146,6 +152,7 @@ router.delete("/delete-salary-payment/:payment_id", deleteSalaryPayment);
 router.delete("/delete-feeding/:feeding_id", deleteFeeding);
 router.delete("/delete-extra-classes/:extraclasses_id", deleteExtraClasses);
 router.delete("/delete-bus-fee/:busfee_id", deleteBusFee);
+router.delete("/delete-news/:news_id", deleteEvent);
 
 router.post("/update-password", updatePassword);
 
