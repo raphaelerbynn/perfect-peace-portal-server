@@ -792,6 +792,7 @@ const markAttendance = async (req, res, next) => {
     const getParentContactPromises = values.studentAttendance?.map((mark) => {
       return getParentContact(mark.studentId, true, mark.status);
     })
+    const termData = await getTerm();
 
     const attendancePromises = values.studentAttendance?.map((mark) => {
       const data = {
@@ -817,7 +818,6 @@ const markAttendance = async (req, res, next) => {
 
 
     await removeAttendance(values);
-    const termData = await getTerm();
 
 
     // // console.log(promises);

@@ -16,7 +16,7 @@ import { communicationRouter } from "./routes/communicationRoutes.js";
 dotenv.config();
 const app = express();
 
-const PORT = process.env.SERVER_PORT || 5000;
+const PORT = process.env.SERVER_PORT || 5050;
 const limiter = rateLimit({
     windowMs: 10 * 60 * 1000, // 15 minute
     max: 100, // Maximum number of requests per minute per IP
