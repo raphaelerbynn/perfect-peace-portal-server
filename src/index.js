@@ -12,6 +12,7 @@ import cors from "cors"
 import sequelize from "./config/database.js";
 import { accountRouter } from "./routes/accountRoutes.js";
 import { communicationRouter } from "./routes/communicationRoutes.js";
+import { fetchAllStaff } from "./controllers/generalController.js";
 
 dotenv.config();
 const app = express();
@@ -28,17 +29,18 @@ app.use(cors());
 // app.use(limiter);
 // app.use(countRequests);
 
+app.get("/", async (req, res) => {
+  res.send("Welcome to Perfect Peace API");
+});
+
 app.use("/", authRouter);
 app.use("/", studentRouter);
 app.use("/", fileRouter);
+app.get("/staff", fetchAllStaff);
 app.use("/", authenticateManagementUser, generalRouter);
 app.use("/", authenticateManagementUser, accountRouter);
 
 app.use("/communication", authenticateManagementUser, communicationRouter);
-
-app.get("/", async (req, res) => {
-    res.send("Welcome to Perfect Peace API");
-});
 
 app.get("/test", async (req, res) => {
     res.json(await getStudents());

@@ -15,6 +15,7 @@ import {
   getAttendance,
   totalAttendanceMarked,
   addTermAttendance,
+  getTotalStudentAttendance,
 } from "../services/attendance.js";
 import {
   createClass,
@@ -218,6 +219,7 @@ const fetchClassResult = async (req, res, next) => {
     // console.log(results);
     const marks = await getClassMarks(values);
     // console.log(marks)
+    
 
     const data = results.map((result) => {
       const { studentId } = result.dataValues;
@@ -442,6 +444,20 @@ const fetchEmployeeSalary = async (req, res, next) => {
     res.json(data);
   } catch (error) {
     console.log(error);
+    next(error);
+  }
+};
+
+const fetchTotalStudentAttendance = async (req, res, next) => {
+  const values = req.query;
+  try {
+    const data = await getTotalStudentAttendance({
+      studentId: values.studentId,
+      termId: values.termId,
+    });
+    res.json(data);
+  } catch (error) {
+    console.error(error);
     next(error);
   }
 };
@@ -1244,6 +1260,7 @@ export {
   fetchOneSalary,
   fetchSalaryPayment,
   fetchEmployeeSalary,
+  fetchTotalStudentAttendance,
   addStudent,
   addStaff,
   addClass,

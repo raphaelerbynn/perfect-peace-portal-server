@@ -57,9 +57,28 @@ const getAttendance = async (data) => {
     return response;
 }
 
+const getTotalStudentAttendance = async (data) => {
+    const response = await TotalAttendance.findOne({
+        where: {
+            studentId: data?.studentId,
+            termId: data?.termId
+        },
+        raw: true,
+        order: [['totalAttendanceId', 'DESC']]
+    });
+
+    return response;
+}
+
 const addTermAttendance = async () => {
-    
-    const term = await getTerm()
+    const term = await getTerm();
+
+    // get all valid student IDs
+    const validStudents = await Student.findAll({
+        attributes: ['studentId'],
+        raw: true
+    });
+    const validStudentIds = new Set(validStudents.map(s => s.studentId));
 
     const attendances = await Attendance.findAll({
         attributes: {
@@ -75,23 +94,21 @@ const addTermAttendance = async () => {
         group: ['studentId']
     });
 
-    // console.log("attendance :::", attendances)
-    console.log("lrngth :::", attendances.length)
+    // Filter out attendances for non-existent students
+    const validAttendances = attendances.filter(a => validStudentIds.has(a.studentId));
 
-    const totalAttendancePromises = attendances?.map((attendance) => {
+    const totalAttendancePromises = validAttendances.map((attendance) => {
         const _totalAttendance = {
             studentId: attendance.studentId,
             present: attendance.present,
             sick: attendance.sick,
             attendance: attendance.attendance,
             termId: attendance.termId || term?.termId,
-        }
+        };
         return TotalAttendance.create(_totalAttendance);
     });
 
-    const results = await Promise.all([
-        ...totalAttendancePromises
-    ]);
+    const results = await Promise.all(totalAttendancePromises);
 
     await Attendance.destroy({
         truncate: true,
@@ -100,6 +117,8 @@ const addTermAttendance = async () => {
     return results
 
 }
+
+
 
 // const addTermAttendance = async () => {
 //     const term = await getTerm();
@@ -156,5 +175,6 @@ export {
     removeAttendance,
     getAttendance,
     totalAttendanceMarked, 
-    addTermAttendance
+    addTermAttendance,
+    getTotalStudentAttendance
 }

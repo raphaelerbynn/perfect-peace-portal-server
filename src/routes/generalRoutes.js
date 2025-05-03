@@ -66,6 +66,7 @@ import {
   deleteEvent,
   updateEvent,
   updateSalary,
+  fetchTotalStudentAttendance,
 } from "../controllers/generalController.js";
 import { authenticateUser } from "../utils/middlewares.js";
 import {
@@ -90,13 +91,13 @@ router.get("/active-term", fetchActiveTerm);
 router.get("/terms", fetchTerms);
 router.get("/close-term", closeTerm);
 router.get("/students", fetchAllStudents);
-router.get("/staff", fetchAllStaff);
 router.get("/student-results", fetchClassResult);
 router.get("/student-marks", fetchOneStudentResult);
 router.get("/kg-assessment", fetchOneKGStudentResult);
 router.get("/student-kg-results", fetchClassKGResult);
 router.get("/student-attendance", fetchAttendance);
 router.get("/student-attendance-count", fetchAttendanceCount);
+router.get("/student-total-attendance", fetchTotalStudentAttendance);
 router.get("/fees", fetchFees);
 router.get("/fees/:fee_id", fetchOneFee);
 router.get("/feeding", fetchFeeding);

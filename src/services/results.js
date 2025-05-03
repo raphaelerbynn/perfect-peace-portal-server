@@ -2,6 +2,7 @@ import { Op } from "sequelize";
 import sequelize from "../config/database.js";
 import { KgAssessment, StudentMarks, StudentResult } from "../models/index.js";
 import moment from "moment";
+import { getTerm } from "./term.js";
 
 const createMarksResult = async (data) => {
   if (data.classMark && data.examMark) {
@@ -10,12 +11,14 @@ const createMarksResult = async (data) => {
     // const startDate = moment(`${currentYear}-01-01`, "YYYY-MM-DD").format();
     // const endDate = moment(`${currentYear}-12-31`, "YYYY-MM-DD").format();
 
+    const activeTerm = await getTerm(); 
+
     await StudentMarks.destroy({
       where: {
         studentId: data?.studentId,
         class: data?.class,
         term: data?.term,
-        termId: data?.termId
+        termId: data?.termId || activeTerm?.termId,
         // date: {
         //   [Op.gte]: startDate,
         //   [Op.lte]: endDate,
@@ -36,7 +39,7 @@ const createMarksResult = async (data) => {
       remarks: data?.remark,
       class: data?.class,
       term: data?.term,
-      termId: data?.termId,
+      termId: data?.termId || activeTerm?.termId,
       date: Date.now(),
     });
     return response;
@@ -50,12 +53,14 @@ const createResult = async (data) => {
   // const startDate = moment(`${currentYear}-01-01`, "YYYY-MM-DD").format();
   // const endDate = moment(`${currentYear}-12-31`, "YYYY-MM-DD").format();
 
+  const activeTerm = await getTerm(); 
+
   await StudentResult.destroy({
     where: {
       studentId: data?.studentId,
       class: data?.class,
       term: data?.term,
-      termId: data?.termId,
+      termId: data?.termId || activeTerm?.termId,
       // date: {
       //   [Op.gte]: startDate,
       //   [Op.lte]: endDate,
@@ -75,7 +80,7 @@ const createResult = async (data) => {
     promotedTo: data?.promotedTo, //
     class: data?.class, //
     term: data?.term, //
-    termId: data?.termId, //
+    termId: data?.termId || activeTerm?.termId, //
     conduct: data?.conduct, //
     attitude: data?.attitude, //
     interest: data?.interest, //
@@ -92,13 +97,14 @@ const createKGResult = async (data) => {
   // const endDate = moment(`${currentYear}-12-31`, "YYYY-MM-DD").format();
 
   // console.info(data)
+  const activeTerm = await getTerm();
 
   await KgAssessment.destroy({
     where: {
       studentId: data?.studentId,
       class: data?.class,
       term: data?.term,
-      termId: data?.termId,
+      termId: data?.termId || activeTerm?.termId,
       // date: {
       //   [Op.gte]: startDate,
       //   [Op.lte]: endDate,
@@ -118,7 +124,7 @@ const createKGResult = async (data) => {
     unsatisfactory: data?.unsatisfactory, //
     notApplicable: data?.notApplicable, 
     term: data?.term, //
-    termId: data?.termId, //
+    termId: data?.termId || activeTerm?.termId, //
     class: data?.class, //
     date: Date.now(),
     classScorePercentage: data?.classScorePercentage || null, //
@@ -133,13 +139,16 @@ const createKGResult = async (data) => {
 };
 
 const removeResult = async (data) => {
+
+  const activeTerm = await getTerm();
+
   const response = await Promise.all([
     StudentMarks.destroy({
       where: {
         studentId: data?.studentId,
         class: data?.class,
         term: data?.term,
-        termId: data?.termId,
+        termId: data?.termId || activeTerm?.termId,
         // date: {
         //   [Op.like]: `%${data?.date}%`,
         // },
@@ -153,7 +162,7 @@ const removeResult = async (data) => {
         // date: {
         //   [Op.like]: `%${data?.date}%`,
         // },
-        termId: data?.termId,
+        termId: data?.termId || activeTerm?.termId, 
       },
     }),
     KgAssessment.destroy({
@@ -161,7 +170,7 @@ const removeResult = async (data) => {
         studentId: data?.studentId,
         class: data?.class,
         term: data?.term,
-        termId: data?.termId,
+        termId: data?.termId || activeTerm?.termId,
       },
     }),
   ]);
@@ -172,6 +181,8 @@ const removeResult = async (data) => {
 
 
 const getClassMarks = async (data) => {
+  // const activeTerm = await getTerm();
+
   const query = `
       SELECT
       student_marks_id AS studentMarksId,
