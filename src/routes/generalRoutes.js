@@ -10,6 +10,7 @@ import {
   addResult,
   addSalary,
   addSalaryPayment,
+  addSingleSubjectResult,
   addStaff,
   addStudent,
   addSubject,
@@ -67,6 +68,7 @@ import {
   updateEvent,
   updateSalary,
   fetchTotalStudentAttendance,
+  upsertSingleSubjectResult,
 } from "../controllers/generalController.js";
 import { authenticateUser } from "../utils/middlewares.js";
 import {
@@ -116,6 +118,8 @@ router.post("/add-student", addStudent);
 router.post("/add-class", addClass);
 router.post("/add-staff", addStaff);
 router.post("/add-result", addResult);
+router.post("/add-single-subject-result", addSingleSubjectResult);
+router.post("/upsert-single-subject-result", upsertSingleSubjectResult);
 router.post("/add-kg-result", addKGResult);
 router.post("/add-fee", addFee);
 router.post("/add-subject", addSubject);

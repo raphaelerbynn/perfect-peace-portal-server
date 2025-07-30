@@ -6,28 +6,20 @@ import { getTerm } from "./term.js";
 
 const createMarksResult = async (data) => {
   if (data.classMark && data.examMark) {
-    //delete existing one first
-    // const currentYear = new Date().getFullYear();
-    // const startDate = moment(`${currentYear}-01-01`, "YYYY-MM-DD").format();
-    // const endDate = moment(`${currentYear}-12-31`, "YYYY-MM-DD").format();
-
+    //delete existing record for this specific subject only
     const activeTerm = await getTerm(); 
 
     await StudentMarks.destroy({
       where: {
         studentId: data?.studentId,
+        subjectId: data?.subjectId, // Only delete records for this specific subject
         class: data?.class,
         term: data?.term,
         termId: data?.termId || activeTerm?.termId,
-        // date: {
-        //   [Op.gte]: startDate,
-        //   [Op.lte]: endDate,
-        // },
       },
     });
 
     //add term ids to student marks
-
     const response = await StudentMarks.create({
       studentId: data?.studentId,
       subjectId: data?.subjectId,
@@ -424,6 +416,114 @@ const getResultDetails = async (indexNumber) => {
   return results;
 };
 
+// Bulk insertion function for multiple subjects with transaction support
+const bulkCreateMarksResult = async (marksData, studentInfo) => {
+  const activeTerm = await getTerm();
+  const transaction = await sequelize.transaction();
+  
+  try {
+    // Get all subject IDs that will be updated
+    const subjectIds = marksData
+      .filter(mark => mark.classMark && mark.examMark)
+      .map(mark => mark.subjectId);
+    
+    if (subjectIds.length === 0) {
+      await transaction.rollback();
+      return [];
+    }
+
+    // Delete existing records for these specific subjects only
+    await StudentMarks.destroy({
+      where: {
+        studentId: studentInfo.studentId,
+        subjectId: {
+          [Op.in]: subjectIds
+        },
+        class: studentInfo.class,
+        term: studentInfo.term,
+        termId: studentInfo.termId || activeTerm?.termId,
+      },
+      transaction
+    });
+
+    // Prepare bulk insert data
+    const bulkData = marksData
+      .filter(mark => mark.classMark && mark.examMark)
+      .map(mark => ({
+        studentId: studentInfo.studentId,
+        subjectId: mark.subjectId,
+        examScore: mark.examMark,
+        classScore: mark.classMark,
+        classScorePercentage: mark.classP,
+        examScorePercentage: mark.examP,
+        totalScore: mark.total,
+        remarks: mark.remark,
+        class: studentInfo.class,
+        term: studentInfo.term,
+        termId: studentInfo.termId || activeTerm?.termId,
+        date: new Date(),
+      }));
+
+    // Bulk insert all records
+    const results = await StudentMarks.bulkCreate(bulkData, { transaction });
+    
+    await transaction.commit();
+    return results;
+  } catch (error) {
+    await transaction.rollback();
+    throw error;
+  }
+};
+
+// Upsert function for single subject marks - updates if exists, creates if not
+const upsertMarksResult = async (data) => {
+  if (!data.classMark || !data.examMark) {
+    return "";
+  }
+
+  const activeTerm = await getTerm();
+  const termId = data?.termId || activeTerm?.termId;
+  
+  // Try to find existing record
+  const existingRecord = await StudentMarks.findOne({
+    where: {
+      studentId: data?.studentId,
+      subjectId: data?.subjectId,
+      class: data?.class,
+      term: data?.term,
+      termId: termId,
+    }
+  });
+
+  const markData = {
+    studentId: data?.studentId,
+    subjectId: data?.subjectId,
+    examScore: data?.examMark,
+    classScore: data?.classMark,
+    classScorePercentage: data?.classP,
+    examScorePercentage: data?.examP,
+    totalScore: data?.total,
+    remarks: data?.remark,
+    class: data?.class,
+    term: data?.term,
+    termId: termId,
+    date: new Date(),
+  };
+
+  if (existingRecord) {
+    // Update existing record
+    await StudentMarks.update(markData, {
+      where: {
+        studentMarksId: existingRecord.studentMarksId
+      }
+    });
+    return StudentMarks.findByPk(existingRecord.studentMarksId);
+  } else {
+    // Create new record
+    return await StudentMarks.create(markData);
+  }
+};
+
 export {
   getResults,
   getNurseryResults,
@@ -438,4 +538,6 @@ export {
   createResult,
   createKGResult,
   removeResult,
+  bulkCreateMarksResult,
+  upsertMarksResult,
 };

@@ -74,6 +74,8 @@ import {
   getOneStudentKGResult,
   removeResult,
   getKGResultByClassAndTerm,
+  bulkCreateMarksResult,
+  upsertMarksResult,
 } from "../services/results.js";
 import {
   createStaff,
@@ -607,22 +609,18 @@ const addResult = async (req, res, next) => {
   const values = req.body;
   const marksData = values?.results;
   try {
-    const promises = marksData?.map((mark) =>
-      createMarksResult({
-        ...mark,
-        class: values.class,
-        term: values.term,
-        termId: values.termId,
-        studentId: values.studentId,
-      })
-    );
-    const results = await Promise.all([...promises, createResult(values)]);
-
-    // results.forEach((result) => {
-    //   if (result.status === 'rejected') {
-    //     console.error(result.reason);
-    //   }
-    // });
+    // Use bulk insertion for marks to prevent data loss
+    const studentInfo = {
+      studentId: values.studentId,
+      class: values.class,
+      term: values.term,
+      termId: values.termId,
+    };
+    
+    const results = await Promise.all([
+      bulkCreateMarksResult(marksData, studentInfo),
+      createResult(values)
+    ]);
 
     res.json(results);
   } catch (error) {
@@ -1236,6 +1234,46 @@ const updatePassword = async (req, res, next) => {
   }
 };
 
+// Add a single subject result without affecting other subjects
+const addSingleSubjectResult = async (req, res, next) => {
+  const values = req.body;
+  try {
+    const result = await createMarksResult({
+      ...values,
+      studentId: values.studentId,
+      subjectId: values.subjectId,
+      class: values.class,
+      term: values.term,
+      termId: values.termId,
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.log(error);
+    next(error);
+  }
+};
+
+// Update or insert a single subject result (upsert)
+const upsertSingleSubjectResult = async (req, res, next) => {
+  const values = req.body;
+  try {
+    const result = await upsertMarksResult({
+      ...values,
+      studentId: values.studentId,
+      subjectId: values.subjectId,
+      class: values.class,
+      term: values.term,
+      termId: values.termId,
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.log(error);
+    next(error);
+  }
+};
+
 export {
   fetchAllStudents,
   fetchAllStaff,
@@ -1304,4 +1342,6 @@ export {
   fetchUserDetails,
   resetPin,
   updatePassword,
+  addSingleSubjectResult,
+  upsertSingleSubjectResult,
 };

@@ -6,14 +6,14 @@ import { Op } from "sequelize";
 
 
 const updateTermIds = async () => {
-  const startDate = moment("2025-01-08").startOf('day');
-  const endDate = moment("2025-04-20").endOf('day');
+  const startDate = moment("2025-01-01").startOf('day');
+  const endDate = moment("2025-01-20").endOf('day');
   
   try {
     await sequelize.transaction(async (t) => {
       // Update StudentMarks
       await StudentMarks.update(
-        { termId: 6 },
+        { termId: 5 },
         {
           where: {
             // student_marks_id: 17658,
@@ -27,7 +27,7 @@ const updateTermIds = async () => {
 
       // Update StudentResult
       await StudentResult.update(
-        { termId: 6 },
+        { termId: 5 },
         {
           where: {
             date: {
@@ -40,7 +40,7 @@ const updateTermIds = async () => {
 
       // Update KgAssessment
       await KgAssessment.update(
-        { termId: 6 },
+        { termId: 5 },
         {
           where: {
             date: {
