@@ -555,7 +555,7 @@ const addFee = async (req, res, next) => {
       parentSystemContact.push(values?.contact);
     }
     await sendSMSMessage(
-      `Hello, we received your payment of GHc${values.currentPaid} via ${values.paymentMode}. Balance left for your ward is  GHc${values.remaining}. Fee ID #${data.feeId}. Thank you! - Perfect Peace`,
+      `Hello, we received your payment of GHc${values.currentPaid} for ${values.studentName} via ${values.paymentMode}. Balance left for your ward is  GHc${values.remaining}. Fee ID #${data.feeId}. Thank you! - Perfect Peace`,
       parentSystemContact
     );
     res.json(data);

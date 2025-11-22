@@ -95,41 +95,42 @@ const editClassFee = async (data, id) => {
 }
 
 const editClass = async (data, id) => {
-  // console.log(id, data)
+  // get current class to determine previous teacher
+  const existingClass = await Class.findOne({
+    where: { classId: id },
+    raw: true,
+  });
+
+  const previousTeacherId = existingClass?.teacherId || null;
+
   await Class.update(
     {
       name: data?.name,
       section: data?.section,
-      teacherId: data?.teacher_id
+      teacherId: data?.teacher_id,
     },
     {
       where: {
         classId: id,
       },
       returning: true,
-    },
+    }
   );
 
-  if (data.teacher_id) {
-    const updatedClass = await Class.findOne({
-      where: {
-        classId: id,
-      },
-      raw: true 
-    });
-    // console.log(updatedClass)
-    
-    const updateTeacher = await Teacher.update(
-      {
-        classId: updatedClass.classId,
-      },
-      {
-        where: {
-          teacherId: updatedClass.teacherId,
-        },
-      }
+  // If the class had a previous teacher and it's different from the new one, clear that teacher's classId
+  if (previousTeacherId && previousTeacherId !== data?.teacher_id) {
+    await Teacher.update(
+      { classId: null },
+      { where: { teacherId: previousTeacherId } }
     );
-    // console.log(updateTeacher);
+  }
+
+  // If a new teacher is assigned, set that teacher's classId to this class
+  if (data?.teacher_id) {
+    await Teacher.update(
+      { classId: id },
+      { where: { teacherId: data.teacher_id } }
+    );
   }
 
   return "updated";

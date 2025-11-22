@@ -64,12 +64,18 @@ export const createStaff = async (data) => {
 
 export const editStaff = async (data, id) => {
   try {
-    // const _class = await Class.findOne({
-    //   attributes: ["class_id"],
-    //   where: {
-    //     name: data?.class,
-    //   },
-    // });
+    // If a class is provided, ensure it doesn't already have a different teacher
+    if (data?.class) {
+      const targetClass = await Class.findOne({
+        where: {
+          classId: data.class,
+        },
+      });
+
+      if (targetClass && targetClass.teacherId && targetClass.teacherId !== id) {
+        return { success: false, message: "Teacher already assigned, remove teacher first" };
+      }
+    }
 
     const response = await Teacher.update(
       {
@@ -86,7 +92,7 @@ export const editStaff = async (data, id) => {
         accountNumber: data.account,
         dateUpdated: Date.now(),
         classId: data.class,
-        salaryId: data.salaryId
+        salaryId: data.salaryId || null,
       },
       {
         where: {
@@ -106,16 +112,18 @@ export const editStaff = async (data, id) => {
         }
     )
 
-    await Class.update(
+    if (data?.class) {
+      await Class.update(
         {
-            teacherId: id
+          teacherId: id,
         },
         {
-            where: {
-                classId: data.class
-            }
+          where: {
+            classId: data.class,
+          },
         }
-    )
+      );
+    }
 
     return response;
   } catch (error) {
