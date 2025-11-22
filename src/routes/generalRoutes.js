@@ -84,7 +84,6 @@ const router = Router();
 
 router.get("/news", fetchNews);
 router.get("/user-details", authenticateUser, fetchUserDetails);
-router.get("/get-pin", resetPin);
 router.get("/class", fetchClass);
 router.get("/subject", fetchSubject);
 
