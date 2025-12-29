@@ -75,7 +75,7 @@ import {
   fetchClass,
   fetchSubject,
 } from "../controllers/onlyTeacherController.js";
-import { fetchExpenseGraph, fetchFeesGraph, fetchFeesVsExpenseGraph, fetchIncomeGraph } from "../controllers/graphDataController.js";
+import { fetchExpenseGraph, fetchFeesGraph, fetchFeesVsExpenseGraph, fetchIncomeGraph, fetchProfitLoss } from "../controllers/graphDataController.js";
 // import students from "../../students.json" assert { type: "json" };
 // import { Class, KgAssessment, KgCalcValues, Parent, Student, StudentMarks, StudentResult, Subject, Teacher, UserAccount } from "../models/index.js";
 
@@ -166,6 +166,7 @@ router.get("/expense-graph", fetchExpenseGraph);
 router.get("/income-graph", fetchIncomeGraph);
 router.get("/fees-graph", fetchFeesGraph);
 router.get("/fees-vs-expense-graph", fetchFeesVsExpenseGraph);
+router.get("/profit-loss", fetchProfitLoss);
 
 
 

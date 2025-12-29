@@ -1,4 +1,4 @@
-import { getBusFeeGraph, getExpenseGraph, getExtraClassesGraph, getFeedingGraph, getFeesGraph, getIncomeGraph } from "../services/graph.js";
+import { getBusFeeGraph, getExpenseGraph, getExtraClassesGraph, getFeedingGraph, getFeesGraph, getIncomeGraph, getProfitLoss } from "../services/graph.js";
 
 const fetchExpenseGraph = async (req, res, next) => {
     const _values = req.query;
@@ -61,8 +61,23 @@ const fetchFeesVsExpenseGraph = async (req, res, next) => {
     }
   }
 
+const fetchProfitLoss = async (req, res, next) => {
+  const _values = req.query;
+  try {
+    // console.log("[fetchProfitLoss] request received", { query: _values, headersPreview: { authorization: req.headers.authorization } });
+    const data = await getProfitLoss(_values);
+    res.json({
+      groupBy: _values.groupBy || null,
+      values: data,
+    });
+  } catch (error) {
+    console.log(error);
+    next(error);
+  }
+}
+
 
 
 export {
-    fetchExpenseGraph, fetchIncomeGraph, fetchFeesGraph, fetchFeesVsExpenseGraph
+  fetchExpenseGraph, fetchIncomeGraph, fetchFeesGraph, fetchFeesVsExpenseGraph, fetchProfitLoss
 }
