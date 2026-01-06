@@ -1,6 +1,6 @@
 import { Op } from "sequelize";
 import sequelize from "../config/database.js";
-import { Class, ClassFee, Parent, Student, Teacher, UserAccount } from "../models/index.js";
+import { Class, ClassFee, Parent, Student, StudentFee, Teacher, UserAccount } from "../models/index.js";
 
 
 const getManagementUser = async (data) => {
@@ -44,16 +44,31 @@ const getStudentDetails = async (indexNumber) => {
                 as: "class_",
                 include: [
                     {
-                    model: ClassFee, 
-                    as: "classFee", 
+                        model: ClassFee,
+                        as: "classFee",
                     },
                 ],
-            }
+            },
+            {
+                model: StudentFee,
+                as: "studentFee",
+            },
         ],
         where: {
-            student_id: indexNumber
-        }
+            student_id: indexNumber,
+        },
     });
+
+    // If a student has a custom fee list, prefer it over the class fee list
+    if (student && student[0]) {
+        const s = student[0];
+        const customFees = s?.dataValues?.studentFee;
+        if (customFees && Array.isArray(customFees) && customFees.length > 0) {
+            if (s.dataValues.class_) {
+                s.dataValues.class_.dataValues.classFee = customFees;
+            }
+        }
+    }
 
 //     const query = `SELECT
 //     \`dbo.Student\`.*,

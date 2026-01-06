@@ -25,6 +25,7 @@ import {
   removeClass,
   removeClassFee,
 } from "../services/classes.js";
+import { createStudentFee, editStudentFee, removeStudentFee } from "../services/studentFees.js";
 import {
   createFee,
   getFeesData,
@@ -498,6 +499,30 @@ const addClass = async (req, res, next) => {
     next(error);
   }
 };
+
+const addStudentFee = async (req, res, next) => {
+  const values = req.body;
+  try {
+    const data = await createStudentFee(values);
+    res.json(data);
+  } catch (error) {
+    console.log(error);
+    next(error);
+  }
+};
+
+const updateStudentFee = async (req, res, next) => {
+  const values = req.body;
+  const id = req.params.student_fee_id;
+  try {
+    const data = await editStudentFee(values, id);
+    res.json(data);
+  } catch (error) {
+    console.log(error);
+    next(error);
+  }
+};
+
 
 const addSubject = async (req, res, next) => {
   const values = req.body;
@@ -1112,6 +1137,17 @@ const deleteClassFee = async (req, res, next) => {
   }
 };
 
+const deleteStudentFee = async (req, res, next) => {
+  const id = req.params.student_fee_id;
+  try {
+    const data = await removeStudentFee(id);
+    res.json(data);
+  } catch (error) {
+    console.log(error);
+    next(error);
+  }
+};
+
 const deleteFeeding = async (req, res, next) => {
   const id = req.params.feeding_id;
   try {
@@ -1314,6 +1350,8 @@ export {
   addExtraClasses,
   addClassFee,
   addTerm,
+  addStudentFee,
+  updateStudentFee,
   updateStudent,
   updateStaff,
   updateClass,
@@ -1335,6 +1373,7 @@ export {
   deleteBusFee,
   deleteAttendance,
   deleteEvent,
+  deleteStudentFee,
   markAttendance,
   calculateTotalAttendance,
   assignSalary,

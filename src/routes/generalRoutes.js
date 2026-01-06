@@ -3,6 +3,7 @@ import {
   addBusFee,
   addClass,
   addClassFee,
+  addStudentFee,
   addExtraClasses,
   addFee,
   addFeeding,
@@ -19,6 +20,7 @@ import {
   deleteBusFee,
   deleteClass,
   deleteClassFee,
+  deleteStudentFee,
   deleteExtraClasses,
   deleteFee,
   deleteFeeding,
@@ -69,6 +71,7 @@ import {
   updateSalary,
   fetchTotalStudentAttendance,
   upsertSingleSubjectResult,
+  updateStudentFee
 } from "../controllers/generalController.js";
 import { authenticateUser } from "../utils/middlewares.js";
 import {
@@ -128,6 +131,7 @@ router.post("/add-feeding", addFeeding);
 router.post("/add-bus-fee", addBusFee);
 router.post("/add-extra-classes", addExtraClasses);
 router.post("/add-class-fee", addClassFee);
+router.post("/add-student-fee", addStudentFee);
 router.post("/add-term", addTerm);
 // router.post("/ass-teachers-weekly-report", addWeeklyReport);
 router.post("/add-news", addEvent);
@@ -139,6 +143,7 @@ router.post("/assign-salary", assignSalary);
 router.put("/update-student/:student_id", updateStudent);
 router.put("/update-staff/:teacher_id", updateStaff);
 router.put("/update-class-fee/:class_fee_id", updateClassFee);
+router.put("/update-student-fee/:student_fee_id", updateStudentFee);
 router.put("/update-class/:class_id", updateClass);
 router.put("/update-term/:term_id", updateTerm);
 router.put("/update-news/:news_id", updateEvent);
@@ -148,6 +153,7 @@ router.delete("/delete-student/:student_id", deleteStudent);
 router.delete("/delete-staff/:teacher_id", deleteStaff);
 router.delete("/delete-class/:class_id", deleteClass);
 router.delete("/delete-class-fee/:class_fee_id", deleteClassFee);
+router.delete("/delete-student-fee/:student_fee_id", deleteStudentFee);
 router.delete("/delete-result", deleteResult);
 router.delete("/delete-fee/:fee_id", deleteFee);
 router.delete("/delete-subject/:subject_id", deleteSubject);

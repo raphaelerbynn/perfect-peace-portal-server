@@ -5,6 +5,7 @@ import Attendance from "./Attendance.js";
 import BusFee from "./BusFee.js";
 import Class from "./Class.js";
 import ClassFee from "./ClassFee.js";
+import StudentFee from "./StudentFee.js";
 import EmployeeSalary from "./EmployeeSalary.js";
 import Event from "./Event.js";
 import AccountCategory from "./AccountCategory.js";
@@ -67,6 +68,8 @@ Class.hasMany(Fee, { as: "classFees", foreignKey: "classId" });
 
 ClassFee.belongsTo(Class, { as: "class", foreignKey: "classId" });
 Class.hasMany(ClassFee, { as: "classFee", foreignKey: "classId" });
+StudentFee.belongsTo(Student, { as: "student", foreignKey: "studentId" });
+Student.hasMany(StudentFee, { as: "studentFee", foreignKey: "studentId" });
 // FeedingFee.belongsTo(Student, { as: 'student', foreignKey: 'studentId' });
 // Student.hasMany(FeedingFee, { as: 'feedingFees', foreignKey: 'studentId' });
 
@@ -153,6 +156,7 @@ export {
   Student,
   StudentMarks,
   StudentResult,
+  StudentFee,
   Subject,
   Teacher,
   TeachersWeeklyReport,

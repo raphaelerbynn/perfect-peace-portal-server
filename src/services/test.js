@@ -1,4 +1,4 @@
-import { Class, ClassFee, KgAssessment, Parent, Student, StudentResult } from "../models/index.js";
+import { Class, ClassFee, KgAssessment, Parent, Student, StudentResult, StudentFee } from "../models/index.js";
 import { isValidPhoneNumber } from "../utils/func.js";
 import { getTerm } from "./term.js";
 
@@ -20,6 +20,10 @@ export const getStudents = async () => {
                         as: "classFee", 
                         },
                     ],
+                },
+                {
+                    model: StudentFee,
+                    as: "studentFee",
                 }
             ],
         });
