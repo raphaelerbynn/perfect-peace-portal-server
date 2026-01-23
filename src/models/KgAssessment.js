@@ -1,0 +1,130 @@
+import sequelize from "../config/database.js";
+import { DataTypes } from "sequelize";
+
+
+const _ = sequelize.define('kgAssessment', {
+    kgAssessmentId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      primaryKey: true,
+      autoIncrement: true,
+      field: 'kg_assessment_id'
+    },
+    assessment: {
+      type: DataTypes.STRING(100),
+      allowNull: true
+    },
+    category: {
+      type: DataTypes.STRING(100),
+      allowNull: true
+    },
+    satisfactory: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: 0
+    },
+    improved: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: 0
+    },
+    needsImprovement: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: 0,
+      field: 'needs_improvement'
+    },
+    unsatisfactory: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: 0
+    },
+    notApplicable: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: 0,
+      field: 'not_applicable'
+    },
+    term: {
+      type: DataTypes.STRING(10),
+      allowNull: true,
+    },
+    termId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'Term',
+        key: 'term_id'
+      },
+      field: 'termId'
+    },
+    class: {
+      type: DataTypes.STRING(10),
+      allowNull: true
+    },
+    date: {
+      type: DataTypes.DATEONLY,
+      allowNull: true
+    },
+    studentId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      field: 'student_id'
+    },
+    classScore: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      field: 'class_score'
+    },
+    examScore: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      field: 'exam_score'
+    },
+    classScorePercentage: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      field: 'class_score_percentage'
+    },
+    examScorePercentage: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      field: 'exam_score_percentage'
+    },
+    totalScore: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      field: 'total_score'
+    },
+    termId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'Term',
+        key: 'term_id'
+      },
+      field: 'term_id'
+    },
+    promoted: {
+      type: DataTypes.STRING(20),
+      allowNull: true
+    }
+  }, {
+    sequelize,
+    tableName: 'KG_assessment',
+    schema: 'dbo',
+    timestamps: false,
+    indexes: [
+      {
+        name: "PK__tmp_ms_x__6C22761A4D18A257",
+        unique: true,
+        fields: [
+          { name: "kg_assessment_id" },
+        ]
+      },
+    ]
+  });
+
+// _.sync();
+
+export default _
