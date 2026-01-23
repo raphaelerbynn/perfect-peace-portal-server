@@ -1,0 +1,12 @@
+---
+deployment:
+  tasks:
+    - export DEPLOYPATH=/home2/montaini/public_html/perfectpeaceserver.montain-inc-school-api.com
+    - /bin/cp -R * $DEPLOYPATH
+    - /bin/cp .babelrc $DEPLOYPATH
+    - /bin/cp .env $DEPLOYPATH 2>/dev/null || true
+    - cd $DEPLOYPATH
+    - npm install --production=false
+    - npm run build
+    - npm prune --production
+    - touch tmp/restart.txt

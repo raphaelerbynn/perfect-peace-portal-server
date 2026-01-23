@@ -178,7 +178,7 @@ const teacherSignUp = async (id, password) => {
     return await Teacher.update(
         { password },
         { where: {
-            student_id: id,
+            teacher_id: id,
             password: null
         }}
     )
