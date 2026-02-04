@@ -164,8 +164,6 @@ router.delete("/delete-extra-classes/:extraclasses_id", deleteExtraClasses);
 router.delete("/delete-bus-fee/:busfee_id", deleteBusFee);
 router.delete("/delete-news/:news_id", deleteEvent);
 
-router.post("/update-password", updatePassword);
-
 
 //graph routes
 router.get("/expense-graph", fetchExpenseGraph);
