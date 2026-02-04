@@ -33,7 +33,7 @@ const signUpManagementUser = async (data) => {
 
 //portal
 const getStudentDetails = async (indexNumber) => {
-    const student = await Student.findAll({
+    const student = await Student.findOne({
         include: [
             {
                 model: Parent,
@@ -57,59 +57,25 @@ const getStudentDetails = async (indexNumber) => {
         where: {
             student_id: indexNumber,
         },
+        raw: false,
     });
 
     // If a student has a custom fee list, prefer it over the class fee list
-    if (student && student[0]) {
-        const s = student[0];
-        const customFees = s?.dataValues?.studentFee;
-        if (customFees && Array.isArray(customFees) && customFees.length > 0) {
-            if (s.dataValues.class_) {
-                s.dataValues.class_.dataValues.classFee = customFees;
-            }
-        }
-    }
+    // if (student && student[0]) {
+    //     const s = student[0];
+    //     const customFees = s?.dataValues?.studentFee;
+    //     if (customFees && Array.isArray(customFees) && customFees.length > 0) {
+    //         if (s.dataValues.class_) {
+    //             s.dataValues.class_.dataValues.classFee = customFees;
+    //         }
+    //     }
+    // }
 
-//     const query = `SELECT
-//     \`dbo.Student\`.*,
-//     \`dbo.Student\`.student_id,
-//     \`dbo.Student\`.class_id,
-//     \`dbo.Student\`.f_name AS f_name,
-//     \`dbo.Student\`.m_name AS m_name,
-//     \`dbo.Student\`.l_name AS l_name,
-//     \`dbo.Parent\`.f_name AS pf_name,
-//     \`dbo.Parent\`.l_name AS pl_name,
-//     \`dbo.Parent\`.contact,
-//     \`dbo.Parent\`.contact1,
-//     \`dbo.Parent\`.relationship,
-//     \`dbo.Parent\`.occupation,
-//     \`dbo.Class\`.tuition,
-//     \`dbo.Class\`.firstAid,
-//     \`dbo.Class\`.pta,
-//     \`dbo.Class\`.water,
-//     \`dbo.Class\`.maintenance,
-//     \`dbo.Class\`.stationary,
-//     \`dbo.Class\`.cocurricular,
-//     \`dbo.Class\`.fees AS fees
-//   FROM
-//     \`dbo.Student\`
-//   LEFT JOIN
-//     \`dbo.Parent\` ON \`dbo.Student\`.parent_id = \`dbo.Parent\`.parent_id
-//   LEFT JOIN
-//     \`dbo.Fee\` ON \`dbo.Student\`.student_id = \`dbo.Fee\`.student_id
-//   LEFT JOIN
-//     \`dbo.Class\` ON \`dbo.Student\`.class_id = \`dbo.Class\`.class_id
-//   WHERE
-//     \`dbo.Student\`.student_id = :indexNumber
-//   ORDER BY
-//     \`dbo.Fee\`.fee_id DESC
-//   LIMIT 1`
-
-//     const results = await sequelize.query(query, {
-//         replacements: { indexNumber },
-//         type: sequelize.QueryTypes.SELECT
-//     });
-
+    //calculate age
+    const currentYear = new Date().getFullYear();
+    const birthDate = new Date(student?.dob);
+    const age = currentYear - birthDate.getFullYear();
+    student.age = age;
 
     return student;
         

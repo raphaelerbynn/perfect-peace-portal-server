@@ -26,7 +26,15 @@ export const getStudents = async () => {
                     as: "studentFee",
                 }
             ],
+            raw: true
         });
+        //calculate age for each student
+        const currentYear = new Date().getFullYear();
+        students.forEach(student => {
+            const birthDate = new Date(student?.dob);
+            const age = currentYear - birthDate.getFullYear();
+            student.age = age;
+        })
         return students
     } catch (error) {
         console.log(error);

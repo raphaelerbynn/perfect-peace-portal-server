@@ -63,6 +63,7 @@ import {
   getStudentContact,
   getTeacherContact,
   sendResetPin,
+  verifyResetPin,
 } from "../services/resetPin.js";
 import {
   createKGResult,
@@ -1225,11 +1226,13 @@ const fetchUserDetails = async (req, res, next) => {
 };
 
 const resetPin = async (req, res, next) => {
-  const { userRole, id } = req.params.user;
+  
+  const { userRole, id } = req.body;
   let contact = "";
+
   try {
     if (!userRole) {
-      throw new Error("Not loggedn");
+      throw new Error("Invalid index number");
     }
 
     if (userRole === "STAFF") {
@@ -1237,24 +1240,45 @@ const resetPin = async (req, res, next) => {
     } else {
       contact = await getStudentContact(id);
     }
+    if (!contact) {
+      throw new Error("No contact found");
+    }
+    const data = await sendResetPin([contact], `${userRole}/${id}`);
 
-    const data = await sendResetPin([contact]);
-
-    res.json(data);
+    res.json({
+      sent: data,
+      status: "success"
+    });
   } catch (error) {
     console.log(error);
     next(error);
   }
 };
 
+const verifyPin = (req, res, next) => {
+  const { indexNumber, pin } = req.body;
+  try {
+    const data = verifyResetPin(indexNumber, pin);
+    res.json({
+      valid: data
+    });
+  } catch (error) {
+    console.log(error);
+    next(error);
+  }
+}
+
 const updatePassword = async (req, res, next) => {
-  const { userRole, id } = req.params.user;
-  const { password } = req.body;
+  const { password, userRole, id, pin } = req.body;
   let response;
 
   try {
     if (!userRole) {
-      throw new Error("Not loggedn");
+      throw new Error("Invalid index number");
+    }
+
+    if (!verifyResetPin(`${userRole}/${id}`, pin)) {
+      throw new Error("Invalid user");
     }
 
     if (userRole === "STAFF") {
@@ -1383,4 +1407,5 @@ export {
   updatePassword,
   addSingleSubjectResult,
   upsertSingleSubjectResult,
+  verifyPin
 };
