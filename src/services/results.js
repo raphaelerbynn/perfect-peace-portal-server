@@ -371,7 +371,8 @@ const getResults = async (indexNumber) => {
     FROM \`dbo.Student_marks\`
     LEFT JOIN \`dbo.Subject\` ON \`dbo.Student_marks\`.subject_id=\`dbo.Subject\`.subject_id 
     LEFT JOIN \`dbo.Class\` ON \`dbo.Student_marks\`.class = \`dbo.Class\`.name
-    WHERE student_id = :indexNumber`;
+    WHERE student_id = :indexNumber
+    ORDER BY term_id DESC, class ASC, year DESC, name1 ASC`;
 
   const results = await sequelize.query(query, {
     replacements: { indexNumber },
@@ -407,7 +408,8 @@ const getResultDetails = async (indexNumber) => {
       WHERE c.name = \`dbo.Student_result\`.class
     ) AS section
     FROM \`dbo.Student_result\` 
-    WHERE student_id = :indexNumber`;
+    WHERE student_id = :indexNumber
+    ORDER BY term_id DESC, class ASC, date DESC`;
 
   const results = await sequelize.query(query, {
     replacements: { indexNumber },
