@@ -10,7 +10,7 @@ const fetchResults = async (req, res, next) => {
 
         const separateArrays = {};
         results.forEach((result) => {
-            const key = `${result.term}_${result.class}_${result['FORMAT(date, \'yyyy\')']}`;
+            const key = `${result.term}_${result.class}_${result.year}`;
             if (!separateArrays[key]) {
                 separateArrays[key] = [];
             }
