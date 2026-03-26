@@ -76,6 +76,7 @@ export const getParentContact = async (id, forAttendance=false, status="") => {
 export const promoteStudents = async () => {
     const term = await getTerm()
     try {
+        // --- Basic class students (StudentResult) ---
         const allPromotedStudents = await StudentResult.findAll({
             attributes: ["studentId", "promotedTo"],
             where: {
@@ -84,18 +85,29 @@ export const promoteStudents = async () => {
             },
             raw: true
         })
-        allPromotedStudents.forEach(async (student) => {
-            const response = await Student.update({
-                classId: await getClassIdByName(student.promotedTo),
-                class: student.promotedTo
-            }, {
-                where: {
-                    studentId: student.studentId
+
+        const basicPromises = allPromotedStudents
+            .filter(s => s.promotedTo) // skip students without a promotedTo value
+            .map(async (student) => {
+                try {
+                    const newClassId = await getClassIdByName(student.promotedTo);
+                    if (newClassId == null) {
+                        console.warn(`⚠️ Class "${student.promotedTo}" not found for student ${student.studentId}, skipping`);
+                        return;
+                    }
+                    await Student.update(
+                        { classId: newClassId, class: student.promotedTo },
+                        { where: { studentId: student.studentId } }
+                    );
+                } catch (err) {
+                    console.error(`❌ Failed to promote student ${student.studentId}:`, err.message);
                 }
             });
-        })
-        console.log("🥳 Promoted students successfully")
+
+        await Promise.all(basicPromises);
+        console.log(`🥳 Promoted ${basicPromises.length} basic-class students`)
         
+        // --- KG / Nursery students (KgAssessment) ---
         const allPromotedKgStudents = await KgAssessment.findAll({
             attributes: ["studentId", "promoted"],
             where: {
@@ -105,17 +117,27 @@ export const promoteStudents = async () => {
             },
             raw: true
         })
-        allPromotedKgStudents.forEach(async (student) => {
-            const response = await Student.update({
-                classId: await getClassIdByName(student.promoted),
-                class: student.promoted
-            }, {
-                where: {
-                    studentId: student.studentId
+
+        const kgPromises = allPromotedKgStudents
+            .filter(s => s.promoted) // skip students without a promoted value
+            .map(async (student) => {
+                try {
+                    const newClassId = await getClassIdByName(student.promoted);
+                    if (newClassId == null) {
+                        console.warn(`⚠️ Class "${student.promoted}" not found for KG student ${student.studentId}, skipping`);
+                        return;
+                    }
+                    await Student.update(
+                        { classId: newClassId, class: student.promoted },
+                        { where: { studentId: student.studentId } }
+                    );
+                } catch (err) {
+                    console.error(`❌ Failed to promote KG student ${student.studentId}:`, err.message);
                 }
-            })
-        })
-        console.log("🥳 Promoted KG students successfully")
+            });
+
+        await Promise.all(kgPromises);
+        console.log(`🥳 Promoted ${kgPromises.length} KG students`)
         return
     } catch (error) {
         console.log(error);
@@ -195,28 +217,45 @@ export const editStudent = async (data, id) => {
             }
         });
         
-        const parent_id = await Student.findOne({
-            attributes: ["parent_id"],
-            where: {
-                studentId: id
-            }
+        const currentStudent = await Student.findOne({
+            where: { studentId: id }
         });
 
-        // console.log(_class[0]?.dataValues?.class_id)
+        const parent_id = currentStudent?.parentId || currentStudent?.parent_id;
+
+        const newClassId = _class[0]?.dataValues?.classId ?? _class[0]?.dataValues?.class_id;
+        const classChanged = currentStudent && newClassId != null && Number(currentStudent.classId) !== Number(newClassId);
+
+        // Build update payload — only reset fees when class actually changes
+        const studentUpdate = {
+            fName: data.fName,
+            mName: data.mName,
+            lName: data.lName,
+            dob: data.dob,
+            gender: data.gender,
+            class: data.class,
+            address: data.address,
+            classId: newClassId
+        };
+
+        if (classChanged) {
+            // Recalculate feesOwing for the new class:
+            // sum of new class fees + existing student-specific fees + any previous arrears
+            const classFees = await ClassFee.findAll({ where: { classId: newClassId }, raw: true });
+            const studentFees = await StudentFee.findAll({ where: { studentId: id }, raw: true });
+            const classFeeTotal = classFees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
+            const studentFeeTotal = studentFees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
+            const newBillTotal = classFeeTotal + studentFeeTotal;
+
+            // Previous arrears: what they still owe minus the old class bill
+            // Since we're changing class, reset to new bill (arrears are lost on class change)
+            studentUpdate.feesOwing = newBillTotal;
+            studentUpdate.feesPaid = 0;
+        }
+        // If class didn't change, feesPaid and feesOwing remain untouched
+
         const response = await Promise.allSettled([
-            Student.update({
-                fName: data.fName,
-                mName: data.mName,
-                lName: data.lName,
-                dob: data.dob,
-                gender: data.gender,
-                class: data.class,
-                feesPaid: 0,
-                feesOwing: _class[0]?.dataValues?.fees,
-                address: data.address,
-                dateRegistered: Date.now(),
-                classId: _class[0]?.dataValues?.class_id
-            },
+            Student.update(studentUpdate,
             {
                 where: {
                     studentId: id
@@ -234,7 +273,7 @@ export const editStudent = async (data, id) => {
             },
             {
                 where: {
-                    parent_id: parent_id.dataValues.parent_id
+                    parent_id: parent_id
                 }
             }
             ),
