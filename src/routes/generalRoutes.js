@@ -82,7 +82,6 @@ import { fetchExpenseGraph, fetchFeesGraph, fetchFeesVsExpenseGraph, fetchIncome
 // import students from "../../students.json" assert { type: "json" };
 // import { Class, KgAssessment, KgCalcValues, Parent, Student, StudentMarks, StudentResult, Subject, Teacher, UserAccount } from "../models/index.js";
 
-
 const router = Router();
 
 router.get("/news", fetchNews);
@@ -171,7 +170,5 @@ router.get("/income-graph", fetchIncomeGraph);
 router.get("/fees-graph", fetchFeesGraph);
 router.get("/fees-vs-expense-graph", fetchFeesVsExpenseGraph);
 router.get("/profit-loss", fetchProfitLoss);
-
-
 
 export { router as generalRouter };
