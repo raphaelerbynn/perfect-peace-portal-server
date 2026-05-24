@@ -65,6 +65,7 @@ const getSalaryPayment = async (data) => {
   else if (data.query) {
     console.log(data)
       const teachers = await Teacher.findAll({
+        attributes: { exclude: ["password"] },
         where: {
           [Op.or]: [
             { fName: { [Op.like]: `%${data.query}%` } },
@@ -111,6 +112,7 @@ const getEmployeeSalary = async () => {
 
 const createSalaryPayment = async (data) => {
     const teacherData = await Teacher.findOne({
+        attributes: { exclude: ["password"] },
         where: {
             teacherId: data?.teacherId
         }

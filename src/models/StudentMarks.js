@@ -94,7 +94,8 @@ const _ = sequelize.define('studentMarks', {
     ]
   });
 
-
-_.sync();
+// NOTE: import-time `_.sync()` removed (BE-8). Issuing DDL on every boot is
+// unsafe in production. Schema changes are handled by the explicit
+// `src/scripts/syncStudentFee.js` script / migrations instead.
 
 export default _

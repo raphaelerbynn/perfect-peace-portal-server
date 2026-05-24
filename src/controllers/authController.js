@@ -1,6 +1,7 @@
 import {
   changeManagementUserPassword,
   getManagementUser,
+  findManagementUser,
   getStudentUser,
   getTeacherDetails,
   getTeacherUser,
@@ -9,11 +10,20 @@ import {
   teacherSignUp,
 } from "../services/user.js";
 import jwt from "jsonwebtoken";
-import dotenv from "dotenv";
 import { sendPasswordConfirmationCode } from "../services/auth.js";
-dotenv.config();
+import { getStaffForSignup } from "../services/staff.js";
+import { JWT_SECRET, JWT_ALGORITHM } from "../config/auth.js";
 
-const jwt_secret_key = process.env.JWT_KEY;
+// Public endpoint backing the pre-login signup "Select Staff" picker. Exposes
+// only id + name (no PII) — see getStaffForSignup.
+const fetchStaffForSignup = async (req, res, next) => {
+  try {
+    const staff = await getStaffForSignup();
+    res.json(staff);
+  } catch (error) {
+    next(error);
+  }
+};
 
 const signup = async (req, res, next) => {
   const { indexNumber, password } = req.body;
@@ -63,7 +73,7 @@ const signin = async (req, res, next) => {
       userRole: role,
     };
 
-    const token = await jwt.sign(payload, jwt_secret_key);
+    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: "1d" });
     res.status(200).send({
       token: token,
     });
@@ -91,7 +101,7 @@ const signinManagement = async (req, res, next) => {
       teacherId: user.teacherId,
     };
 
-    const token = await jwt.sign(payload, jwt_secret_key);
+    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: "1d" });
     res.status(200).send({
       token: token,
       username: user.username,
@@ -108,7 +118,7 @@ const signinManagement = async (req, res, next) => {
 const signupManagement = async (req, res, next) => {
   const data = req.body;
   try {
-    const user = await getManagementUser(data);
+    const user = await findManagementUser(data);
 
     if (user) {
       res.status(403);
@@ -143,7 +153,7 @@ const sendStaffPasswordOTP = async (req, res, next) => {
     const OTP = Math.floor(1000 + Math.random() * 9000);
     const code = OTP.toString().padStart(4, "0");
 
-    const token = jwt.sign({ userId, code }, process.env.JWT_KEY, { expiresIn: '30m' });
+    const token = jwt.sign({ userId, code }, JWT_SECRET, { expiresIn: '30m' });
 
     const result = await sendPasswordConfirmationCode(code, teacherContact);
     // console.log(result)
@@ -158,23 +168,21 @@ const sendStaffPasswordOTP = async (req, res, next) => {
 const resetForgottenPassword = async (req, res, next) => {
   const { token, code, newPassword } = req.body;
   try {
-    const decoded = jwt.verify(token, process.env.JWT_KEY);
-    // console.log(decoded)
-    if (!decoded) {
-      res.status(403);
+    let decoded;
+    try {
+      // jwt.verify enforces token expiry (exp) itself; no manual re-check needed.
+      decoded = jwt.verify(token, JWT_SECRET, { algorithms: [JWT_ALGORITHM] });
+    } catch (verifyErr) {
+      res.status(401);
+      if (verifyErr.name === "TokenExpiredError") {
+        throw Error("Expired token");
+      }
       throw Error("Invalid token");
     }
 
     if (decoded.code !== code) {
       res.status(403);
       throw Error("Invalid code");
-    }
-
-
-    const currentTime = Math.floor(Date.now() / 1000);
-    if (decoded.exp < currentTime) {
-      res.status(403);
-      throw Error("Expired token");
     }
 
     const user = await getTeacherDetails(decoded.userId);
@@ -205,5 +213,6 @@ export {
   signinManagement,
   signupManagement,
   sendStaffPasswordOTP,
-  resetForgottenPassword
+  resetForgottenPassword,
+  fetchStaffForSignup
 };

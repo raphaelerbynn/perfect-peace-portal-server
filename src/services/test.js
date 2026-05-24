@@ -1,12 +1,27 @@
 import { Class, ClassFee, KgAssessment, Parent, Student, StudentResult, StudentFee } from "../models/index.js";
-import { isValidPhoneNumber } from "../utils/func.js";
+import { isValidPhoneNumber, calculateAge } from "../utils/func.js";
 import { getTerm } from "./term.js";
 
-export const getStudents = async () => {
+// BE-20: optional, backward-compatible pagination + lazy-loading.
+// Calling `getStudents()` with no options returns EXACTLY what it returned
+// before (full array, all nested associations, same shape). Pagination and the
+// lighter include set only kick in when the caller opts in via query params.
+export const getStudents = async (options = {}) => {
     try {
-        const students = await Student.findAll({
-            attributes: { exclude: ['password'] },
-            include: [
+        const { page, limit, lite } = options;
+
+        // Heaviest nested associations (Class -> ClassFee, StudentFee) are only
+        // dropped when the caller explicitly opts in with `lite`. Default keeps
+        // the full include tree so existing consumers are unaffected.
+        const liteRequested = lite === true || lite === "true" || lite === "1";
+        const include = liteRequested
+            ? [
+                {
+                    model: Parent,
+                    as: "parent",
+                },
+            ]
+            : [
                 {
                     model: Parent,
                     as: "parent",
@@ -16,8 +31,8 @@ export const getStudents = async () => {
                     as: "class_",
                     include: [
                         {
-                        model: ClassFee, 
-                        as: "classFee", 
+                        model: ClassFee,
+                        as: "classFee",
                         },
                     ],
                 },
@@ -25,15 +40,30 @@ export const getStudents = async () => {
                     model: StudentFee,
                     as: "studentFee",
                 }
-            ],
-            raw: true
-        });
-        //calculate age for each student
-        const currentYear = new Date().getFullYear();
+            ];
+
+        const queryOptions = {
+            attributes: { exclude: ['password'] },
+            include,
+            raw: true,
+        };
+
+        // Apply limit/offset only when pagination params are supplied.
+        const parsedLimit = parseInt(limit, 10);
+        const parsedPage = parseInt(page, 10);
+        if (Number.isInteger(parsedLimit) && parsedLimit > 0) {
+            queryOptions.limit = parsedLimit;
+            const safePage = Number.isInteger(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+            queryOptions.offset = (safePage - 1) * parsedLimit;
+            // `subQuery: false` keeps limit/offset on the top-level Student query
+            // when hasMany associations are included, so the count is correct.
+            queryOptions.subQuery = false;
+        }
+
+        const students = await Student.findAll(queryOptions);
+        //calculate age for each student (real date diff — BE-25)
         students.forEach(student => {
-            const birthDate = new Date(student?.dob);
-            const age = currentYear - birthDate.getFullYear();
-            student.age = age;
+            student.age = calculateAge(student?.dob);
         })
         return students
     } catch (error) {

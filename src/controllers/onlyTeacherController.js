@@ -15,7 +15,9 @@ const fetchClass = async (req, res, next) => {
 
 const fetchSubject = async (req, res, next) => {
     try {
-        const data = await subjects();
+        // BE-20: pagination is opt-in via query params; no params => unchanged.
+        const { page, limit } = req.query;
+        const data = await subjects({ page, limit });
         res.json(data);
     } catch (error) {
         console.log(error)

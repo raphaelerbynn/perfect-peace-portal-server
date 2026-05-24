@@ -1,9 +1,15 @@
 import { Op } from "sequelize";
 import { Class, Salary, Teacher } from "../models/index.js";
 
-export const getStaff = async () => {
+// BE-20: optional, backward-compatible pagination. No options => identical
+// behaviour and shape as before (full array). limit/offset only applied when
+// pagination params are supplied.
+export const getStaff = async (options = {}) => {
   try {
-    const staff = await Teacher.findAll({
+    const { page, limit } = options;
+
+    const queryOptions = {
+      attributes: { exclude: ["password"] },
       include: [
         {
           model: Class,
@@ -15,11 +21,33 @@ export const getStaff = async () => {
           as: "salary",
         },
       ],
-    });
+    };
+
+    const parsedLimit = parseInt(limit, 10);
+    const parsedPage = parseInt(page, 10);
+    if (Number.isInteger(parsedLimit) && parsedLimit > 0) {
+      queryOptions.limit = parsedLimit;
+      const safePage = Number.isInteger(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+      queryOptions.offset = (safePage - 1) * parsedLimit;
+      queryOptions.subQuery = false;
+    }
+
+    const staff = await Teacher.findAll(queryOptions);
     return staff;
   } catch (error) {
     console.log(error);
   }
+};
+
+// Public, minimal staff list for the PRE-LOGIN signup picker only.
+// Returns id + name exclusively — never password, contact, bank or other PII —
+// so it is safe to expose unauthenticated (replaces the old unauthenticated
+// /staff dump). Throws on error so the controller can forward via next().
+export const getStaffForSignup = async () => {
+  return Teacher.findAll({
+    attributes: ["teacherId", "fName", "lName"],
+    order: [["fName", "ASC"]],
+  });
 };
 
 export const removeStaff = async (id) => {

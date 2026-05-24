@@ -1,6 +1,5 @@
 import jwt from "jsonwebtoken";
-
-const jwt_secret_key = "perfect_peace";
+import { JWT_SECRET, JWT_ALGORITHM } from "../config/auth.js";
 
 const undefinedEndpoint = (req, res, next) => {
     const err = new Error("Page requesting not found");
@@ -8,58 +7,68 @@ const undefinedEndpoint = (req, res, next) => {
     next(err)
 }
 
-
-const authenticateUser = (req, res, next) => {
-
-    try{
+// Shared factory for token authentication.
+// `requireManagement` enforces that the decoded token is management-shaped
+// (i.e. carries a `category` claim) so portal (student/teacher) tokens cannot
+// be replayed against management endpoints.
+const makeAuthenticator = ({ requireManagement = false } = {}) => (req, res, next) => {
+    try {
         const authHeader = req.headers.authorization;
-        if (!authHeader){
-            res.status(403);
+        if (!authHeader || !authHeader.startsWith("Bearer ")) {
+            res.status(401);
             throw Error("No authorization header");
         }
 
         const token = authHeader.split(" ")[1];
-        if (!token){
-            res.status(403);
+        if (!token) {
+            res.status(401);
             throw Error("User not authorized");
         }
 
-        const user = jwt.verify(token, jwt_secret_key);
-
-        req.params.user = user;
-
-        next();
-
-    }catch(err){
-        next(err);
-    }
-}
-
-
-const authenticateManagementUser = (req, res, next) => {
-    try{
-        const authHeader = req.headers.authorization;
-        if (!authHeader){
-            res.status(403);
-            throw Error("No authorization header");
+        let user;
+        try {
+            user = jwt.verify(token, JWT_SECRET, { algorithms: [JWT_ALGORITHM] });
+        } catch (verifyErr) {
+            res.status(401);
+            if (verifyErr.name === "TokenExpiredError") {
+                throw Error("Token expired");
+            }
+            throw Error("Invalid token");
         }
 
-        const token = authHeader.split(" ")[1];
-        if (!token){
-            res.status(403);
-            throw Error("User not authorized");
+        if (requireManagement && !user.category) {
+            // Portal tokens (student/teacher) lack a `category` claim and must
+            // never be accepted on management routes.
+            res.status(401);
+            throw Error("Invalid token");
         }
 
-        const user = jwt.verify(token, jwt_secret_key);
-
-        req.params.user = user;
+        req.user = user;
 
         next();
-
-    }catch(err){
+    } catch (err) {
         next(err);
     }
-}
+};
+
+const authenticateUser = makeAuthenticator();
+const authenticateManagementUser = makeAuthenticator({ requireManagement: true });
+
+// Role-based authorization. Must run AFTER an authenticator that populates
+// req.user. Returns 403 (not 401) when the authenticated user's category is
+// not in the allow-list.
+const authorizeRoles = (...allowedCategories) => (req, res, next) => {
+    try {
+        const category = req.user?.category;
+        if (!category || !allowedCategories.includes(category)) {
+            res.status(403);
+            throw Error("You do not have permission to perform this action");
+        }
+        next();
+    } catch (err) {
+        next(err);
+    }
+};
 
 let requestCount = 0;
 const countRequests = (req, res, next) => {
@@ -72,6 +81,7 @@ export {
     undefinedEndpoint,
 
     authenticateManagementUser,
+    authorizeRoles,
 
     countRequests,
     requestCount,

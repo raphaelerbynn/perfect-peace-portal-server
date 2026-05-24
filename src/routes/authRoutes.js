@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { resetForgottenPassword, sendStaffPasswordOTP, signin, signinManagement, signup, signupManagement } from "../controllers/authController.js";
+import { fetchStaffForSignup, resetForgottenPassword, sendStaffPasswordOTP, signin, signinManagement, signup, signupManagement } from "../controllers/authController.js";
 import { resetPin, updatePassword, verifyPin } from "../controllers/generalController.js";
 
 
@@ -10,6 +10,9 @@ router.post("/signup", signup);
 
 router.post("/signin-management", signinManagement);
 router.post("/signup-management", signupManagement);
+
+// Public, minimal (id + name only) staff list for the pre-login signup picker.
+router.get("/signup-staff-list", fetchStaffForSignup);
 
 router.get("/send-otp/:userId", sendStaffPasswordOTP);
 router.post("/reset-password", resetForgottenPassword);

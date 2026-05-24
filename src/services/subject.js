@@ -1,7 +1,20 @@
 import { StudentMarks, Subject } from "../models/index.js";
 
-const subjects = async () => {
-  return await Subject.findAll();
+// BE-20: optional, backward-compatible pagination. No options => identical
+// behaviour and shape (full array). limit/offset only applied when supplied.
+const subjects = async (options = {}) => {
+  const { page, limit } = options;
+
+  const queryOptions = {};
+  const parsedLimit = parseInt(limit, 10);
+  const parsedPage = parseInt(page, 10);
+  if (Number.isInteger(parsedLimit) && parsedLimit > 0) {
+    queryOptions.limit = parsedLimit;
+    const safePage = Number.isInteger(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+    queryOptions.offset = (safePage - 1) * parsedLimit;
+  }
+
+  return await Subject.findAll(queryOptions);
 };
 
 const createSubject = async (data) => {

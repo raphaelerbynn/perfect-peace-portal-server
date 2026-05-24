@@ -32,6 +32,8 @@ const studentFee = sequelize.define(
   }
 );
 
-studentFee.sync();
+// NOTE: import-time `studentFee.sync()` removed (BE-8). Issuing DDL on every
+// boot is unsafe in production. Use the explicit `src/scripts/syncStudentFee.js`
+// script when the schema actually needs to be (re)created.
 
 export default studentFee;

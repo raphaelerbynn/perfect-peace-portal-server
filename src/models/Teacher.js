@@ -21,7 +21,7 @@ const _ = sequelize.define('teacher', {
       field: 'l_name'
     },
     password: {
-      type: DataTypes.STRING,
+      type: DataTypes.STRING(255),
       allowNull: true
     },
     gender: {

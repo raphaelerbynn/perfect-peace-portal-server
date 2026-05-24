@@ -1,29 +1,32 @@
-import { raw } from "mysql2";
 import { Class, ClassFee, Student, Teacher } from "../models/index.js";
 
 const classes = async () => {
   const classFeeList = await ClassFee.findAll({ raw: true });
 
   const allClasses = await Class.findAll();
-  
-  const classData = await Promise.all(
-    allClasses.map(async (classItem) => {
-      const classId = classItem.classId;
 
-      const studentCount = await Student.count({
-        where: {
-          classId: classId,
-        },
-      });
+  // BE-19: replace the per-class `Student.count()` (N+1 queries) with a single
+  // grouped count, then merge into each class in memory. Returned shape is
+  // unchanged (each Class instance gets `totalStudents` + `feeList`).
+  const countRows = await Student.count({
+    group: ["classId"],
+  });
 
-      const feeList = classFeeList.filter((fee) => fee.classId === classId)
-
-      classItem.dataValues.totalStudents = studentCount;
-      classItem.dataValues.feeList = feeList;
-
-      return classItem;
-    })
+  // Sequelize returns `[{ classId, count }, ...]` when `group` is used.
+  const countByClassId = new Map(
+    countRows.map((row) => [row.classId, row.count])
   );
+
+  const classData = allClasses.map((classItem) => {
+    const classId = classItem.classId;
+
+    const feeList = classFeeList.filter((fee) => fee.classId === classId);
+
+    classItem.dataValues.totalStudents = countByClassId.get(classId) || 0;
+    classItem.dataValues.feeList = feeList;
+
+    return classItem;
+  });
 
   return classData;
 };

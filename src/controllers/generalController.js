@@ -108,11 +108,20 @@ import {
 } from "../services/user.js";
 import { composeMessage, transformReturningKGResult } from "../utils/func.js";
 import { absentee_template, present_template } from "../utils/messageTemplates.js";
+import { AppError } from "../utils/errorHandling.js";
+
+// BE-15: upper bound on bulk result payloads. A single student's report card
+// has at most a few dozen subjects; 200 is a generous ceiling that still rejects
+// abusive / malformed oversized arrays with a clear 400.
+const MAX_BULK_RESULTS = 200;
 
 // management
 const fetchAllStudents = async (req, res, next) => {
   try {
-    const data = await getStudents();
+    // BE-20: pagination/lazy-load are opt-in via query params. With no query
+    // params this is identical to the original `getStudents()` call.
+    const { page, limit, lite } = req.query;
+    const data = await getStudents({ page, limit, lite });
     res.json(data);
   } catch (error) {
     console.log(error);
@@ -122,7 +131,9 @@ const fetchAllStudents = async (req, res, next) => {
 
 const fetchAllStaff = async (req, res, next) => {
   try {
-    const data = await getStaff();
+    // BE-20: pagination is opt-in via query params; no params => unchanged.
+    const { page, limit } = req.query;
+    const data = await getStaff({ page, limit });
     res.json(data);
   } catch (error) {
     console.log(error);
@@ -635,6 +646,17 @@ const addResult = async (req, res, next) => {
   const values = req.body;
   const marksData = values?.results;
   try {
+    // BE-15: validate the bulk array before doing any DB work.
+    if (!Array.isArray(marksData)) {
+      throw new AppError("`results` must be an array", 400);
+    }
+    if (marksData.length > MAX_BULK_RESULTS) {
+      throw new AppError(
+        `Too many results in a single request (max ${MAX_BULK_RESULTS})`,
+        400
+      );
+    }
+
     // Use bulk insertion for marks to prevent data loss
     const studentInfo = {
       studentId: values.studentId,
@@ -1196,7 +1218,9 @@ const deleteAttendance = async (req, res, next) => {
 //portal
 const fetchNews = async (req, res, next) => {
   try {
-    const data = await getNews();
+    // BE-20: pagination is opt-in via query params; no params => unchanged.
+    const { page, limit } = req.query;
+    const data = await getNews({ page, limit });
     res.json(data);
   } catch (error) {
     console.log(error);
@@ -1205,7 +1229,7 @@ const fetchNews = async (req, res, next) => {
 };
 
 const fetchUserDetails = async (req, res, next) => {
-  const { userRole, id } = req.params.user;
+  const { userRole, id } = req.user;
 
   try {
     if (!userRole) {

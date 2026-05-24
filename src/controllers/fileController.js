@@ -90,7 +90,7 @@ const files = async (req, res) => {
 
 const fileDelete = async (req, res, next) => {
   const fileId = req.params.fileId;
-  const { id } = req.params.user;
+  const { id } = req.user;
   console.log(req.params)
 
   const drive = google.drive({ version: 'v3', auth: oauth2Client });
@@ -197,7 +197,7 @@ const uploadFile =  async (req, res, next) => {
 };
 
 const fetchAssignment = async (req, res, next) => {
-  const { userRole, id } = req.params.user;
+  const { userRole, id } = req.user;
   console.log(userRole)
   let data;
   try {

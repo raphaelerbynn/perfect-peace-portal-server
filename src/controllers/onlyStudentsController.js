@@ -3,7 +3,7 @@ import { getNurseryResults, getResults, getResultDetails } from "../services/res
 
 
 const fetchResults = async (req, res, next) => {
-    const { id } = req.params.user;
+    const { id } = req.user;
 
     try {
         const results = await getResults(id);
@@ -29,7 +29,7 @@ const fetchResults = async (req, res, next) => {
 }
 
 const fetchNurseryResults = async (req, res, next) => {
-    const { id } = req.params.user;
+    const { id } = req.user;
 
     try {
         const results = await getNurseryResults(id);
@@ -55,7 +55,7 @@ const fetchNurseryResults = async (req, res, next) => {
 }
 
 const fetchResultDetails = async (req, res, next) => {
-    const { id } = req.params.user;
+    const { id } = req.user;
 
     try {
         const data = await getResultDetails(id);
@@ -77,7 +77,7 @@ const fetchFeeCheck = async (req, res) => {
 }
 
 const fetchLastPaid = async (req, res, next) => {
-    const { id } = req.params.user;
+    const { id } = req.user;
 
     try {
         const data = await getLastFee(id);

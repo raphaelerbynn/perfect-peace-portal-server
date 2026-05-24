@@ -74,3 +74,25 @@ export const isValidPhoneNumber = (phone) => {
   const phoneRegex = /^\+?\d{10,15}$/;
   return phoneRegex.test(cleanedPhone);
 }
+
+// Compute age from a date of birth using a real date diff (BE-25).
+// The previous implementation subtracted years only (currentYear - birthYear),
+// which over-counts by one for anyone whose birthday hasn't occurred yet this
+// year. This decrements when the current month/day is before the birthday.
+export const calculateAge = (dob) => {
+  if (!dob) return null;
+
+  const birthDate = new Date(dob);
+  if (isNaN(birthDate.getTime())) return null;
+
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+
+  const monthDiff = today.getMonth() - birthDate.getMonth();
+  const dayDiff = today.getDate() - birthDate.getDate();
+  if (monthDiff < 0 || (monthDiff === 0 && dayDiff < 0)) {
+    age--;
+  }
+
+  return age < 0 ? null : age;
+}

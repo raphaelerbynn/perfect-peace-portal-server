@@ -31,7 +31,7 @@ const sendSMSMessage = async (message, contacts) => {
     return {
       status: "error",
       message:  error.response?.data?.message || "Failed to send SMS",
-      errror: error.response?.data?.message
+      error: error.response?.data?.message
     };
   }
 };
