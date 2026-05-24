@@ -32,6 +32,7 @@ import UserAccount from "./UserAccount.js";
 import Deductions from "./Deductions.js";
 import Term from "./Term.js";
 import Tax from "./Tax.js";
+import PasswordResetCode from "./PasswordResetCode.js";
 
 Allowance.belongsTo(Salary, { as: "salary", foreignKey: "salaryId" });
 Salary.hasMany(Allowance, { as: "allowances", foreignKey: "salaryId" });
@@ -167,4 +168,5 @@ export {
   Term,
   Tax,
   ClassFee,
+  PasswordResetCode,
 };

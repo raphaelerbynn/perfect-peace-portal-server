@@ -1274,20 +1274,21 @@ const resetPin = async (req, res, next) => {
       status: "success"
     });
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
 
-const verifyPin = (req, res, next) => {
+const verifyPin = async (req, res, next) => {
   const { indexNumber, pin } = req.body;
   try {
-    const data = verifyResetPin(indexNumber, pin);
+    // Non-destructive peek so the subsequent /update-pin call can still verify
+    // + consume the same code (parent-app two-step flow). Response shape is
+    // unchanged: { valid: boolean }.
+    const data = await verifyResetPin(indexNumber, pin, { consume: false });
     res.json({
       valid: data
     });
   } catch (error) {
-    console.log(error);
     next(error);
   }
 }
@@ -1301,7 +1302,9 @@ const updatePassword = async (req, res, next) => {
       throw new Error("Invalid index number");
     }
 
-    if (!verifyResetPin(`${userRole}/${id}`, pin)) {
+    // Re-verify AND consume the code here (single-use). The password is only
+    // changed if the code is valid/unexpired/not-locked.
+    if (!(await verifyResetPin(`${userRole}/${id}`, pin, { consume: true }))) {
       throw new Error("Invalid user");
     }
 
@@ -1313,7 +1316,6 @@ const updatePassword = async (req, res, next) => {
 
     res.json(response);
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
