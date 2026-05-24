@@ -106,6 +106,7 @@ import {
   getStudentDetails,
   getTeacherDetails,
 } from "../services/user.js";
+import { getDashboardSummary, getStudentsOwing } from "../services/dashboard.js";
 import { composeMessage, transformReturningKGResult } from "../utils/func.js";
 import { absentee_template, present_template } from "../utils/messageTemplates.js";
 import { AppError } from "../utils/errorHandling.js";
@@ -114,6 +115,28 @@ import { AppError } from "../utils/errorHandling.js";
 // has at most a few dozen subjects; 200 is a generous ceiling that still rejects
 // abusive / malformed oversized arrays with a clear 400.
 const MAX_BULK_RESULTS = 200;
+
+// BE-D2: dashboard stat cards. Source for the dashboard's 4 numbers.
+const fetchDashboardSummary = async (req, res, next) => {
+  try {
+    const data = await getDashboardSummary();
+    res.json(data);
+  } catch (error) {
+    console.log(error);
+    next(error);
+  }
+};
+
+// BE-D9: students with an outstanding balance, sorted by balance desc.
+const fetchStudentsOwing = async (req, res, next) => {
+  try {
+    const data = await getStudentsOwing();
+    res.json(data);
+  } catch (error) {
+    console.log(error);
+    next(error);
+  }
+};
 
 // management
 const fetchAllStudents = async (req, res, next) => {
@@ -1361,6 +1384,8 @@ const upsertSingleSubjectResult = async (req, res, next) => {
 };
 
 export {
+  fetchDashboardSummary,
+  fetchStudentsOwing,
   fetchAllStudents,
   fetchAllStaff,
   fetchClassResult,

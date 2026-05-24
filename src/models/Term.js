@@ -30,8 +30,16 @@ const term = sequelize.define('term', {
       field: 'auto_close_date'
     },
     active: {
+      // BE-D13: an "inactive" term must never be NULL. NULL active breaks every
+      // term-scoped read (`where: { active: true }` silently excludes NULL rows,
+      // and there is no guaranteed single active term). New rows default to
+      // inactive; setTerm()/editTerm() flip exactly one row to active inside a
+      // transaction. NOTE: there is NO import-time sequelize.sync(), so this only
+      // governs new INSERTs from the ORM — the live DB column must be migrated
+      // separately (see report: ALTER TABLE Term ... NOT NULL DEFAULT 0).
       type: DataTypes.BOOLEAN,
-      allowNull: true,
+      allowNull: false,
+      defaultValue: false,
       field: 'active'
     }
   }, {

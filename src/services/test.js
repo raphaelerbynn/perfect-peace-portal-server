@@ -1,13 +1,23 @@
 import { Class, ClassFee, KgAssessment, Parent, Student, StudentResult, StudentFee } from "../models/index.js";
+import sequelize from "../config/database.js";
 import { isValidPhoneNumber, calculateAge } from "../utils/func.js";
 import { getTerm } from "./term.js";
+// BE-D4: getClassIdByName was previously USED here but never imported, so the
+// original per-student promotion threw a (swallowed) ReferenceError and likely
+// never promoted anyone. Import it properly now that errors propagate.
+import { getClassIdByName } from "./classes.js";
+import { recomputeStudentOwing } from "./fee.js";
 
 // BE-20: optional, backward-compatible pagination + lazy-loading.
 // Calling `getStudents()` with no options returns EXACTLY what it returned
 // before (full array, all nested associations, same shape). Pagination and the
 // lighter include set only kick in when the caller opts in via query params.
 export const getStudents = async (options = {}) => {
-    try {
+    // BE-D6: do NOT swallow DB errors. Previously a `catch (e) { console.log }`
+    // returned undefined, so the controller sent HTTP 200 with an empty body on
+    // failure. Let the error propagate so the controller forwards it to the
+    // central errorHandler (proper 500). Success-path shape is unchanged.
+    {
         const { page, limit, lite } = options;
 
         // Heaviest nested associations (Class -> ClassFee, StudentFee) are only
@@ -66,8 +76,6 @@ export const getStudents = async (options = {}) => {
             student.age = calculateAge(student?.dob);
         })
         return students
-    } catch (error) {
-        console.log(error);
     }
 }
 
@@ -103,75 +111,75 @@ export const getParentContact = async (id, forAttendance=false, status="") => {
     }
 }
 
-export const promoteStudents = async () => {
+// BE-D4: promote every eligible student for the active term. Runs as part of
+// the atomic close-term transaction — accepts an optional `transaction` and
+// threads it through every read/write so a failure rolls the whole close back.
+//
+// Errors are NO LONGER swallowed: previously per-student failures were logged
+// and the outer catch returned undefined, so closeTerm reported success even
+// when nothing (or only some students) were promoted, leaving inconsistent
+// state. We now let any failure propagate so the surrounding transaction aborts
+// and the controller's next(error) fires.
+export const promoteStudents = async (transaction = null) => {
     const term = await getTerm()
-    try {
-        // --- Basic class students (StudentResult) ---
-        const allPromotedStudents = await StudentResult.findAll({
-            attributes: ["studentId", "promotedTo"],
-            where: {
-                termId: term.termId,
-                term: "3"
-            },
-            raw: true
-        })
-
-        const basicPromises = allPromotedStudents
-            .filter(s => s.promotedTo) // skip students without a promotedTo value
-            .map(async (student) => {
-                try {
-                    const newClassId = await getClassIdByName(student.promotedTo);
-                    if (newClassId == null) {
-                        console.warn(`⚠️ Class "${student.promotedTo}" not found for student ${student.studentId}, skipping`);
-                        return;
-                    }
-                    await Student.update(
-                        { classId: newClassId, class: student.promotedTo },
-                        { where: { studentId: student.studentId } }
-                    );
-                } catch (err) {
-                    console.error(`❌ Failed to promote student ${student.studentId}:`, err.message);
-                }
-            });
-
-        await Promise.all(basicPromises);
-        console.log(`🥳 Promoted ${basicPromises.length} basic-class students`)
-        
-        // --- KG / Nursery students (KgAssessment) ---
-        const allPromotedKgStudents = await KgAssessment.findAll({
-            attributes: ["studentId", "promoted"],
-            where: {
-                termId: term.termId,
-                term: "3",
-                category: "Language Development (Reading, Listening and Oral Skills)"
-            },
-            raw: true
-        })
-
-        const kgPromises = allPromotedKgStudents
-            .filter(s => s.promoted) // skip students without a promoted value
-            .map(async (student) => {
-                try {
-                    const newClassId = await getClassIdByName(student.promoted);
-                    if (newClassId == null) {
-                        console.warn(`⚠️ Class "${student.promoted}" not found for KG student ${student.studentId}, skipping`);
-                        return;
-                    }
-                    await Student.update(
-                        { classId: newClassId, class: student.promoted },
-                        { where: { studentId: student.studentId } }
-                    );
-                } catch (err) {
-                    console.error(`❌ Failed to promote KG student ${student.studentId}:`, err.message);
-                }
-            });
-
-        await Promise.all(kgPromises);
-        console.log(`🥳 Promoted ${kgPromises.length} KG students`)
-        return
-    } catch (error) {
-        console.log(error);
+    if (!term) {
+        throw new Error("No active term found; cannot promote students");
     }
+
+    // --- Basic class students (StudentResult) ---
+    const allPromotedStudents = await StudentResult.findAll({
+        attributes: ["studentId", "promotedTo"],
+        where: {
+            termId: term.termId,
+            term: "3"
+        },
+        raw: true,
+        transaction
+    })
+
+    let basicPromoted = 0;
+    for (const student of allPromotedStudents) {
+        if (!student.promotedTo) continue; // skip students without a promotedTo value
+        const newClassId = await getClassIdByName(student.promotedTo, transaction);
+        if (newClassId == null) {
+            console.warn(`⚠️ Class "${student.promotedTo}" not found for student ${student.studentId}, skipping`);
+            continue;
+        }
+        await Student.update(
+            { classId: newClassId, class: student.promotedTo },
+            { where: { studentId: student.studentId }, transaction }
+        );
+        basicPromoted += 1;
+    }
+    console.log(`🥳 Promoted ${basicPromoted} basic-class students`)
+
+    // --- KG / Nursery students (KgAssessment) ---
+    const allPromotedKgStudents = await KgAssessment.findAll({
+        attributes: ["studentId", "promoted"],
+        where: {
+            termId: term.termId,
+            term: "3",
+            category: "Language Development (Reading, Listening and Oral Skills)"
+        },
+        raw: true,
+        transaction
+    })
+
+    let kgPromoted = 0;
+    for (const student of allPromotedKgStudents) {
+        if (!student.promoted) continue; // skip students without a promoted value
+        const newClassId = await getClassIdByName(student.promoted, transaction);
+        if (newClassId == null) {
+            console.warn(`⚠️ Class "${student.promoted}" not found for KG student ${student.studentId}, skipping`);
+            continue;
+        }
+        await Student.update(
+            { classId: newClassId, class: student.promoted },
+            { where: { studentId: student.studentId }, transaction }
+        );
+        kgPromoted += 1;
+    }
+    console.log(`🥳 Promoted ${kgPromoted} KG students`)
 }
 
 export const createStudent = async (data) => {
@@ -246,7 +254,7 @@ export const editStudent = async (data, id) => {
                 name: data.class
             }
         });
-        
+
         const currentStudent = await Student.findOne({
             where: { studentId: id }
         });
@@ -256,7 +264,7 @@ export const editStudent = async (data, id) => {
         const newClassId = _class[0]?.dataValues?.classId ?? _class[0]?.dataValues?.class_id;
         const classChanged = currentStudent && newClassId != null && Number(currentStudent.classId) !== Number(newClassId);
 
-        // Build update payload — only reset fees when class actually changes
+        // Build update payload — only touch fees when class actually changes.
         const studentUpdate = {
             fName: data.fName,
             mName: data.mName,
@@ -268,46 +276,53 @@ export const editStudent = async (data, id) => {
             classId: newClassId
         };
 
-        if (classChanged) {
-            // Recalculate feesOwing for the new class:
-            // sum of new class fees + existing student-specific fees + any previous arrears
-            const classFees = await ClassFee.findAll({ where: { classId: newClassId }, raw: true });
-            const studentFees = await StudentFee.findAll({ where: { studentId: id }, raw: true });
-            const classFeeTotal = classFees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
-            const studentFeeTotal = studentFees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
-            const newBillTotal = classFeeTotal + studentFeeTotal;
+        // BE-D3: run the student + parent writes (and the class-change owing
+        // reconcile) in ONE transaction instead of Promise.allSettled, which
+        // silently ignored a failed half. The Student row (incl. new classId)
+        // must be persisted BEFORE recomputeStudentOwing reads it.
+        const response = await sequelize.transaction(async (t) => {
+            const studentRes = await Student.update(studentUpdate, {
+                where: { studentId: id },
+                transaction: t,
+            });
 
-            // Previous arrears: what they still owe minus the old class bill
-            // Since we're changing class, reset to new bill (arrears are lost on class change)
-            studentUpdate.feesOwing = newBillTotal;
-            studentUpdate.feesPaid = 0;
-        }
-        // If class didn't change, feesPaid and feesOwing remain untouched
+            const parentRes = await Parent.update(
+                {
+                    fName: data.pfName,
+                    lName: data.plName,
+                    gender: data.pGender,
+                    contact: data.contact,
+                    contact1: data.contact1,
+                    relationship: data.relationship,
+                    occupation: data.occupation,
+                },
+                {
+                    where: { parent_id: parent_id },
+                    transaction: t,
+                }
+            );
 
-        const response = await Promise.allSettled([
-            Student.update(studentUpdate,
-            {
-                where: {
-                    studentId: id
-                }
+            if (classChanged) {
+                // BE-D3: reconcile feesOwing/feesPaid from the underlying rows for
+                // the NEW class. recomputeStudentOwing derives:
+                //   feesOwing = (new ClassFee total + StudentFee total) - sum(Fee.paid)
+                //   feesPaid  = sum(Fee.paid)
+                //
+                // NOTE / FLAGGED FOR FEES REVIEW: this DELIBERATELY DIFFERS from the
+                // prior inline behaviour, which on class change reset feesPaid to 0
+                // and feesOwing to the full new bill (i.e. wiped the student's
+                // payment history). The helper instead keeps real payments (Fee
+                // rows are not deleted on class change) and credits them against the
+                // new bill. This is the more defensible accounting behaviour and is
+                // now consistent with every other fee path, but if the school truly
+                // intends "class change = blank slate, ignore prior payments", revert
+                // THIS call to the explicit feesPaid=0 / feesOwing=newBill write.
+                await recomputeStudentOwing(id, { transaction: t });
             }
-            ),
-            Parent.update({
-                fName: data.pfName,
-                lName: data.plName,
-                gender: data.pGender,
-                contact: data.contact,
-                contact1: data.contact1,
-                relationship: data.relationship,
-                occupation: data.occupation,
-            },
-            {
-                where: {
-                    parent_id: parent_id
-                }
-            }
-            ),
-        ]);
+            // If class didn't change, feesPaid/feesOwing are left untouched.
+
+            return [studentRes, parentRes];
+        });
 
         return response;
 

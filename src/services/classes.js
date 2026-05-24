@@ -8,6 +8,19 @@ const classes = async () => {
   // BE-19: replace the per-class `Student.count()` (N+1 queries) with a single
   // grouped count, then merge into each class in memory. Returned shape is
   // unchanged (each Class instance gets `totalStudents` + `feeList`).
+  //
+  // BE-D10 — definition of "counted students" for the bar chart:
+  //   Each class tile shows the ACTUAL number of students currently assigned to
+  //   that class (`Student.classId === class_id`), with NO special-casing of the
+  //   graduated/alumni classes (GRADUATED_CLASS_IDS) — if class 39/40 still hold
+  //   students, their real count is shown on their own tile.
+  //   Reconciliation with /dashboard-summary:
+  //     - SUM(all tiles)                = every student WITH a classId
+  //     - SUM(non-graduated tiles)      = dashboard `activeStudents`
+  //     - dashboard `totalStudents`     = SUM(all tiles) + students with classId = null
+  //   Students with `classId = null` intentionally have NO tile (they belong to
+  //   no class), which is why the all-tiles sum can be < totalStudents. This is
+  //   the one consistent rule applied across the dashboard.
   const countRows = await Student.count({
     group: ["classId"],
   });
@@ -32,7 +45,11 @@ const classes = async () => {
 };
 
 const createClass = async (data) => {
-  await Class.create({
+  // BE-D12: use the row returned by Class.create() (its real PK) instead of
+  // re-querying findOne({ where: { teacherId } }). The old lookup returned the
+  // WRONG class when a teacher was already assigned to another class, and broke
+  // entirely (null deref) when teacher_id was absent.
+  const newClass = await Class.create({
     name: data?.name,
     section: data?.section,
     capacity: data?.capacity,
@@ -50,16 +67,10 @@ const createClass = async (data) => {
     fees: data?.fees,
   });
 
-  const newClass = await Class.findOne({
-    where: {
-      teacherId: data?.teacher_id,
-    },
-  });
-
   if (data.teacher_id) {
-    const updateTeacher = await Teacher.update(
+    await Teacher.update(
       {
-        classId: newClass.dataValues.classId,
+        classId: newClass.classId,
       },
       {
         where: {
@@ -67,11 +78,8 @@ const createClass = async (data) => {
         },
       }
     );
-    // console.log(updateTeacher);
-    // console.log(newClass);
   }
 
-  // console.log(newClass);
   return newClass;
 };
 
@@ -170,7 +178,7 @@ const removeClassFee = async (id) => {
   return deletedClassFee;
 };
 
-const getClassIdByName = async (name) => {
+const getClassIdByName = async (name, transaction = null) => {
   if (!name) {
     throw new Error('Class name is required');
   }
@@ -178,7 +186,8 @@ const getClassIdByName = async (name) => {
   const result = await Class.findOne({
     attributes: ["classId"],
     where: { name },
-    raw: true
+    raw: true,
+    transaction
   });
 
   if (!result) {

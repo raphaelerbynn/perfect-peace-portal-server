@@ -5,38 +5,38 @@ import { Class, Salary, Teacher } from "../models/index.js";
 // behaviour and shape as before (full array). limit/offset only applied when
 // pagination params are supplied.
 export const getStaff = async (options = {}) => {
-  try {
-    const { page, limit } = options;
+  // BE-D6: do NOT swallow DB errors. The previous catch returned undefined so
+  // the controller responded HTTP 200 with an empty body on failure. Let it
+  // propagate; `fetchAllStaff` forwards it to the central errorHandler.
+  // Success-path shape is unchanged.
+  const { page, limit } = options;
 
-    const queryOptions = {
-      attributes: { exclude: ["password"] },
-      include: [
-        {
-          model: Class,
-          as: "class_",
-          attributes: ["name"],
-        },
-        {
-          model: Salary,
-          as: "salary",
-        },
-      ],
-    };
+  const queryOptions = {
+    attributes: { exclude: ["password"] },
+    include: [
+      {
+        model: Class,
+        as: "class_",
+        attributes: ["name"],
+      },
+      {
+        model: Salary,
+        as: "salary",
+      },
+    ],
+  };
 
-    const parsedLimit = parseInt(limit, 10);
-    const parsedPage = parseInt(page, 10);
-    if (Number.isInteger(parsedLimit) && parsedLimit > 0) {
-      queryOptions.limit = parsedLimit;
-      const safePage = Number.isInteger(parsedPage) && parsedPage > 0 ? parsedPage : 1;
-      queryOptions.offset = (safePage - 1) * parsedLimit;
-      queryOptions.subQuery = false;
-    }
-
-    const staff = await Teacher.findAll(queryOptions);
-    return staff;
-  } catch (error) {
-    console.log(error);
+  const parsedLimit = parseInt(limit, 10);
+  const parsedPage = parseInt(page, 10);
+  if (Number.isInteger(parsedLimit) && parsedLimit > 0) {
+    queryOptions.limit = parsedLimit;
+    const safePage = Number.isInteger(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+    queryOptions.offset = (safePage - 1) * parsedLimit;
+    queryOptions.subQuery = false;
   }
+
+  const staff = await Teacher.findAll(queryOptions);
+  return staff;
 };
 
 // Public, minimal staff list for the PRE-LOGIN signup picker only.

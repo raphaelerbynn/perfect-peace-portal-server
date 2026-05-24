@@ -33,6 +33,8 @@ import {
   fetchAllStaff,
   fetchAllStudents,
   fetchAllowances,
+  fetchDashboardSummary,
+  fetchStudentsOwing,
   fetchAttendance,
   fetchBusFee,
   fetchClassMarks,
@@ -92,6 +94,10 @@ const ACADEMIC = authorizeRoles("Administrator", "Class Teacher");   // hidden f
 const FINANCE = authorizeRoles("Administrator", "Accountant");       // hidden for Class Teacher
 
 // --- Shared / dashboard reads (visible to everyone) ---
+// BE-D2 / BE-D9: dashboard data layer. Same access as the dashboard itself
+// (all management roles).
+router.get("/dashboard-summary", ALL_ROLES, fetchDashboardSummary);
+router.get("/students-owing", ALL_ROLES, fetchStudentsOwing);
 router.get("/news", ALL_ROLES, fetchNews);
 // /user-details is a PORTAL (student/teacher) endpoint, authed separately.
 router.get("/user-details", authenticateUser, fetchUserDetails);
@@ -100,7 +106,10 @@ router.get("/subject", ACADEMIC, fetchSubject);               // Subjects view: 
 router.get("/events", ALL_ROLES, fetchNews);
 router.get("/active-term", ALL_ROLES, fetchActiveTerm);       // term metadata: shared
 router.get("/terms", ALL_ROLES, fetchTerms);
-router.get("/close-term", ADMIN_ONLY, closeTerm);             // mutating term state: Administrator
+// BE-D4: close-term promotes students AND deactivates the active term — a
+// state-mutating, non-idempotent operation that must NOT be a GET. Frontend
+// already calls POST and expects { message } on success.
+router.post("/close-term", ADMIN_ONLY, closeTerm);            // mutating term state: Administrator
 
 // --- Staff (Administrator only) ---
 // Authenticated replacement for the removed unauthenticated `app.get("/staff")`.

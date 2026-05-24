@@ -1,5 +1,9 @@
 import { StudentFee, Student } from "../models/index.js";
 import sequelize from "../config/database.js";
+// BE-D3: derive the cached owing from the underlying rows after every mutation
+// instead of hand-rolled increment/decrement (which drifted from the source of
+// truth and ignored payments / class fees).
+import { recomputeStudentOwing } from "./fee.js";
 
 const validateAmount = (amount) => {
   if (amount == null || isNaN(Number(amount))) {
@@ -34,10 +38,9 @@ const createStudentFee = async (data) => {
     validateAmount(data?.amount);
     if (!data?.studentId) throw new Error("studentId is required");
 
-    // adjust student's feesOwing within the same transaction
-    const student = await ensureStudentExists(data.studentId, t);
-    const currentOwing = Number(student.feesOwing) || 0;
-    await Student.update({ feesOwing: currentOwing + Number(data.amount) }, { where: { studentId: data.studentId }, transaction: t });
+    // BE-D3: reconcile cached owing from rows (new StudentFee now included).
+    await ensureStudentExists(data.studentId, t);
+    await recomputeStudentOwing(data.studentId, { transaction: t });
 
     await t.commit();
     return created;
@@ -70,14 +73,9 @@ const editStudentFee = async (data, id) => {
       }
     );
 
-    if (data?.amount != null) {
-      const delta = Number(data.amount) - Number(existing.amount || 0);
-      if (delta !== 0) {
-        // ensure student exists (should as existing.studentId)
-        await ensureStudentExists(existing.studentId, t);
-        await Student.increment({ feesOwing: delta }, { where: { studentId: existing.studentId }, transaction: t });
-      }
-    }
+    // BE-D3: reconcile cached owing from rows (the updated amount is now persisted).
+    await ensureStudentExists(existing.studentId, t);
+    await recomputeStudentOwing(existing.studentId, { transaction: t });
 
     await t.commit();
     return updated;
@@ -99,9 +97,9 @@ const removeStudentFee = async (id) => {
 
     const destroyed = await StudentFee.destroy({ where: { studentFeeId: id }, transaction: t });
 
-    // ensure student exists and decrement owing
+    // BE-D3: reconcile cached owing from rows (the deleted StudentFee is gone).
     await ensureStudentExists(existing.studentId, t);
-    await Student.increment({ feesOwing: -Number(existing.amount || 0) }, { where: { studentId: existing.studentId }, transaction: t });
+    await recomputeStudentOwing(existing.studentId, { transaction: t });
 
     await t.commit();
     return destroyed;
