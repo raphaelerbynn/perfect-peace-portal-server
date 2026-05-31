@@ -1,5 +1,4 @@
 import { classes } from "../services/classes.js";
-import { subjects } from "../services/subject.js";
 
 
 const fetchClass = async (req, res, next) => {
@@ -13,20 +12,7 @@ const fetchClass = async (req, res, next) => {
     }
 }
 
-const fetchSubject = async (req, res, next) => {
-    try {
-        // BE-20: pagination is opt-in via query params; no params => unchanged.
-        const { page, limit } = req.query;
-        const data = await subjects({ page, limit });
-        res.json(data);
-    } catch (error) {
-        console.log(error)
-        next(error)
-    }
-}
-
 
 export {
-    fetchClass,
-    fetchSubject
+    fetchClass
 }

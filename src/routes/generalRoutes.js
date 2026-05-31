@@ -14,7 +14,6 @@ import {
   addSingleSubjectResult,
   addStaff,
   addStudent,
-  addSubject,
   assignSalary,
   deleteAttendance,
   deleteBusFee,
@@ -29,7 +28,6 @@ import {
   deleteSalaryPayment,
   deleteStaff,
   deleteStudent,
-  deleteSubject,
   fetchAllStaff,
   fetchAllStudents,
   fetchAllowances,
@@ -78,8 +76,12 @@ import {
 import { authenticateUser, authorizeRoles } from "../utils/middlewares.js";
 import {
   fetchClass,
-  fetchSubject,
 } from "../controllers/onlyTeacherController.js";
+import {
+  fetchSubject,
+  addSubject,
+  deleteSubject,
+} from "../controllers/subjectController.js";
 import { fetchExpenseGraph, fetchFeesGraph, fetchFeesVsExpenseGraph, fetchIncomeGraph, fetchProfitLoss } from "../controllers/graphDataController.js";
 // import students from "../../students.json" assert { type: "json" };
 // import { Class, KgAssessment, KgCalcValues, Parent, Student, StudentMarks, StudentResult, Subject, Teacher, UserAccount } from "../models/index.js";

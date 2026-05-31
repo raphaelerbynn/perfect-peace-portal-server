@@ -12,7 +12,7 @@ const _ = sequelize.define('subject', {
     },
     name: {
       type: DataTypes.STRING(50),
-      allowNull: true
+      allowNull: false
     },
     examTotalMarks: {
       type: DataTypes.DECIMAL(18,0),
@@ -38,6 +38,17 @@ const _ = sequelize.define('subject', {
       type: DataTypes.DECIMAL(18,0),
       allowNull: true,
       field: 'pass_marks'
+    },
+    // BE-U: soft-delete / archive flag (mirrors Student/Teacher). The matching
+    // `is_deleted` column + the unique index on `name` are added by a MANUAL
+    // migration (see service notes) — we only DECLARE the attribute here. The
+    // model's sync() is intentionally left commented out; nothing here triggers
+    // a schema sync at import time.
+    isDeleted: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+      field: 'is_deleted'
     }
   }, {
     sequelize,

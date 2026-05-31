@@ -85,7 +85,6 @@ import {
   getStaff,
   removeStaff,
 } from "../services/staff.js";
-import { createSubject, removeSubject } from "../services/subject.js";
 import {
   editTerm,
   getTerm,
@@ -576,17 +575,6 @@ const updateStudentFee = async (req, res, next) => {
   }
 };
 
-
-const addSubject = async (req, res, next) => {
-  const values = req.body;
-  try {
-    const data = await createSubject(values);
-    res.json(data);
-  } catch (error) {
-    console.log(error);
-    next(error);
-  }
-};
 
 const addEvent = async (req, res, next) => {
   const values = req.body;
@@ -1131,17 +1119,6 @@ const deleteFee = async (req, res, next) => {
   }
 };
 
-const deleteSubject = async (req, res, next) => {
-  const id = req.params.subject_id;
-  try {
-    const data = await removeSubject(id);
-    res.json(data);
-  } catch (error) {
-    console.log(error);
-    next(error);
-  }
-};
-
 const deleteEvent = async (req, res, next) => {
   const id = req.params.news_id;
   try {
@@ -1434,7 +1411,6 @@ export {
   addResult,
   addKGResult,
   addFee,
-  addSubject,
   addEvent,
   addSalary,
   addSalaryPayment,
@@ -1456,7 +1432,6 @@ export {
   deleteStaff,
   deleteResult,
   deleteFee,
-  deleteSubject,
   deleteSalary,
   deleteSalaryPayment,
   deleteClass,
