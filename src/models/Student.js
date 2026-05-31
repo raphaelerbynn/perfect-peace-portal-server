@@ -78,6 +78,15 @@ const _ = sequelize.define('student', {
       type: DataTypes.INTEGER,
       allowNull: true,
       field: 'fees_owing'
+    },
+    // BE-S4/BE-S5: soft delete. The underlying `is_deleted` column is added by a
+    // manual DB migration (see report). Archived students are excluded from every
+    // read; deleteStudent flips this flag instead of destroying rows.
+    isDeleted: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+      field: 'is_deleted'
     }
   }, {
     sequelize,

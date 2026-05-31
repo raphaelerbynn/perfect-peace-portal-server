@@ -141,10 +141,28 @@ const fetchStudentsOwing = async (req, res, next) => {
 // management
 const fetchAllStudents = async (req, res, next) => {
   try {
-    // BE-20: pagination/lazy-load are opt-in via query params. With no query
-    // params this is identical to the original `getStudents()` call.
-    const { page, limit, lite } = req.query;
-    const data = await getStudents({ page, limit, lite });
+    // BE-20: pagination/lazy-load are opt-in via query params. With no page/limit
+    // the response shape is the plain array (unchanged). BE-S1/BE-S11: search,
+    // class/gender/age filtering and Class-Teacher scoping are enforced
+    // server-side in getStudents.
+    const { page, limit, lite, search, classId, className, gender, minAge, maxAge } = req.query;
+    const data = await getStudents({
+      page,
+      limit,
+      lite,
+      search,
+      classId,
+      className,
+      gender,
+      minAge,
+      maxAge,
+      // BE-S1: authoritative scoping source — a Class Teacher is constrained to
+      // their own class regardless of any client-supplied classId/search.
+      requester: {
+        role: req.user?.category || req.user?.role,
+        teacherId: req.user?.teacherId,
+      },
+    });
     res.json(data);
   } catch (error) {
     console.log(error);
