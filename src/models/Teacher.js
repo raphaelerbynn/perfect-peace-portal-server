@@ -91,6 +91,14 @@ const _ = sequelize.define('teacher', {
       type: DataTypes.DATEONLY,
       allowNull: true,
       field: 'date_registered'
+    },
+    // BE-T3: soft delete. Archived staff are excluded from listings and login.
+    // The underlying `is_deleted` column is added by a manual migration.
+    isDeleted: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+      field: 'is_deleted'
     }
   }, {
     sequelize,

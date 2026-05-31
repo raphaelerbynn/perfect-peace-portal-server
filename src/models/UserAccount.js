@@ -32,6 +32,14 @@ const _ = sequelize.define('userAccount', {
         key: 'teacher_id'
       },
       field: 'teacherId'
+    },
+    // BE-T3: disabled when the linked staff record is archived. Non-destructive.
+    // The underlying `is_deleted` column is added by a manual migration.
+    isDeleted: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+      field: 'is_deleted'
     }
   }, {
     sequelize,

@@ -33,6 +33,8 @@ const buildManagementIdentityWhere = (data) => {
     if (data?.category) {
         where.category = data.category;
     }
+    // BE-T3: a management account whose staff record was archived is disabled.
+    where.isDeleted = { [Op.not]: true };
     return where;
 };
 
@@ -191,6 +193,8 @@ const getStudentUser = async (id, password) => {
     const result = await Student.findOne({
         where: {
             student_id: id,
+            // Archived (soft-deleted) students cannot log in.
+            isDeleted: { [Op.not]: true },
         }
     })
 
@@ -206,6 +210,8 @@ const getTeacherUser = async (id, password) => {
     const result = await Teacher.findOne({
         where: {
             teacher_id: id,
+            // BE-T3: archived (soft-deleted) staff cannot log in to the portal.
+            isDeleted: { [Op.not]: true },
         }
     })
 
