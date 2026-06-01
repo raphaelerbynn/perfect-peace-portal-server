@@ -7,7 +7,6 @@ const fetchClass = async (req, res, next) => {
         // console.log(data)
         res.json(data);
     } catch (error) {
-        console.log(error)
         next(error)
     }
 }

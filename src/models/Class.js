@@ -59,6 +59,15 @@ const _class = sequelize.define('class_', {
     fees: {
       type: DataTypes.INTEGER,
       allowNull: true
+    },
+    // BE-V1: soft delete. Archived classes are hidden from lists/pickers but the
+    // row (and every student/fee/result that references it) is kept intact. The
+    // underlying `is_deleted` column is added by a manual migration.
+    isDeleted: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+      field: 'is_deleted'
     }
   }, {
     sequelize,

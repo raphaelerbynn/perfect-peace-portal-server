@@ -547,7 +547,6 @@ const addClass = async (req, res, next) => {
     const data = await createClass(values);
     res.json(data);
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
@@ -605,7 +604,6 @@ const addClassFee = async (req, res, next) => {
     const data = await createClassFee(values);
     res.json(data);
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
@@ -973,11 +971,14 @@ const updateClass = async (req, res, next) => {
   const values = req.body;
   const id = req.params.class_id;
 
+  if (!Number.isInteger(Number(id)) || Number(id) <= 0) {
+    return next(new AppError("Invalid id", 400));
+  }
+
   try {
     const data = await editClass(values, id);
     res.json(data);
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
@@ -986,11 +987,14 @@ const updateClassFee = async (req, res, next) => {
   const values = req.body;
   const id = req.params.class_fee_id;
 
+  if (!Number.isInteger(Number(id)) || Number(id) <= 0) {
+    return next(new AppError("Invalid id", 400));
+  }
+
   try {
     const data = await editClassFee(values, id);
     res.json(data);
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
@@ -1158,22 +1162,30 @@ const deleteSalaryPayment = async (req, res, next) => {
 
 const deleteClass = async (req, res, next) => {
   const id = req.params.class_id;
+
+  if (!Number.isInteger(Number(id)) || Number(id) <= 0) {
+    return next(new AppError("Invalid id", 400));
+  }
+
   try {
     const data = await removeClass(id);
     res.json(data);
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
 
 const deleteClassFee = async (req, res, next) => {
   const id = req.params.class_fee_id;
+
+  if (!Number.isInteger(Number(id)) || Number(id) <= 0) {
+    return next(new AppError("Invalid id", 400));
+  }
+
   try {
     const data = await removeClassFee(id);
     res.json(data);
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
