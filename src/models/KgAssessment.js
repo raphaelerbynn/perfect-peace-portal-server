@@ -49,15 +49,8 @@ const _ = sequelize.define('kgAssessment', {
       type: DataTypes.STRING(10),
       allowNull: true,
     },
-    termId: {
-      type: DataTypes.INTEGER,
-      allowNull: true,
-      references: {
-        model: 'Term',
-        key: 'term_id'
-      },
-      field: 'termId'
-    },
+    // BE-W14: termId was declared twice (field 'termId' then 'term_id'); the
+    // second silently won. Keep the single correct mapping to `term_id` (below).
     class: {
       type: DataTypes.STRING(10),
       allowNull: true

@@ -1,180 +1,382 @@
 import { Op } from "sequelize";
 import sequelize from "../config/database.js";
-import { KgAssessment, StudentMarks, StudentResult } from "../models/index.js";
-import moment from "moment";
+import {
+  KgAssessment,
+  Student,
+  StudentMarks,
+  StudentResult,
+  Subject,
+} from "../models/index.js";
+import { AppError } from "../utils/errorHandling.js";
 import { getTerm } from "./term.js";
 
-const createMarksResult = async (data) => {
-  if (data.classMark && data.examMark) {
-    //delete existing record for this specific subject only
-    const activeTerm = await getTerm(); 
+// ---------------------------------------------------------------------------
+// Feature #8 — authoritative, non-destructive results engine.
+//
+// Design (locked decisions):
+//  - Every save is an UPSERT keyed by (student, subject, class, termId) for marks
+//    and (student, class, termId) for the aggregate — NEVER destroy-then-create,
+//    so a partial save can never wipe other subjects' marks. All multi-row writes
+//    run inside a single transaction.
+//  - The SERVER recomputes every percentage / total / aggregate from the Subject
+//    config (examTotalMarks / classTotalMarks / examPercentage / classPercentage /
+//    passMarks — Feature #6) and the persisted marks. Client-supplied derived
+//    numbers are ignored. Teacher judgement fields (conduct/attitude/interest/
+//    remarks/status/promotion) are preserved as entered.
+//  - A score of 0 is a VALID score (the old code dropped it as "no data").
+// ---------------------------------------------------------------------------
 
-    await StudentMarks.destroy({
-      where: {
-        studentId: data?.studentId,
-        subjectId: data?.subjectId, // Only delete records for this specific subject
-        class: data?.class,
-        term: data?.term,
-        termId: data?.termId || activeTerm?.termId,
-      },
-    });
+const isBlank = (v) => v === "" || v === null || v === undefined;
 
-    //add term ids to student marks
-    const response = await StudentMarks.create({
-      studentId: data?.studentId,
-      subjectId: data?.subjectId,
-      examScore: data?.examMark,
-      classScore: data?.classMark,
-      classScorePercentage: data?.classP,
-      examScorePercentage: data?.examP,
-      totalScore: data?.total,
-      remarks: data?.remark,
-      class: data?.class,
-      term: data?.term,
-      termId: data?.termId || activeTerm?.termId,
-      date: Date.now(),
-    });
-    return response;
+const gradeRemark = (mark) => {
+  const m = Number(mark);
+  if (!Number.isFinite(m)) return "---";
+  if (m < 40) return "Fail";
+  if (m < 50) return "Pass";
+  if (m < 60) return "Credit";
+  if (m < 70) return "Good";
+  if (m < 80) return "Very Good";
+  return "Excellent"; // <= 100
+};
+
+// Recompute the per-subject weighted percentages + total from the subject config.
+// Authoritative: divides the raw score by the subject's actual total marks (the
+// FE wrongly assumed every subject is out of 100).
+const computeMarkFields = (subject, classScoreRaw, examScoreRaw) => {
+  const classTotal = Number(subject.classTotalMarks);
+  const examTotal = Number(subject.examTotalMarks);
+  const classPct = Number(subject.classPercentage);
+  const examPct = Number(subject.examPercentage);
+
+  if (
+    ![classTotal, examTotal, classPct, examPct].every(Number.isFinite) ||
+    classTotal <= 0 ||
+    examTotal <= 0
+  ) {
+    throw new AppError(
+      `Subject "${subject.name}" is not fully configured (class/exam total marks & percentages). Set them under Subjects before entering results.`,
+      409
+    );
   }
 
-  return "";
+  const cs = Number(classScoreRaw);
+  const es = Number(examScoreRaw);
+  if (!Number.isFinite(cs) || !Number.isFinite(es)) {
+    throw new AppError("Scores must be numbers", 400);
+  }
+  if (cs < 0 || es < 0) {
+    throw new AppError("Scores cannot be negative", 400);
+  }
+  if (cs > classTotal) {
+    throw new AppError(`Class score for "${subject.name}" cannot exceed ${classTotal}`, 400);
+  }
+  if (es > examTotal) {
+    throw new AppError(`Exam score for "${subject.name}" cannot exceed ${examTotal}`, 400);
+  }
+
+  const classScorePercentage = (cs / classTotal) * classPct;
+  const examScorePercentage = (es / examTotal) * examPct;
+  const totalScore = classScorePercentage + examScorePercentage;
+
+  return {
+    classScore: cs,
+    examScore: es,
+    classScorePercentage: Math.round(classScorePercentage),
+    examScorePercentage: Math.round(examScorePercentage),
+    totalScore: Math.round(totalScore),
+    remarks: gradeRemark(totalScore),
+  };
 };
 
+// Upsert ONE subject mark (recomputed server-side). Returns the persisted row.
+const upsertOneMark = async (data, termId, t) => {
+  if (isBlank(data?.classMark) && isBlank(data?.examMark)) {
+    return null; // nothing entered for this subject — skip, don't wipe
+  }
+  if (isBlank(data?.classMark) || isBlank(data?.examMark)) {
+    throw new AppError("Both class and exam marks are required for a subject", 400);
+  }
+  if (data?.subjectId == null) {
+    throw new AppError("subjectId is required", 400);
+  }
+
+  const subject = await Subject.findOne({
+    where: { subjectId: data.subjectId },
+    raw: true,
+    transaction: t,
+  });
+  if (!subject) throw new AppError("Subject not found", 404);
+
+  const computed = computeMarkFields(subject, data.classMark, data.examMark);
+
+  const where = {
+    studentId: data.studentId,
+    subjectId: data.subjectId,
+    class: data.class,
+    termId,
+  };
+  const payload = {
+    ...where,
+    term: data.term,
+    examScore: computed.examScore,
+    classScore: computed.classScore,
+    classScorePercentage: computed.classScorePercentage,
+    examScorePercentage: computed.examScorePercentage,
+    totalScore: computed.totalScore,
+    remarks: computed.remarks,
+    date: new Date(),
+  };
+
+  const existing = await StudentMarks.findOne({ where, transaction: t });
+  if (existing) {
+    await StudentMarks.update(payload, {
+      where: { studentMarksId: existing.studentMarksId },
+      transaction: t,
+    });
+    return StudentMarks.findByPk(existing.studentMarksId, { transaction: t });
+  }
+  return StudentMarks.create(payload, { transaction: t });
+};
+
+// Recompute (and upsert) the StudentResult aggregate from the persisted marks.
+// `observations` (optional) carries the teacher-entered fields; when omitted the
+// existing observation fields are preserved.
+const recomputeStudentResult = async (scope, observations, t) => {
+  const { studentId, class: className, term, termId } = scope;
+
+  const marks = await StudentMarks.findAll({
+    where: { studentId, class: className, termId },
+    raw: true,
+    transaction: t,
+  });
+
+  const subjectIds = [...new Set(marks.map((m) => m.subjectId))];
+  let passRawScore = 0;
+  if (subjectIds.length) {
+    const subjects = await Subject.findAll({
+      where: { subjectId: { [Op.in]: subjectIds } },
+      attributes: ["subjectId", "passMarks"],
+      raw: true,
+      transaction: t,
+    });
+    const passMap = new Map(subjects.map((s) => [s.subjectId, Number(s.passMarks) || 0]));
+    passRawScore = subjectIds.reduce((sum, sid) => sum + (passMap.get(sid) || 0), 0);
+  }
+
+  const rawScore = Math.round(marks.reduce((sum, m) => sum + Number(m.totalScore || 0), 0));
+  const totalRawScore = marks.length * 100;
+  const classTotal = await Student.count({
+    where: { class: className, isDeleted: { [Op.not]: true } },
+    transaction: t,
+  });
+
+  const numericFields = { rawScore, passRawScore, totalRawScore, classTotal };
+
+  const existing = await StudentResult.findOne({
+    where: { studentId, class: className, termId },
+    transaction: t,
+  });
+
+  if (existing) {
+    const update = { ...numericFields };
+    if (observations) {
+      update.resultStatus = observations.status ?? existing.resultStatus;
+      update.promotedTo = observations.promotedTo ?? existing.promotedTo;
+      update.conduct = observations.conduct ?? existing.conduct;
+      update.attitude = observations.attitude ?? existing.attitude;
+      update.interest = observations.interest ?? existing.interest;
+      update.teacherRemarks = observations.remarks ?? existing.teacherRemarks;
+    }
+    await StudentResult.update(update, {
+      where: { studentResultId: existing.studentResultId },
+      transaction: t,
+    });
+    return StudentResult.findByPk(existing.studentResultId, { transaction: t });
+  }
+
+  return StudentResult.create(
+    {
+      studentId,
+      class: className,
+      term,
+      termId,
+      ...numericFields,
+      resultStatus: observations?.status || null,
+      promotedTo: observations?.promotedTo || null,
+      conduct: observations?.conduct || null,
+      attitude: observations?.attitude || null,
+      interest: observations?.interest || null,
+      teacherRemarks: observations?.remarks || null,
+      date: new Date(),
+    },
+    { transaction: t }
+  );
+};
+
+const resolveTermId = async (data) => {
+  if (data?.termId) return data.termId;
+  const activeTerm = await getTerm();
+  return activeTerm?.termId;
+};
+
+// PRIMARY single-subject save: upsert the mark + recompute the aggregate, atomic.
+const upsertMarksResult = async (data) => {
+  const termId = await resolveTermId(data);
+  return await sequelize.transaction(async (t) => {
+    const mark = await upsertOneMark({ ...data, termId }, termId, t);
+    await recomputeStudentResult(
+      { studentId: data.studentId, class: data.class, term: data.term, termId },
+      null,
+      t
+    );
+    return mark;
+  });
+};
+
+// /add-single-subject-result now routes to the safe upsert (no destroy-recreate).
+const createMarksResult = async (data) => upsertMarksResult(data);
+
+// Multi-subject upsert (no observations) — used by the bulk path; never deletes
+// subjects that aren't in the payload.
+const bulkCreateMarksResult = async (marksData, studentInfo) => {
+  const termId = studentInfo?.termId || (await getTerm())?.termId;
+  return await sequelize.transaction(async (t) => {
+    const saved = [];
+    for (const mark of marksData || []) {
+      const row = await upsertOneMark(
+        {
+          ...mark,
+          studentId: studentInfo.studentId,
+          class: studentInfo.class,
+          term: studentInfo.term,
+          termId,
+        },
+        termId,
+        t
+      );
+      if (row) saved.push(row);
+    }
+    await recomputeStudentResult(
+      { studentId: studentInfo.studentId, class: studentInfo.class, term: studentInfo.term, termId },
+      null,
+      t
+    );
+    return saved;
+  });
+};
+
+// Save the teacher-observation fields onto the StudentResult + recompute numerics.
 const createResult = async (data) => {
-  // const currentYear = new Date().getFullYear();
-  // const startDate = moment(`${currentYear}-01-01`, "YYYY-MM-DD").format();
-  // const endDate = moment(`${currentYear}-12-31`, "YYYY-MM-DD").format();
-
-  const activeTerm = await getTerm(); 
-
-  await StudentResult.destroy({
-    where: {
-      studentId: data?.studentId,
-      class: data?.class,
-      term: data?.term,
-      termId: data?.termId || activeTerm?.termId,
-      // date: {
-      //   [Op.gte]: startDate,
-      //   [Op.lte]: endDate,
-      // },
-    },
+  const termId = await resolveTermId(data);
+  return await sequelize.transaction(async (t) => {
+    return recomputeStudentResult(
+      { studentId: data.studentId, class: data.class, term: data.term, termId },
+      {
+        status: data.status,
+        promotedTo: data.promotedTo,
+        conduct: data.conduct,
+        attitude: data.attitude,
+        interest: data.interest,
+        remarks: data.remarks,
+      },
+      t
+    );
   });
-
-  //add term ids to student results
-
-  const response = await StudentResult.create({
-    studentId: data?.studentId, //
-    rawScore: data?.rawScore, //
-    passRawScore: data?.passRawScore, //
-    totalRawScore: data?.totalRawScore, //
-    classTotal: data?.classTotal, //
-    resultStatus: data?.status, //
-    promotedTo: data?.promotedTo, //
-    class: data?.class, //
-    term: data?.term, //
-    termId: data?.termId || activeTerm?.termId, //
-    conduct: data?.conduct, //
-    attitude: data?.attitude, //
-    interest: data?.interest, //
-    teacherRemarks: data?.remarks, //
-    date: Date.now(),
-  });
-
-  return response;
 };
 
+// Atomic "Save full result": upsert every provided subject mark AND the
+// observations in ONE transaction (the safe replacement for /add-result).
+const saveResult = async (data) => {
+  const termId = await resolveTermId(data);
+  return await sequelize.transaction(async (t) => {
+    for (const mark of data?.results || []) {
+      await upsertOneMark(
+        { ...mark, studentId: data.studentId, class: data.class, term: data.term, termId },
+        termId,
+        t
+      );
+    }
+    return recomputeStudentResult(
+      { studentId: data.studentId, class: data.class, term: data.term, termId },
+      {
+        status: data.status,
+        promotedTo: data.promotedTo,
+        conduct: data.conduct,
+        attitude: data.attitude,
+        interest: data.interest,
+        remarks: data.remarks,
+      },
+      t
+    );
+  });
+};
+
+// KG assessment upsert — scoped per (student, termId, class, category, assessment)
+// so the parallel per-key saves NEVER wipe each other (the old code destroyed ALL
+// of the student's KG rows for the term on every call). 0 scores are valid.
 const createKGResult = async (data) => {
-  // const currentYear = new Date().getFullYear();
-  // const startDate = moment(`${currentYear}-01-01`, "YYYY-MM-DD").format();
-  // const endDate = moment(`${currentYear}-12-31`, "YYYY-MM-DD").format();
+  const termId = await resolveTermId(data);
+  const category = data?.category ? `${data.category}`.toUpperCase() : null;
 
-  // console.info(data)
-  const activeTerm = await getTerm();
-
-  await KgAssessment.destroy({
-    where: {
+  return await sequelize.transaction(async (t) => {
+    const where = {
       studentId: data?.studentId,
       class: data?.class,
+      termId,
+      category,
+      assessment: data?.assessment,
+    };
+    const payload = {
+      ...where,
       term: data?.term,
-      termId: data?.termId || activeTerm?.termId,
-      // date: {
-      //   [Op.gte]: startDate,
-      //   [Op.lte]: endDate,
-      // },
-    },
+      satisfactory: data?.satisfactory,
+      improved: data?.improved,
+      needsImprovement: data?.needsImprovement,
+      unsatisfactory: data?.unsatisfactory,
+      notApplicable: data?.notApplicable,
+      date: new Date(),
+      classScorePercentage: data?.classScorePercentage ?? null,
+      examScorePercentage: data?.examScorePercentage ?? null,
+      classScore: data?.classScore,
+      examScore: data?.examScore,
+      totalScore: data?.totalScore,
+      promoted: data?.promoted,
+    };
+
+    const existing = await KgAssessment.findOne({ where, transaction: t });
+    if (existing) {
+      await KgAssessment.update(payload, {
+        where: { kgAssessmentId: existing.kgAssessmentId },
+        transaction: t,
+      });
+      return KgAssessment.findByPk(existing.kgAssessmentId, { transaction: t });
+    }
+    return KgAssessment.create(payload, { transaction: t });
   });
-
-  //add term ids to assessments
-
-  const response = await KgAssessment.create({
-    studentId: data?.studentId, //
-    assessment: data?.assessment, //
-    category: data?.category.toUpperCase(), //
-    satisfactory: data?.satisfactory, //
-    improved: data?.improved, //
-    needsImprovement: data?.needsImprovement, //
-    unsatisfactory: data?.unsatisfactory, //
-    notApplicable: data?.notApplicable, 
-    term: data?.term, //
-    termId: data?.termId || activeTerm?.termId, //
-    class: data?.class, //
-    date: Date.now(),
-    classScorePercentage: data?.classScorePercentage || null, //
-    examScorePercentage: data?.examScorePercentage || null, //
-    classScore: data?.classScore, //
-    examScore: data?.examScore, //
-    totalScore: data?.totalScore, //
-    promoted: data?.promoted, //
-  });
-
-  return response;
 };
 
+// Delete a student's result set for a class+term. Requires the full scope so it
+// can't delete more than intended; runs atomically.
 const removeResult = async (data) => {
+  const termId = await resolveTermId(data);
+  if (!data?.studentId || !data?.class || termId == null) {
+    throw new AppError("studentId, class and term are required to delete a result", 400);
+  }
 
-  const activeTerm = await getTerm();
-
-  const response = await Promise.all([
-    StudentMarks.destroy({
-      where: {
-        studentId: data?.studentId,
-        class: data?.class,
-        term: data?.term,
-        termId: data?.termId || activeTerm?.termId,
-        // date: {
-        //   [Op.like]: `%${data?.date}%`,
-        // },
-      },
-    }),
-    StudentResult.destroy({
-      where: {
-        studentId: data?.studentId,
-        class: data?.class,
-        term: data?.term,
-        // date: {
-        //   [Op.like]: `%${data?.date}%`,
-        // },
-        termId: data?.termId || activeTerm?.termId, 
-      },
-    }),
-    KgAssessment.destroy({
-      where: {
-        studentId: data?.studentId,
-        class: data?.class,
-        term: data?.term,
-        termId: data?.termId || activeTerm?.termId,
-      },
-    }),
-  ]);
-
-  return response;
+  return await sequelize.transaction(async (t) => {
+    const scope = { studentId: data.studentId, class: data.class, termId };
+    const [marks, result, kg] = await Promise.all([
+      StudentMarks.destroy({ where: scope, transaction: t }),
+      StudentResult.destroy({ where: scope, transaction: t }),
+      KgAssessment.destroy({ where: scope, transaction: t }),
+    ]);
+    return { marks, result, kg };
+  });
 };
 
-
+// --------------------------- reads (unchanged shapes) ----------------------
 
 const getClassMarks = async (data) => {
-  // const activeTerm = await getTerm();
-
   const query = `
       SELECT
       student_marks_id AS studentMarksId,
@@ -190,12 +392,12 @@ const getClassMarks = async (data) => {
       term_id AS termId,
       date,
       (
-        SELECT COUNT(*) + 1 
+        SELECT COUNT(*) + 1
         FROM \`dbo.Student_marks\` s
         WHERE s.class = \`dbo.Student_marks\`.class
           AND s.term = \`dbo.Student_marks\`.term
           AND s.term_id = \`dbo.Student_marks\`.term_id
-          AND s.subject_id = \`dbo.Student_marks\`.subject_id 
+          AND s.subject_id = \`dbo.Student_marks\`.subject_id
           AND s.total_score > \`dbo.Student_marks\`.total_score
       ) AS subjectPosition
     FROM
@@ -204,19 +406,11 @@ const getClassMarks = async (data) => {
       class = ?
       AND term_id = ?
       `;
-      // WHERE
-      //   date LIKE CONCAT('%', ?, '%')
-      //   AND class = ?
-      //   AND term = ?
-
   const replacements = [data.class, data.term];
-
-  // const response = await sequelize.query(query, { type: sequelize.QueryTypes.SELECT });
   const results = await sequelize.query(query, {
     type: sequelize.QueryTypes.SELECT,
-    replacements
+    replacements,
   });
-
   return results;
 };
 
@@ -224,26 +418,14 @@ const getClassResult = async (data) => {
   const response = await StudentResult.findAll({
     attributes: {
       include: [
-        [
-          sequelize.literal("RANK() OVER (ORDER BY raw_score DESC)"),
-          "position",
-        ],
+        [sequelize.literal("RANK() OVER (ORDER BY raw_score DESC)"), "position"],
       ],
     },
     where: {
       class: data?.class,
       termId: data?.term,
-      // [Op.and]: [sequelize.literal(`date LIKE '%${data?.year}%'`)],
     },
-    // where: {
-    //   class: data?.class,
-    //   term: data?.term,
-    //   [Op.and]: [sequelize.literal(`date LIKE '%${data?.year}%'`)],
-    // },
   });
-
-  
-
   return response;
 };
 
@@ -251,15 +433,11 @@ const getOneStudentKGResult = async (data) => {
   const response = await KgAssessment.findAll({
     where: {
       class: data?.class,
-      // term: data?.term,
       termId: data?.term,
-      // [Op.and]: [sequelize.literal(`date LIKE '%${data?.year}%'`)],
       studentId: data?.studentId,
     },
-    raw: true
+    raw: true,
   });
-
-
   return response;
 };
 
@@ -267,14 +445,10 @@ const getKGResultByClassAndTerm = async (data) => {
   const response = await KgAssessment.findAll({
     where: {
       class: data?.class,
-      // term: data?.term,
       termId: data?.term,
-      // [Op.and]: [sequelize.literal(`date LIKE '%${data?.year}%'`)]
     },
-    raw: true
+    raw: true,
   });
-
-
   return response;
 };
 
@@ -282,23 +456,15 @@ const getOneStudentResult = async (data) => {
   const response = await StudentResult.findAll({
     attributes: {
       include: [
-        [
-          sequelize.literal("RANK() OVER (ORDER BY raw_score DESC)"),
-          "position",
-        ],
+        [sequelize.literal("RANK() OVER (ORDER BY raw_score DESC)"), "position"],
       ],
     },
     where: {
       class: data?.class,
-      // term: data?.term,
       termId: data?.term,
-      // [Op.and]: [sequelize.literal(`date LIKE '%${data?.year}%'`)],
       studentId: data?.studentId,
     },
   });
-
-  // console.log(response)
-
   return response;
 };
 
@@ -319,12 +485,12 @@ const getOneStudentMarks = async (data) => {
       term_id AS termId,
       date,
       (
-        SELECT COUNT(*) + 1 
+        SELECT COUNT(*) + 1
         FROM \`dbo.Student_marks\` s
         WHERE s.class = \`dbo.Student_marks\`.class
           AND s.term = \`dbo.Student_marks\`.term
           AND s.term_id = \`dbo.Student_marks\`.term_id
-          AND s.subject_id = \`dbo.Student_marks\`.subject_id 
+          AND s.subject_id = \`dbo.Student_marks\`.subject_id
           AND s.total_score > \`dbo.Student_marks\`.total_score
       ) AS subjectPosition
     FROM
@@ -334,25 +500,20 @@ const getOneStudentMarks = async (data) => {
       AND term_id = ?
       AND student_id = ?;
   `;
-
-  // const response = await sequelize.query(query, { type: sequelize.QueryTypes.SELECT });
   const replacements = [data.class, data.term, data.studentId];
-  // console.log(replacements)
-
   const results = await sequelize.query(query, {
     type: sequelize.QueryTypes.SELECT,
-    replacements
+    replacements,
   });
-
   return results;
 };
 
 const getResults = async (indexNumber) => {
   const query = `
-    SELECT 
-    \`dbo.Subject\`.name AS name1, 
-        exam_score_percentage, 
-        class_score_percentage, 
+    SELECT
+    \`dbo.Subject\`.name AS name1,
+        exam_score_percentage,
+        class_score_percentage,
         total_score,
         remarks,
         term,
@@ -360,16 +521,16 @@ const getResults = async (indexNumber) => {
         DATE_FORMAT(date, '%Y') AS year,
         section,
         (
-            SELECT COUNT(*) + 1 
+            SELECT COUNT(*) + 1
             FROM \`dbo.Student_marks\` s
             WHERE s.class=\`dbo.Student_marks\`.class
             AND s.term=\`dbo.Student_marks\`.term
             AND s.term_id=\`dbo.Student_marks\`.term_id
-            AND s.subject_id=\`dbo.Student_marks\`.subject_id 
+            AND s.subject_id=\`dbo.Student_marks\`.subject_id
             AND s.total_score > \`dbo.Student_marks\`.total_score
         ) AS subject_position
     FROM \`dbo.Student_marks\`
-    LEFT JOIN \`dbo.Subject\` ON \`dbo.Student_marks\`.subject_id=\`dbo.Subject\`.subject_id 
+    LEFT JOIN \`dbo.Subject\` ON \`dbo.Student_marks\`.subject_id=\`dbo.Subject\`.subject_id
     LEFT JOIN \`dbo.Class\` ON \`dbo.Student_marks\`.class = \`dbo.Class\`.name
     WHERE student_id = :indexNumber
     ORDER BY term_id DESC, class ASC, year DESC, name1 ASC`;
@@ -382,32 +543,32 @@ const getResults = async (indexNumber) => {
 };
 
 const getNurseryResults = async (indexNumber) => {
+  // BE-W11: use MySQL DATE_FORMAT (was MSSQL FORMAT(date,'yyyy'), invalid in MySQL).
   const results = await KgAssessment.findAll({
     where: {
       student_id: indexNumber,
     },
     attributes: {
-      include: [[sequelize.literal(`FORMAT(date, 'yyyy')`), "formatted_date"]],
+      include: [[sequelize.literal(`DATE_FORMAT(date, '%Y')`), "formatted_date"]],
     },
   });
-
   return results;
 };
 
 const getResultDetails = async (indexNumber) => {
   const query = `
-    SELECT 
+    SELECT
     *,
-    (SELECT COUNT(*) + 1 FROM \`dbo.Student_result\` s 
+    (SELECT COUNT(*) + 1 FROM \`dbo.Student_result\` s
       WHERE s.class = \`dbo.Student_result\`.class
       AND s.term = \`dbo.Student_result\`.term
       AND s.term_id=\`dbo.Student_result\`.term_id
       AND s.raw_score > \`dbo.Student_result\`.raw_score
     ) AS position,
-    (SELECT section FROM \`dbo.Class\` c 
+    (SELECT section FROM \`dbo.Class\` c
       WHERE c.name = \`dbo.Student_result\`.class
     ) AS section
-    FROM \`dbo.Student_result\` 
+    FROM \`dbo.Student_result\`
     WHERE student_id = :indexNumber
     ORDER BY term_id DESC, class ASC, date DESC`;
 
@@ -416,114 +577,6 @@ const getResultDetails = async (indexNumber) => {
     type: sequelize.QueryTypes.SELECT,
   });
   return results;
-};
-
-// Bulk insertion function for multiple subjects with transaction support
-const bulkCreateMarksResult = async (marksData, studentInfo) => {
-  const activeTerm = await getTerm();
-  const transaction = await sequelize.transaction();
-  
-  try {
-    // Get all subject IDs that will be updated
-    const subjectIds = marksData
-      .filter(mark => mark.classMark && mark.examMark)
-      .map(mark => mark.subjectId);
-    
-    if (subjectIds.length === 0) {
-      await transaction.rollback();
-      return [];
-    }
-
-    // Delete existing records for these specific subjects only
-    await StudentMarks.destroy({
-      where: {
-        studentId: studentInfo.studentId,
-        subjectId: {
-          [Op.in]: subjectIds
-        },
-        class: studentInfo.class,
-        term: studentInfo.term,
-        termId: studentInfo.termId || activeTerm?.termId,
-      },
-      transaction
-    });
-
-    // Prepare bulk insert data
-    const bulkData = marksData
-      .filter(mark => mark.classMark && mark.examMark)
-      .map(mark => ({
-        studentId: studentInfo.studentId,
-        subjectId: mark.subjectId,
-        examScore: mark.examMark,
-        classScore: mark.classMark,
-        classScorePercentage: mark.classP,
-        examScorePercentage: mark.examP,
-        totalScore: mark.total,
-        remarks: mark.remark,
-        class: studentInfo.class,
-        term: studentInfo.term,
-        termId: studentInfo.termId || activeTerm?.termId,
-        date: new Date(),
-      }));
-
-    // Bulk insert all records
-    const results = await StudentMarks.bulkCreate(bulkData, { transaction });
-    
-    await transaction.commit();
-    return results;
-  } catch (error) {
-    await transaction.rollback();
-    throw error;
-  }
-};
-
-// Upsert function for single subject marks - updates if exists, creates if not
-const upsertMarksResult = async (data) => {
-  if (!data.classMark || !data.examMark) {
-    return "";
-  }
-
-  const activeTerm = await getTerm();
-  const termId = data?.termId || activeTerm?.termId;
-  
-  // Try to find existing record
-  const existingRecord = await StudentMarks.findOne({
-    where: {
-      studentId: data?.studentId,
-      subjectId: data?.subjectId,
-      class: data?.class,
-      term: data?.term,
-      termId: termId,
-    }
-  });
-
-  const markData = {
-    studentId: data?.studentId,
-    subjectId: data?.subjectId,
-    examScore: data?.examMark,
-    classScore: data?.classMark,
-    classScorePercentage: data?.classP,
-    examScorePercentage: data?.examP,
-    totalScore: data?.total,
-    remarks: data?.remark,
-    class: data?.class,
-    term: data?.term,
-    termId: termId,
-    date: new Date(),
-  };
-
-  if (existingRecord) {
-    // Update existing record
-    await StudentMarks.update(markData, {
-      where: {
-        studentMarksId: existingRecord.studentMarksId
-      }
-    });
-    return StudentMarks.findByPk(existingRecord.studentMarksId);
-  } else {
-    // Create new record
-    return await StudentMarks.create(markData);
-  }
 };
 
 export {
@@ -542,4 +595,5 @@ export {
   removeResult,
   bulkCreateMarksResult,
   upsertMarksResult,
+  saveResult,
 };

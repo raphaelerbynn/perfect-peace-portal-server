@@ -91,8 +91,9 @@ Salary.hasMany(Tax, { as: "tax", foreignKey: "taxId" });
 StudentMarks.belongsTo(Student, { as: "student", foreignKey: "studentId" });
 Student.hasMany(StudentMarks, { as: "studentMarks", foreignKey: "studentId" });
 
-StudentMarks.belongsTo(Class, { as: "class_", foreignKey: "studentId" });
-Class.hasMany(StudentMarks, { as: "studentMarks", foreignKey: "studentId" });
+// BE-W5: removed the bogus StudentMarks<->Class association that joined on
+// `studentId` (it returned wrong rows). StudentMarks links to a class by the
+// `class` name string; no Sequelize association is needed (reads use raw SQL).
 
 Teacher.belongsTo(Class, { as: "class_", foreignKey: "classId" });
 Class.hasOne(Teacher, { as: "teacher", foreignKey: "classId" });

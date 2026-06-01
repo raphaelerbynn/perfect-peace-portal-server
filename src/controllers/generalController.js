@@ -78,6 +78,7 @@ import {
   getKGResultByClassAndTerm,
   bulkCreateMarksResult,
   upsertMarksResult,
+  saveResult,
 } from "../services/results.js";
 import {
   createStaff,
@@ -183,11 +184,16 @@ const fetchAllStaff = async (req, res, next) => {
 
 const fetchClassMarks = async (req, res, next) => {
   const values = req.query;
+  if (!values?.class) {
+    return next(new AppError("Missing required parameter: class", 400));
+  }
+  if (!values?.term) {
+    return next(new AppError("Missing required parameter: term", 400));
+  }
   try {
     const data = await getClassMarks(values);
     res.json(data);
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
@@ -269,6 +275,12 @@ const closeTerm = async (req, res, next) => {
 
 const fetchClassResult = async (req, res, next) => {
   const values = req.query;
+  if (!values?.class) {
+    return next(new AppError("Missing required parameter: class", 400));
+  }
+  if (!values?.term) {
+    return next(new AppError("Missing required parameter: term", 400));
+  }
   try {
     const results = await getClassResult(values);
     // console.log(results);
@@ -292,13 +304,18 @@ const fetchClassResult = async (req, res, next) => {
 
     res.json(data);
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
 
 const fetchClassKGResult = async (req, res, next) => {
   const values = req.query;
+  if (!values?.class) {
+    return next(new AppError("Missing required parameter: class", 400));
+  }
+  if (!values?.term) {
+    return next(new AppError("Missing required parameter: term", 400));
+  }
   try {
     const data = await getKGResultByClassAndTerm(values);
 
@@ -321,25 +338,41 @@ const fetchClassKGResult = async (req, res, next) => {
 
     res.json(Object.values(results));
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
 
 const fetchOneKGStudentResult = async (req, res, next) => {
   const values = req.query;
+  if (!values?.class) {
+    return next(new AppError("Missing required parameter: class", 400));
+  }
+  if (!values?.term) {
+    return next(new AppError("Missing required parameter: term", 400));
+  }
+  if (!values?.studentId) {
+    return next(new AppError("Missing required parameter: studentId", 400));
+  }
   try {
     const result = await getOneStudentKGResult(values);
     const formattedData = transformReturningKGResult(result);
     res.json(formattedData);
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
 
 const fetchOneStudentResult = async (req, res, next) => {
   const values = req.query;
+  if (!values?.class) {
+    return next(new AppError("Missing required parameter: class", 400));
+  }
+  if (!values?.term) {
+    return next(new AppError("Missing required parameter: term", 400));
+  }
+  if (!values?.studentId) {
+    return next(new AppError("Missing required parameter: studentId", 400));
+  }
   try {
     const result = await getOneStudentResult(values);
     const marks = await getOneStudentMarks(values);
@@ -349,7 +382,6 @@ const fetchOneStudentResult = async (req, res, next) => {
       marks: marks,
     });
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
@@ -684,22 +716,12 @@ const addResult = async (req, res, next) => {
       );
     }
 
-    // Use bulk insertion for marks to prevent data loss
-    const studentInfo = {
-      studentId: values.studentId,
-      class: values.class,
-      term: values.term,
-      termId: values.termId,
-    };
-    
-    const results = await Promise.all([
-      bulkCreateMarksResult(marksData, studentInfo),
-      createResult(values)
-    ]);
+    // BE-W2: marks + observations are saved in ONE transaction (saveResult),
+    // as non-destructive upserts — a partial submit never wipes other subjects.
+    const result = await saveResult(values);
 
-    res.json(results);
+    res.json(result);
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
@@ -713,6 +735,24 @@ const addKGResult = async (req, res, next) => {
   const academicProgressData = values?.academicProgress;
 
   try {
+    // BE-W7: validate identifiers + every assessment section before iterating
+    // (a missing section previously threw "Cannot convert undefined to object").
+    if (!values?.studentId || !values?.class) {
+      throw new AppError("studentId and class are required", 400);
+    }
+    const sections = {
+      languageDevelopment: languageDevelopmentData,
+      personalDevelopment: personalDevelopmentData,
+      physicalDevelopment: physicalDevelopmentData,
+      cognitiveDevelopment: cognitiveDevelopmentData,
+      academicProgress: academicProgressData,
+    };
+    for (const [label, section] of Object.entries(sections)) {
+      if (!section || typeof section !== "object") {
+        throw new AppError(`Missing or invalid KG section: ${label}`, 400);
+      }
+    }
+
     const languageDevelopmentPromises = Object.entries(
       languageDevelopmentData
     ).map(([key, value]) =>
@@ -818,7 +858,6 @@ const addKGResult = async (req, res, next) => {
 
     res.json(results);
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
@@ -1107,7 +1146,6 @@ const deleteResult = async (req, res, next) => {
     const data = await removeResult(values);
     res.json(data);
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
@@ -1365,7 +1403,6 @@ const addSingleSubjectResult = async (req, res, next) => {
 
     res.json(result);
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
@@ -1385,7 +1422,6 @@ const upsertSingleSubjectResult = async (req, res, next) => {
 
     res.json(result);
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
