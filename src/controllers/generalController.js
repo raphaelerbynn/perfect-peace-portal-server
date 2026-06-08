@@ -275,6 +275,8 @@ const fetchClassResult = async (req, res, next) => {
     return next(new AppError("Missing required parameter: term", 400));
   }
   try {
+    // BE-1: a Class Teacher may only read their own class's results.
+    await assertClassAccess(req.user, values.class);
     const results = await getClassResult(values);
     // console.log(results);
     const marks = await getClassMarks(values);
@@ -310,6 +312,8 @@ const fetchClassKGResult = async (req, res, next) => {
     return next(new AppError("Missing required parameter: term", 400));
   }
   try {
+    // BE-1: Class Teacher scoped to their own class.
+    await assertClassAccess(req.user, values.class);
     const data = await getKGResultByClassAndTerm(values);
 
     const results = data.reduce((acc, item) => {
@@ -347,6 +351,8 @@ const fetchOneKGStudentResult = async (req, res, next) => {
     return next(new AppError("Missing required parameter: studentId", 400));
   }
   try {
+    // BE-1: Class Teacher scoped to their own class.
+    await assertClassAccess(req.user, values.class);
     const result = await getOneStudentKGResult(values);
     const formattedData = transformReturningKGResult(result);
     res.json(formattedData);
@@ -367,6 +373,8 @@ const fetchOneStudentResult = async (req, res, next) => {
     return next(new AppError("Missing required parameter: studentId", 400));
   }
   try {
+    // BE-1: Class Teacher scoped to their own class.
+    await assertClassAccess(req.user, values.class);
     const result = await getOneStudentResult(values);
     const marks = await getOneStudentMarks(values);
 
@@ -658,6 +666,9 @@ const addResult = async (req, res, next) => {
       );
     }
 
+    // BE-1: a Class Teacher may only write results for their own class.
+    await assertClassAccess(req.user, values.class);
+
     // BE-W2: marks + observations are saved in ONE transaction (saveResult),
     // as non-destructive upserts — a partial submit never wipes other subjects.
     const result = await saveResult(values);
@@ -682,6 +693,8 @@ const addKGResult = async (req, res, next) => {
     if (!values?.studentId || !values?.class) {
       throw new AppError("studentId and class are required", 400);
     }
+    // BE-1: Class Teacher scoped to their own class.
+    await assertClassAccess(req.user, values.class);
     const sections = {
       languageDevelopment: languageDevelopmentData,
       personalDevelopment: personalDevelopmentData,
@@ -1082,6 +1095,8 @@ const deleteResult = async (req, res, next) => {
   };
 
   try {
+    // BE-1: a Class Teacher may only delete results for their own class.
+    await assertClassAccess(req.user, values.class);
     const data = await removeResult(values);
     res.json(data);
   } catch (error) {
@@ -1335,6 +1350,8 @@ const updatePassword = async (req, res, next) => {
 const addSingleSubjectResult = async (req, res, next) => {
   const values = req.body;
   try {
+    // BE-1: Class Teacher scoped to their own class.
+    await assertClassAccess(req.user, values.class);
     const result = await createMarksResult({
       ...values,
       studentId: values.studentId,
@@ -1354,6 +1371,8 @@ const addSingleSubjectResult = async (req, res, next) => {
 const upsertSingleSubjectResult = async (req, res, next) => {
   const values = req.body;
   try {
+    // BE-1: Class Teacher scoped to their own class.
+    await assertClassAccess(req.user, values.class);
     const result = await upsertMarksResult({
       ...values,
       studentId: values.studentId,

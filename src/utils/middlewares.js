@@ -37,10 +37,12 @@ const makeAuthenticator = ({ requireManagement = false } = {}) => (req, res, nex
         }
 
         if (requireManagement && !user.category) {
-            // Portal tokens (student/teacher) lack a `category` claim and must
-            // never be accepted on management routes.
-            res.status(401);
-            throw Error("Invalid token");
+            // BE-3: a portal (student/teacher) token is a VALID token but lacks a
+            // `category` claim, so this is an authorization failure (403), not an
+            // authentication failure (401). Returning 401 wrongly told portal
+            // clients to force a re-login.
+            res.status(403);
+            throw Error("You do not have permission to perform this action");
         }
 
         req.user = user;

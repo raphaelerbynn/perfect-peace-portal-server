@@ -161,8 +161,8 @@ router.post("/add-salary-payment", FINANCE, addSalaryPayment);
 router.post("/add-feeding", FINANCE, addFeeding);
 router.post("/add-bus-fee", FINANCE, addBusFee);
 router.post("/add-extra-classes", FINANCE, addExtraClasses);
-router.post("/add-class-fee", ADMIN_ONLY, addClassFee);       // Class fees managed via Classes edit: Administrator
-router.post("/add-student-fee", ADMIN_ONLY, addStudentFee);   // Student fees managed via Students: Administrator
+router.post("/add-class-fee", FINANCE, addClassFee);       // BE-4: finance op (was ADMIN_ONLY) — Accountant manages fee amounts
+router.post("/add-student-fee", FINANCE, addStudentFee);   // BE-4: finance op (was ADMIN_ONLY)
 router.post("/add-term", ADMIN_ONLY, addTerm);
 // router.post("/ass-teachers-weekly-report", addWeeklyReport);
 router.post("/add-news", ADMIN_ONLY, addEvent);               // Events add: Administrator
@@ -174,8 +174,8 @@ router.post("/assign-salary", FINANCE, assignSalary);
 // --- Updates ---
 router.put("/update-student/:student_id", ADMIN_ONLY, updateStudent);
 router.put("/update-staff/:teacher_id", ADMIN_ONLY, updateStaff);
-router.put("/update-class-fee/:class_fee_id", ADMIN_ONLY, updateClassFee);
-router.put("/update-student-fee/:student_fee_id", ADMIN_ONLY, updateStudentFee);
+router.put("/update-class-fee/:class_fee_id", FINANCE, updateClassFee);     // BE-4: finance op (was ADMIN_ONLY)
+router.put("/update-student-fee/:student_fee_id", FINANCE, updateStudentFee); // BE-4: finance op (was ADMIN_ONLY)
 router.put("/update-class/:class_id", ADMIN_ONLY, updateClass);
 router.put("/update-term/:term_id", ADMIN_ONLY, updateTerm);
 router.put("/update-news/:news_id", ADMIN_ONLY, updateEvent);
@@ -185,8 +185,8 @@ router.put("/update-salary/:salary_id", FINANCE, updateSalary);
 router.delete("/delete-student/:student_id", ADMIN_ONLY, deleteStudent);
 router.delete("/delete-staff/:teacher_id", ADMIN_ONLY, deleteStaff);
 router.delete("/delete-class/:class_id", ADMIN_ONLY, deleteClass);
-router.delete("/delete-class-fee/:class_fee_id", ADMIN_ONLY, deleteClassFee);
-router.delete("/delete-student-fee/:student_fee_id", ADMIN_ONLY, deleteStudentFee);
+router.delete("/delete-class-fee/:class_fee_id", FINANCE, deleteClassFee);     // BE-4: finance op (was ADMIN_ONLY)
+router.delete("/delete-student-fee/:student_fee_id", FINANCE, deleteStudentFee); // BE-4: finance op (was ADMIN_ONLY)
 router.delete("/delete-result", ACADEMIC, deleteResult);
 router.delete("/delete-fee/:fee_id", FINANCE, deleteFee);
 router.delete("/delete-subject/:subject_id", ADMIN_ONLY, deleteSubject);
