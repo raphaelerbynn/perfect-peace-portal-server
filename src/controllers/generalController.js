@@ -278,10 +278,8 @@ const fetchClassResult = async (req, res, next) => {
     // BE-1: a Class Teacher may only read their own class's results.
     await assertClassAccess(req.user, values.class);
     const results = await getClassResult(values);
-    // console.log(results);
     const marks = await getClassMarks(values);
-    // console.log(marks)
-    
+
 
     const data = results.map((result) => {
       const { studentId } = result.dataValues;
@@ -523,7 +521,6 @@ const addStudent = async (req, res, next) => {
 
 const addStaff = async (req, res, next) => {
   const values = req.body;
-  // console.log(values);
   try {
     const data = await createStaff(values);
     res.json(data);
@@ -535,7 +532,6 @@ const addStaff = async (req, res, next) => {
 
 const addClass = async (req, res, next) => {
   const values = req.body;
-  // console.log(values);
   try {
     const data = await createClass(values);
     res.json(data);
@@ -592,7 +588,6 @@ const addTerm = async (req, res, next) => {
 
 const addClassFee = async (req, res, next) => {
   const values = req.body;
-  // console.log("Data::", values);
   try {
     const data = await createClassFee(values);
     res.json(data);
@@ -830,7 +825,6 @@ const addSalaryPayment = async (req, res, next) => {
 
 const addFeeding = async (req, res, next) => {
   const values = req.body;
-  // console.log(values);
   try {
     const data = await createFeeding(values);
     res.json(data);
@@ -842,7 +836,6 @@ const addFeeding = async (req, res, next) => {
 
 const addBusFee = async (req, res, next) => {
   const values = req.body;
-  // console.log(values);
   try {
     const data = await createBusFee(values);
     res.json(data);
@@ -854,7 +847,6 @@ const addBusFee = async (req, res, next) => {
 
 const addExtraClasses = async (req, res, next) => {
   const values = req.body;
-  // console.log(values);
   try {
     const data = await createExtraClasses(values);
     res.json(data);

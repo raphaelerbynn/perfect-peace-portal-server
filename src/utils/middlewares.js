@@ -72,19 +72,10 @@ const authorizeRoles = (...allowedCategories) => (req, res, next) => {
     }
 };
 
-let requestCount = 0;
-const countRequests = (req, res, next) => {
-  requestCount++;
-  next();
-};
-
 export {
     authenticateUser,
     undefinedEndpoint,
 
     authenticateManagementUser,
     authorizeRoles,
-
-    countRequests,
-    requestCount,
 }

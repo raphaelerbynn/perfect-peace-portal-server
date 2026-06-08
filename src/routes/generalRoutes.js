@@ -81,8 +81,6 @@ import {
   deleteSubject,
 } from "../controllers/subjectController.js";
 import { fetchExpenseGraph, fetchFeesGraph, fetchFeesVsExpenseGraph, fetchIncomeGraph, fetchProfitLoss } from "../controllers/graphDataController.js";
-// import students from "../../students.json" assert { type: "json" };
-// import { Class, KgAssessment, KgCalcValues, Parent, Student, StudentMarks, StudentResult, Subject, Teacher, UserAccount } from "../models/index.js";
 
 const router = Router();
 
@@ -144,7 +142,6 @@ router.get("/salary", FINANCE, fetchSalary);
 router.get("/salary/:salary_id", FINANCE, fetchOneSalary);
 router.get("/salary-payment", FINANCE, fetchSalaryPayment);
 router.get("/employee-salary", FINANCE, fetchEmployeeSalary);
-// router.get("/teachers-weekly-report", fetchWeeklyReport);
 
 // --- Creates ---
 router.post("/add-student", ADMIN_ONLY, addStudent);          // Students add: Administrator
@@ -164,7 +161,6 @@ router.post("/add-extra-classes", FINANCE, addExtraClasses);
 router.post("/add-class-fee", FINANCE, addClassFee);       // BE-4: finance op (was ADMIN_ONLY) — Accountant manages fee amounts
 router.post("/add-student-fee", FINANCE, addStudentFee);   // BE-4: finance op (was ADMIN_ONLY)
 router.post("/add-term", ADMIN_ONLY, addTerm);
-// router.post("/ass-teachers-weekly-report", addWeeklyReport);
 router.post("/add-news", ADMIN_ONLY, addEvent);               // Events add: Administrator
 
 router.post("/mark-attendance", ACADEMIC, markAttendance);

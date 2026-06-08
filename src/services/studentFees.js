@@ -160,8 +160,4 @@ const removeStudentFee = async (id) => {
   }
 };
 
-const getStudentFees = async (studentId) => {
-  return await StudentFee.findAll({ where: { studentId } });
-};
-
-export { createStudentFee, editStudentFee, removeStudentFee, getStudentFees };
+export { createStudentFee, editStudentFee, removeStudentFee };

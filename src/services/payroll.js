@@ -40,30 +40,6 @@ const getSalary = async () => {
     return await Salary.findAll({ where: { isDeleted: false } });
 };
 
-const getDeductions = async (salary_id) => {
-    return await Deductions.findAll({ where: { salaryId: salary_id } });
-};
-
-const getAllowance = async (salary_id) => {
-    return await Allowance.findAll({ where: { salaryId: salary_id } });
-};
-
-const getTax = async (salary_id) => {
-    return await Tax.findAll({ where: { salaryId: salary_id } });
-};
-
-const getOneSalary = async (id) => {
-    return await Salary.findAll({ where: { salaryId: id, isDeleted: false } });
-};
-
-const getOneDeduction = async (id) => {
-    return await Deductions.findAll({ where: { salaryId: id } });
-};
-
-const getOneAllowance = async (id) => {
-    return await Allowance.findAll({ where: { salaryId: id } });
-};
-
 // BE-1: authoritative pay structure for a salary, with TAX now applied:
 //   net = gross + allowances − deductions − tax
 // Returns null if the salary does not exist / is archived.
@@ -264,10 +240,6 @@ const updateFullSalary = async (data, id) => {
     });
 };
 
-const editSalary = (data, id) => {
-    return Salary.update(data, { where: { salaryId: id }, raw: true });
-};
-
 // BE-4: soft-delete a salary structure (it may be referenced by historical
 // payslips, which now carry their own snapshot). Archive it and null any
 // Teacher.salaryId pointing at it — all in one transaction.
@@ -279,14 +251,6 @@ const removeSalary = async (id) => {
         await Salary.update({ isDeleted: true }, { where: { salaryId: id }, transaction: t });
         return { archived: true };
     });
-};
-
-const removeDeductions = async (id, { transaction } = {}) => {
-    return await Deductions.destroy({ where: { salaryId: id }, ...(transaction ? { transaction } : {}) });
-};
-
-const removeAllowance = async (id, { transaction } = {}) => {
-    return await Allowance.destroy({ where: { salaryId: id }, ...(transaction ? { transaction } : {}) });
 };
 
 const removeSalaryPayment = async (id) => {
@@ -326,12 +290,6 @@ const _assignSalary = async (data) => {
 
 export {
     getSalary,
-    getDeductions,
-    getAllowance,
-    getTax,
-    getOneSalary,
-    getOneDeduction,
-    getOneAllowance,
     getSalaryStructure,
     getSalaryPayment,
     getEmployeeSalary,
@@ -340,11 +298,7 @@ export {
     createFullSalary,
     updateFullSalary,
 
-    editSalary,
-
     removeSalary,
-    removeDeductions,
-    removeAllowance,
     removeSalaryPayment,
 
     _assignSalary,

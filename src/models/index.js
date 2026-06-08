@@ -16,7 +16,6 @@ import Fee from "./Fee.js";
 import FeeCheck from "./FeeCheck.js";
 import FeedingFee from "./FeedingFee.js";
 import KgAssessment from "./KgAssessment.js";
-import KgCalcValues from "./KgCalcValues.js";
 import Notification from "./Notification.js";
 import Parent from "./Parent.js";
 import Salary from "./Salary.js";
@@ -26,7 +25,6 @@ import StudentMarks from "./StudentMarks.js";
 import StudentResult from "./StudentResult.js";
 import Subject from "./Subject.js";
 import Teacher from "./Teacher.js";
-import TeachersWeeklyReport from "./TeachersWeeklyReport.js";
 import TotalAttendance from "./TotalAttendance.js";
 import UserAccount from "./UserAccount.js";
 import Deductions from "./Deductions.js";
@@ -77,9 +75,6 @@ Student.hasMany(StudentFee, { as: "studentFee", foreignKey: "studentId" });
 KgAssessment.belongsTo(Student, { as: "student", foreignKey: "studentId" });
 Student.hasMany(KgAssessment, { as: "kgAssessments", foreignKey: "studentId" });
 
-KgCalcValues.belongsTo(Student, { as: "student", foreignKey: "studentId" });
-Student.hasMany(KgCalcValues, { as: "kgCalcValues", foreignKey: "studentId" });
-
 Notification.belongsTo(Student, { as: "student", foreignKey: "studentId" });
 Student.hasMany(Notification, { as: "notifications", foreignKey: "studentId" });
 
@@ -108,15 +103,6 @@ Student.hasMany(StudentResult, {
 
 StudentMarks.belongsTo(Subject, { as: "subject", foreignKey: "subjectId" });
 Subject.hasMany(StudentMarks, { as: "studentMarks", foreignKey: "subjectId" });
-
-TeachersWeeklyReport.belongsTo(Teacher, {
-  as: "teacher",
-  foreignKey: "teacherId",
-});
-Teacher.hasMany(TeachersWeeklyReport, {
-  as: "teachersWeeklyReports",
-  foreignKey: "teacherId",
-});
 
 TotalAttendance.belongsTo(Student, { as: "student", foreignKey: "studentId" });
 Student.hasMany(TotalAttendance, {
@@ -150,7 +136,6 @@ export {
   Fee,
   FeedingFee,
   KgAssessment,
-  KgCalcValues,
   Notification,
   Parent,
   Salary,
@@ -161,7 +146,6 @@ export {
   StudentFee,
   Subject,
   Teacher,
-  TeachersWeeklyReport,
   TotalAttendance,
   UserAccount,
   FeeCheck,

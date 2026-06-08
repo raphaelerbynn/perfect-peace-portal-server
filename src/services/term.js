@@ -1,6 +1,6 @@
 import { Op } from "sequelize";
 import sequelize from "../config/database.js";
-import { KgAssessment, KgCalcValues, StudentMarks, StudentResult, Term } from "../models/index.js";
+import { Term } from "../models/index.js";
 import { promoteStudents } from "./test.js";
 import { AppError } from "../utils/errorHandling.js";
 
@@ -55,8 +55,6 @@ const getTerm = async () => {
 }
 
 const getTerms = async () => {
-    // const result = await updateDecember2024TermIds()
-    // console.log("⭕result", result)
     const response = await Term.findAll({ raw: true });
     return response;
 }
@@ -145,42 +143,6 @@ const editTerm = async (data, id) => {
         return response;
     });
 }
-
-const updateDecember2024TermIds = async () => {
-  try {
-    const december2024Condition = {
-        where: {
-            date: {
-              [Op.between]: [
-                new Date('2024-12-01'),
-                new Date('2024-12-31 23:59:59')
-              ]
-            }
-          }
-    };
-
-
-    // Update StudentMarks
-    const marksResult = await KgAssessment.update(
-      { termId: 5 },
-      december2024Condition
-    );
-
-    // Update StudentResult
-    // const resultsResult = await KgCalcValues.update(
-    //   { termId: 5 },
-    //   december2024Condition
-    // );
-    // console.log("⭕resultsResult", resultsResult)
-    return {
-      marksUpdated: marksResult[0] // First element contains number of affected rows
-    //   resultsUpdated: resultsResult[0]
-    };
-  } catch (error) {
-    console.error('Error updating term_ids:', error);
-    throw error;
-  }
-};
 
 export {
     getTerm,
