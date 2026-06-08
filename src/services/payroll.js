@@ -71,8 +71,8 @@ const getSalaryPayment = async (data) => {
             attributes: { exclude: ["password"] },
             where: {
                 [Op.or]: [
-                    { fName: { [Op.like]: `%${data.query}%` } },
-                    { lName: { [Op.like]: `%${data.query}%` } },
+                    { fName: { [Op.iLike]: `%${data.query}%` } },
+                    { lName: { [Op.iLike]: `%${data.query}%` } },
                 ],
             },
         });

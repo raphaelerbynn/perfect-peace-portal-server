@@ -70,7 +70,9 @@ export const getStudents = async (options = {}) => {
         if (cleaned.length > 0) {
             const tokens = cleaned.split(" ");
             where[Op.and] = tokens.map((token) => {
-                const like = { [Op.like]: `%${token.toLowerCase()}%` };
+                // Op.iLike = case-insensitive match on Postgres (MySQL LIKE was
+                // case-insensitive by default; Postgres LIKE is not).
+                const like = { [Op.iLike]: `%${token.toLowerCase()}%` };
                 return {
                     [Op.or]: [
                         { fName: like },

@@ -379,32 +379,32 @@ const removeResult = async (data) => {
 const getClassMarks = async (data) => {
   const query = `
       SELECT
-      student_marks_id AS studentMarksId,
-      subject_id AS subjectId,
-      student_id AS studentId,
-      exam_score AS examScore,
-      exam_score_percentage AS examScorePercentage,
-      class_score AS classScore,
-      class_score_percentage AS classScorePercentage,
-      total_score AS totalScore,
+      student_marks_id AS "studentMarksId",
+      subject_id AS "subjectId",
+      student_id AS "studentId",
+      exam_score AS "examScore",
+      exam_score_percentage AS "examScorePercentage",
+      class_score AS "classScore",
+      class_score_percentage AS "classScorePercentage",
+      total_score AS "totalScore",
       class,
       remarks,
-      term_id AS termId,
+      term_id AS "termId",
       date,
       (
         SELECT COUNT(*) + 1
-        FROM \`dbo.Student_marks\` s
-        WHERE s.class = \`dbo.Student_marks\`.class
-          AND s.term = \`dbo.Student_marks\`.term
-          AND s.term_id = \`dbo.Student_marks\`.term_id
-          AND s.subject_id = \`dbo.Student_marks\`.subject_id
-          AND s.total_score > \`dbo.Student_marks\`.total_score
-      ) AS subjectPosition
+        FROM "dbo"."Student_marks" s
+        WHERE s.class = sm.class
+          AND s.term = sm.term
+          AND s.term_id = sm.term_id
+          AND s.subject_id = sm.subject_id
+          AND s.total_score > sm.total_score
+      ) AS "subjectPosition"
     FROM
-      \`dbo.Student_marks\`
+      "dbo"."Student_marks" sm
     WHERE
-      class = ?
-      AND term_id = ?
+      sm.class = ?
+      AND sm.term_id = ?
       `;
   const replacements = [data.class, data.term];
   const results = await sequelize.query(query, {
@@ -471,34 +471,34 @@ const getOneStudentResult = async (data) => {
 const getOneStudentMarks = async (data) => {
   const query = `
       SELECT
-      student_marks_id AS studentMarksId,
-      subject_id AS subjectId,
-      student_id AS studentId,
-      exam_score AS examScore,
-      exam_score_percentage AS examScorePercentage,
-      class_score AS classScore,
-      class_score_percentage AS classScorePercentage,
-      total_score AS totalScore,
+      student_marks_id AS "studentMarksId",
+      subject_id AS "subjectId",
+      student_id AS "studentId",
+      exam_score AS "examScore",
+      exam_score_percentage AS "examScorePercentage",
+      class_score AS "classScore",
+      class_score_percentage AS "classScorePercentage",
+      total_score AS "totalScore",
       class,
       remarks,
       term,
-      term_id AS termId,
+      term_id AS "termId",
       date,
       (
         SELECT COUNT(*) + 1
-        FROM \`dbo.Student_marks\` s
-        WHERE s.class = \`dbo.Student_marks\`.class
-          AND s.term = \`dbo.Student_marks\`.term
-          AND s.term_id = \`dbo.Student_marks\`.term_id
-          AND s.subject_id = \`dbo.Student_marks\`.subject_id
-          AND s.total_score > \`dbo.Student_marks\`.total_score
-      ) AS subjectPosition
+        FROM "dbo"."Student_marks" s
+        WHERE s.class = sm.class
+          AND s.term = sm.term
+          AND s.term_id = sm.term_id
+          AND s.subject_id = sm.subject_id
+          AND s.total_score > sm.total_score
+      ) AS "subjectPosition"
     FROM
-      \`dbo.Student_marks\`
+      "dbo"."Student_marks" sm
     WHERE
-      class = ?
-      AND term_id = ?
-      AND student_id = ?;
+      sm.class = ?
+      AND sm.term_id = ?
+      AND sm.student_id = ?;
   `;
   const replacements = [data.class, data.term, data.studentId];
   const results = await sequelize.query(query, {
@@ -511,29 +511,29 @@ const getOneStudentMarks = async (data) => {
 const getResults = async (indexNumber) => {
   const query = `
     SELECT
-    \`dbo.Subject\`.name AS name1,
-        exam_score_percentage,
-        class_score_percentage,
-        total_score,
-        remarks,
-        term,
-        class,
-        DATE_FORMAT(date, '%Y') AS year,
-        section,
+    subj.name AS name1,
+        sm.exam_score_percentage,
+        sm.class_score_percentage,
+        sm.total_score,
+        sm.remarks,
+        sm.term,
+        sm.class,
+        to_char(sm.date, 'YYYY') AS year,
+        cls.section,
         (
             SELECT COUNT(*) + 1
-            FROM \`dbo.Student_marks\` s
-            WHERE s.class=\`dbo.Student_marks\`.class
-            AND s.term=\`dbo.Student_marks\`.term
-            AND s.term_id=\`dbo.Student_marks\`.term_id
-            AND s.subject_id=\`dbo.Student_marks\`.subject_id
-            AND s.total_score > \`dbo.Student_marks\`.total_score
+            FROM "dbo"."Student_marks" s
+            WHERE s.class = sm.class
+            AND s.term = sm.term
+            AND s.term_id = sm.term_id
+            AND s.subject_id = sm.subject_id
+            AND s.total_score > sm.total_score
         ) AS subject_position
-    FROM \`dbo.Student_marks\`
-    LEFT JOIN \`dbo.Subject\` ON \`dbo.Student_marks\`.subject_id=\`dbo.Subject\`.subject_id
-    LEFT JOIN \`dbo.Class\` ON \`dbo.Student_marks\`.class = \`dbo.Class\`.name
-    WHERE student_id = :indexNumber
-    ORDER BY term_id DESC, class ASC, year DESC, name1 ASC`;
+    FROM "dbo"."Student_marks" sm
+    LEFT JOIN "dbo"."Subject" subj ON sm.subject_id = subj.subject_id
+    LEFT JOIN "dbo"."Class" cls ON sm.class = cls.name
+    WHERE sm.student_id = :indexNumber
+    ORDER BY sm.term_id DESC, sm.class ASC, year DESC, name1 ASC`;
 
   const results = await sequelize.query(query, {
     replacements: { indexNumber },
@@ -543,13 +543,14 @@ const getResults = async (indexNumber) => {
 };
 
 const getNurseryResults = async (indexNumber) => {
-  // BE-W11: use MySQL DATE_FORMAT (was MSSQL FORMAT(date,'yyyy'), invalid in MySQL).
+  // Postgres: extract the year with to_char (was MySQL DATE_FORMAT, before that
+  // MSSQL FORMAT — both invalid on Postgres).
   const results = await KgAssessment.findAll({
     where: {
       student_id: indexNumber,
     },
     attributes: {
-      include: [[sequelize.literal(`DATE_FORMAT(date, '%Y')`), "formatted_date"]],
+      include: [[sequelize.literal(`to_char("date", 'YYYY')`), "formatted_date"]],
     },
   });
   return results;
@@ -558,19 +559,19 @@ const getNurseryResults = async (indexNumber) => {
 const getResultDetails = async (indexNumber) => {
   const query = `
     SELECT
-    *,
-    (SELECT COUNT(*) + 1 FROM \`dbo.Student_result\` s
-      WHERE s.class = \`dbo.Student_result\`.class
-      AND s.term = \`dbo.Student_result\`.term
-      AND s.term_id=\`dbo.Student_result\`.term_id
-      AND s.raw_score > \`dbo.Student_result\`.raw_score
+    sr.*,
+    (SELECT COUNT(*) + 1 FROM "dbo"."Student_result" s
+      WHERE s.class = sr.class
+      AND s.term = sr.term
+      AND s.term_id = sr.term_id
+      AND s.raw_score > sr.raw_score
     ) AS position,
-    (SELECT section FROM \`dbo.Class\` c
-      WHERE c.name = \`dbo.Student_result\`.class
+    (SELECT c.section FROM "dbo"."Class" c
+      WHERE c.name = sr.class
     ) AS section
-    FROM \`dbo.Student_result\`
-    WHERE student_id = :indexNumber
-    ORDER BY term_id DESC, class ASC, date DESC`;
+    FROM "dbo"."Student_result" sr
+    WHERE sr.student_id = :indexNumber
+    ORDER BY sr.term_id DESC, sr.class ASC, sr.date DESC`;
 
   const results = await sequelize.query(query, {
     replacements: { indexNumber },

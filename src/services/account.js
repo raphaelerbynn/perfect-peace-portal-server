@@ -1,5 +1,5 @@
 import { AccountCategory, BusFee, Expense, ExtraClasses, FeedingFee, Income } from "../models/index.js";
-import { Op, literal } from "sequelize";
+import { Op } from "sequelize";
 import { AppError } from "../utils/errorHandling.js";
 
 // BE-3: money is whole-cedi (DECIMAL(18,0)). Require a present, finite, NON-
@@ -76,29 +76,14 @@ const createBusFee = async (data) => {
 };
 
 const getFeeding = async (data) => {
-  if (data.all === "true") {
+  if (data.all === "true" || !data.startDate) {
     return await FeedingFee.findAll();
-  } else if (data.startDate === data.endDate) {
-    const startDate = new Date(data.startDate).toISOString();
-    return await FeedingFee.findAll({
-      where: {
-        date: {
-          [Op.eq]: literal(`CONVERT(DATE, '${startDate}', 126)`),
-        },
-      },
-    });
-  } else {
-    const startDate = new Date(data.startDate).toISOString();
-    const endDate = new Date(data.endDate).toISOString();
-    return await FeedingFee.findAll({
-      where: {
-        date: {
-          [Op.gte]: literal(`CONVERT(DATE, '${startDate}', 126)`),
-          [Op.lte]: literal(`CONVERT(DATE, '${endDate}', 126)`),
-        },
-      },
-    });
   }
+  // Postgres: parameterized inclusive range (replaces MySQL CONVERT(...) literal).
+  const dateWhere = buildDateWhere(data);
+  return await FeedingFee.findAll({
+    where: dateWhere ? { date: dateWhere } : {},
+  });
 };
 
 // BE-1/BE-2/BE-4: parameterized inclusive range (no SQL string interpolation;
@@ -130,55 +115,23 @@ const getIncome = async (data) => {
 };
 
 const getExtraClasses = async (data) => {
-  if (data.all === "true") {
+  if (data.all === "true" || !data.startDate) {
     return await ExtraClasses.findAll();
-  } else if (data.startDate === data.endDate) {
-    const startDate = new Date(data.startDate).toISOString();
-    return await ExtraClasses.findAll({
-      where: {
-        date: {
-          [Op.eq]: literal(`CONVERT(DATE, '${startDate}', 126)`),
-        },
-      },
-    });
-  } else {
-    const startDate = new Date(data.startDate).toISOString();
-    const endDate = new Date(data.endDate).toISOString();
-    return await ExtraClasses.findAll({
-      where: {
-        date: {
-          [Op.gte]: literal(`CONVERT(DATE, '${startDate}', 126)`),
-          [Op.lte]: literal(`CONVERT(DATE, '${endDate}', 126)`),
-        },
-      },
-    });
   }
+  const dateWhere = buildDateWhere(data);
+  return await ExtraClasses.findAll({
+    where: dateWhere ? { date: dateWhere } : {},
+  });
 };
 
 const getBusFee = async (data) => {
-  if (data.all === "true") {
+  if (data.all === "true" || !data.startDate) {
     return await BusFee.findAll();
-  } else if (data.startDate === data.endDate) {
-    const startDate = new Date(data.startDate).toISOString();
-    return await BusFee.findAll({
-      where: {
-        date: {
-          [Op.eq]: literal(`CONVERT(DATE, '${startDate}', 126)`),
-        },
-      },
-    });
-  } else {
-    const startDate = new Date(data.startDate).toISOString();
-    const endDate = new Date(data.endDate).toISOString();
-    return await BusFee.findAll({
-      where: {
-        date: {
-          [Op.gte]: literal(`CONVERT(DATE, '${startDate}', 126)`),
-          [Op.lte]: literal(`CONVERT(DATE, '${endDate}', 126)`),
-        },
-      },
-    });
   }
+  const dateWhere = buildDateWhere(data);
+  return await BusFee.findAll({
+    where: dateWhere ? { date: dateWhere } : {},
+  });
 };
 
 const removeFeeding = async (id) => {

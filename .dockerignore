@@ -1,0 +1,17 @@
+node_modules
+dist
+npm-debug.log
+yarn-error.log
+.git
+.gitignore
+.env
+.env.*
+*.md
+.vscode
+.idea
+coverage
+.DS_Store
+# keep secrets/credentials out of the image — pass them at runtime via env
+credentials.json
+token.json
+src/scripts/backfillPasswordHash.js

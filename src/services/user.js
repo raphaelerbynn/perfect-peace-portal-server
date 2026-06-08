@@ -155,28 +155,28 @@ const getTeacherDetails = async (id) => {
     // Explicitly list Teacher columns (excluding `password`) so the secret is
     // never returned to clients via this endpoint. Class columns are joined in full.
     const query = `SELECT
-            \`dbo.Teacher\`.teacher_id,
-            \`dbo.Teacher\`.f_name,
-            \`dbo.Teacher\`.l_name,
-            \`dbo.Teacher\`.gender,
-            \`dbo.Teacher\`.phone,
-            \`dbo.Teacher\`.email,
-            \`dbo.Teacher\`.address,
-            \`dbo.Teacher\`.class_id,
-            \`dbo.Teacher\`.category,
-            \`dbo.Teacher\`.salary_id,
-            \`dbo.Teacher\`.staff_position,
-            \`dbo.Teacher\`.ssnit_number,
-            \`dbo.Teacher\`.tin_number,
-            \`dbo.Teacher\`.bank,
-            \`dbo.Teacher\`.account_number,
-            \`dbo.Teacher\`.date_updated,
-            \`dbo.Teacher\`.date_registered,
-            \`dbo.Class\`.*
-        FROM \`dbo.Teacher\`
+            t.teacher_id,
+            t.f_name,
+            t.l_name,
+            t.gender,
+            t.phone,
+            t.email,
+            t.address,
+            t.class_id,
+            t.category,
+            t.salary_id,
+            t.staff_position,
+            t.ssnit_number,
+            t.tin_number,
+            t.bank,
+            t.account_number,
+            t.date_updated,
+            t.date_registered,
+            c.*
+        FROM "dbo"."Teacher" t
     LEFT JOIN
-       \`dbo.Class\` ON \`dbo.Teacher\`.teacher_id = \`dbo.Class\`.teacher_id
-         WHERE \`dbo.Teacher\`.teacher_id = :id`;
+       "dbo"."Class" c ON t.teacher_id = c.teacher_id
+         WHERE t.teacher_id = :id`;
 
     const results = await sequelize.query(query, {
         replacements: { id },
