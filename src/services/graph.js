@@ -1,6 +1,7 @@
 import { Op } from "sequelize";
 import sequelize from "../config/database.js";
 import { BusFee, Expense, ExtraClasses, Fee, FeedingFee, Income } from "../models/index.js";
+import { AppError } from "../utils/errorHandling.js";
 
 const getExpenseGraph = async (data) => {
   let groupFunction;
@@ -520,18 +521,26 @@ const getProfitLoss = async (data) => {
 
   // fallback: totals over a date range or all
   const { startDate, endDate, all } = data || {};
-  const whereIncome = {};
+  // BE-4: soft-deleted ledger rows must NOT count toward profit/loss.
+  const whereIncome = { isDeleted: false };
   const whereFee = {};
-  const whereExpense = {};
+  const whereExpense = { isDeleted: false };
 
   // `all` may arrive as a string ('true'/'false') from query params — coerce to boolean
   const allFlag = all === true || all === 'true' || all === '1' || all === 1;
 
-  if (!allFlag && startDate && endDate) {
-    whereIncome.date = { [Op.between]: [startDate, endDate] };
-    // Fee model stores paid date as `date_paid` column; use attribute name mapping via column name
-    whereFee.date_paid = { [Op.between]: [startDate, endDate] };
-    whereExpense.date = { [Op.between]: [startDate, endDate] };
+  // BE-9: a single bound without the other previously fell through and summed
+  // ALL records, presenting a wrong total as the answer. Require both (or `all`).
+  if (!allFlag) {
+    if ((startDate && !endDate) || (!startDate && endDate)) {
+      throw new AppError("Both startDate and endDate are required", 400);
+    }
+    if (startDate && endDate) {
+      whereIncome.date = { [Op.between]: [startDate, endDate] };
+      // Fee model stores paid date as `date_paid` column
+      whereFee.date_paid = { [Op.between]: [startDate, endDate] };
+      whereExpense.date = { [Op.between]: [startDate, endDate] };
+    }
   }
 
   // sum income amounts

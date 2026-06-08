@@ -62,6 +62,20 @@ const _ = sequelize.define('salaryPayment', {
         key: 'term_id'
       },
       field: 'term'
+    },
+    // FE-2/BE: immutable payslip snapshot — gross/allowances/deductions/tax/net
+    // captured AT PAYMENT TIME as JSON, so editing/deleting the live Salary
+    // structure never changes a historical payslip. `salary_snapshot` (added by
+    // a manual migration) is TEXT holding JSON.
+    salarySnapshot: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      field: 'salary_snapshot'
+    },
+    netAmount: {
+      type: DataTypes.DECIMAL(18,0),
+      allowNull: true,
+      field: 'net_amount'
     }
   }, {
     sequelize,

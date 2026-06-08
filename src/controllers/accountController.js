@@ -38,8 +38,7 @@ export const deleteExpense = async (req, res, next) => {
       const data = await removeExpense(id);
       res.json(data);
     } catch (error) {
-      console.log(error)
-      next(error)
+      next(error);
     }
   }
 
@@ -49,19 +48,16 @@ export const deleteExpense = async (req, res, next) => {
       const data = await getExpense(values);
       res.json(data);
     } catch (error) {
-      console.log(error);
       next(error);
     }
   }
 
  export const addExpense = async (req, res, next) => {
     const values = req.body;
-    // console.log(values);
     try {
       const data = await createExpense(values);
-      res.json(data);
+      res.status(201).json(data);
     } catch (error) {
-      console.log(error);
       next(error);
     }
   };
@@ -74,8 +70,7 @@ export const deleteIncome = async (req, res, next) => {
       const data = await removeIncome(id);
       res.json(data);
     } catch (error) {
-      console.log(error)
-      next(error)
+      next(error);
     }
   }
 
@@ -85,19 +80,16 @@ export const deleteIncome = async (req, res, next) => {
       const data = await getIncome(values);
       res.json(data);
     } catch (error) {
-      console.log(error);
       next(error);
     }
   }
 
  export const addIncome = async (req, res, next) => {
     const values = req.body;
-    // console.log(values);
     try {
       const data = await createIncome(values);
-      res.json(data);
+      res.status(201).json(data);
     } catch (error) {
-      console.log(error);
       next(error);
     }
   };

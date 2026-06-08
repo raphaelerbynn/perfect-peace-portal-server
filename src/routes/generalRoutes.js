@@ -30,14 +30,12 @@ import {
   deleteStudent,
   fetchAllStaff,
   fetchAllStudents,
-  fetchAllowances,
   fetchDashboardSummary,
   fetchStudentsOwing,
   fetchAttendance,
   fetchBusFee,
   fetchClassMarks,
   fetchClassResult,
-  fetchDeductions,
   fetchEmployeeSalary,
   fetchExtraClasses,
   fetchFeeding,
@@ -143,8 +141,6 @@ router.get("/bus-fee", FINANCE, fetchBusFee);
 
 // --- Payroll / Salary (hidden for Class Teacher) ---
 router.get("/salary", FINANCE, fetchSalary);
-router.get("/deductions", FINANCE, fetchDeductions);
-router.get("/allowances", FINANCE, fetchAllowances);
 router.get("/salary/:salary_id", FINANCE, fetchOneSalary);
 router.get("/salary-payment", FINANCE, fetchSalaryPayment);
 router.get("/employee-salary", FINANCE, fetchEmployeeSalary);

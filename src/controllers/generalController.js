@@ -43,21 +43,13 @@ import {
 } from "../services/news.js";
 import {
   _assignSalary,
-  createAllowance,
-  createDeduction,
-  createSalary,
   createSalaryPayment,
-  editSalary,
-  getAllowance,
-  getDeductions,
+  createFullSalary,
+  updateFullSalary,
   getEmployeeSalary,
-  getOneAllowance,
-  getOneDeduction,
-  getOneSalary,
   getSalary,
+  getSalaryStructure,
   getSalaryPayment,
-  removeAllowance,
-  removeDeductions,
   removeSalary,
   removeSalaryPayment,
 } from "../services/payroll.js";
@@ -424,85 +416,46 @@ const fetchSalary = async (req, res, next) => {
   try {
     const salaries = await getSalary();
 
+    // BE-1: net pay now subtracts TAX too (gross + allowances − deductions − tax),
+    // computed authoritatively by getSalaryStructure.
     const data = await Promise.all(
-      salaries?.map(async (salary, index) => {
-        let amount = salary?.dataValues?.amount;
-        let totalAmountWithAllowance = 0;
-        let netAmount = 0;
-
-        const allowancesData = await getAllowance(
-          salary?.dataValues?.salaryId || salary?.salaryId
-        );
-        const allowances = allowancesData
-          ? allowancesData.reduce(
-              (acc, curr) => acc + Number(curr.dataValues.amount),
-              0
-            )
-          : 0;
-
-        const deductionsData = await getDeductions(
-          salary?.dataValues?.salaryId || salary?.salaryId
-        );
-        const deductions = deductionsData
-          ? deductionsData.reduce(
-              (acc, curr) => acc + Number(curr.dataValues.amount),
-              0
-            )
-          : 0;
-
-        totalAmountWithAllowance = Number(amount) + Number(allowances);
-        netAmount = totalAmountWithAllowance - Number(deductions);
+      salaries.map(async (salary) => {
+        const st = await getSalaryStructure(salary.salaryId);
         return {
           ...salary.dataValues,
-          netAmount: netAmount,
-          grossAmount: amount,
-          allowances: allowancesData,
-          deductions: deductionsData,
+          netAmount: st.net,
+          grossAmount: st.gross,
+          allowances: st.allowances,
+          deductions: st.deductions,
+          taxes: st.taxes,
         };
       })
     );
     res.json(data);
   } catch (error) {
-    console.log(error);
-    next(error);
-  }
-};
-
-//dont use
-const fetchDeductions = async (req, res, next) => {
-  try {
-    const data = await getDeductions();
-    res.json(data);
-  } catch (error) {
-    console.log(error);
-    next(error);
-  }
-};
-
-//dont use
-const fetchAllowances = async (req, res, next) => {
-  try {
-    const data = await getAllowance();
-    res.json(data);
-  } catch (error) {
-    console.log(error);
     next(error);
   }
 };
 
 const fetchOneSalary = async (req, res, next) => {
   const id = req.params.salary_id;
+  if (!Number.isInteger(Number(id)) || Number(id) <= 0) {
+    return next(new AppError("Invalid id", 400));
+  }
   try {
-    const salary = await getOneSalary(id);
-    const deductions = await getOneDeduction(id);
-    const allowances = await getOneAllowance(id);
+    // BE-10: 404 instead of returning empty arrays for a non-existent salary.
+    const st = await getSalaryStructure(id);
+    if (!st) throw new AppError("Salary not found", 404);
 
-    const data = {
-      salary,
-      deductions,
-      allowances,
-    };
-    res.json(data);
+    res.json({
+      // back-compat shape: salary as a 1-element array; plus computed extras.
+      salary: [st.salary],
+      deductions: st.deductions,
+      allowances: st.allowances,
+      taxes: st.taxes,
+      grossAmount: st.gross,
+      netAmount: st.net,
+    });
   } catch (error) {
     next(error);
   }
@@ -669,40 +622,20 @@ const addFee = async (req, res, next) => {
 
 const addSalary = async (req, res, next) => {
   const values = req.body;
-  const deductions = values?.deductions || [];
-  const allowances = values?.allowances || [];
-  // console.log(values);
   try {
-    const salary = await createSalary(values);
-    const deductionPromises = deductions?.map((deduction) => {
-      const newDeduction = {
-        ...deduction,
-        salaryId: salary.salaryId,
-      };
-      return createDeduction(newDeduction);
-    });
-    const allowancePromises = allowances?.map((allowance) => {
-      const newAllowance = {
-        ...allowance,
-        salaryId: salary.salaryId,
-      };
-      return createAllowance(newAllowance);
-    });
-
-    await Promise.allSettled([
-      ...deductionPromises,
-      ...allowancePromises,
-    ]);
-
-    res.json({ 
-      ...(salary?.dataValues || salary), 
-      grossAmount: values?.amount,
-      netAmount: Number(values?.amount) + allowances?.reduce((acc, cur) => acc + Number(cur.amount), 0) - deductions?.reduce((acc, cur) => acc + Number(cur.amount), 0),
-      allowances: allowances, 
-      deductions: deductions 
+    // BE-2: salary + allowances + deductions created atomically (transactional).
+    const salary = await createFullSalary(values);
+    // Return the server-computed structure (net now includes tax — BE-1).
+    const st = await getSalaryStructure(salary.salaryId);
+    res.status(201).json({
+      ...(salary?.dataValues || salary),
+      grossAmount: st.gross,
+      netAmount: st.net,
+      allowances: st.allowances,
+      deductions: st.deductions,
+      taxes: st.taxes,
     });
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
@@ -870,12 +803,11 @@ const addKGResult = async (req, res, next) => {
 
 const addSalaryPayment = async (req, res, next) => {
   const values = req.body;
-  // console.log(values);
   try {
+    // BE-5/BE-6: validated, idempotent, snapshot-on-payment, SMS-after-commit.
     const data = await createSalaryPayment(values);
-    res.json(data);
+    res.status(201).json(data);
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
@@ -1086,44 +1018,26 @@ const updateTerm = async (req, res, next) => {
 
 const updateSalary = async (req, res, next) => {
   const values = req.body;
-  const deductions = values?.deductions || [];
-  const allowances = values?.allowances || [];
-
   const id = req.params.salary_id;
 
+  if (!Number.isInteger(Number(id)) || Number(id) <= 0) {
+    return next(new AppError("Invalid id", 400));
+  }
+
   try {
-    await editSalary(values, id);
-
-    await Promise.allSettled([removeDeductions(id), removeAllowance(id)]);
-
-    const deductionPromises = deductions?.map((deduction) => {
-      const newDeduction = {
-        ...deduction,
-        salaryId: id,
-      };
-      return createDeduction(newDeduction);
-    });
-    const allowancePromises = allowances?.map((allowance) => {
-      const newAllowance = {
-        ...allowance,
-        salaryId: id,
-      };
-      return createAllowance(newAllowance);
-    });
-
-    await Promise.allSettled([
-      ...deductionPromises,
-      ...allowancePromises,
-    ]);
-    res.json({ 
-      ...values, 
-      grossAmount: values?.amount,
-      netAmount: Number(values?.amount) + allowances?.reduce((acc, cur) => acc + Number(cur.amount), 0) - deductions?.reduce((acc, cur) => acc + Number(cur.amount), 0),
-      allowances: allowances, 
-      deductions: deductions 
+    // BE-3: atomic delete-then-reinsert of allowances/deductions in one
+    // transaction (was Promise.allSettled with no transaction → wipe-on-failure).
+    await updateFullSalary(values, id);
+    const st = await getSalaryStructure(id);
+    res.json({
+      ...values,
+      grossAmount: st.gross,
+      netAmount: st.net,
+      allowances: st.allowances,
+      deductions: st.deductions,
+      taxes: st.taxes,
     });
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
@@ -1193,26 +1107,28 @@ const deleteEvent = async (req, res, next) => {
 
 const deleteSalary = async (req, res, next) => {
   const id = req.params.salary_id;
+  if (!Number.isInteger(Number(id)) || Number(id) <= 0) {
+    return next(new AppError("Invalid id", 400));
+  }
   try {
-    const data = await Promise.allSettled([
-      removeDeductions(id),
-      removeAllowance(id),
-      removeSalary(id),
-    ]);
+    // BE-4: soft-delete (archive) the structure + null Teacher.salaryId, in one
+    // transaction. Historical payslips keep their own snapshot, so this is safe.
+    const data = await removeSalary(id);
     res.json(data);
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
 
 const deleteSalaryPayment = async (req, res, next) => {
   const id = req.params.payment_id;
+  if (!Number.isInteger(Number(id)) || Number(id) <= 0) {
+    return next(new AppError("Invalid id", 400));
+  }
   try {
     const data = await removeSalaryPayment(id);
     res.json(data);
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
@@ -1469,8 +1385,6 @@ export {
   fetchExtraClasses,
   fetchBusFee,
   fetchSalary,
-  fetchDeductions,
-  fetchAllowances,
   fetchOneSalary,
   fetchSalaryPayment,
   fetchEmployeeSalary,
