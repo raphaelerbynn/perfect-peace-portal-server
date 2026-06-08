@@ -229,7 +229,6 @@ const fetchFees = async (req, res, next) => {
     const data = await getFeesData(values);
     res.json(data);
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
@@ -643,21 +642,27 @@ const addClassFee = async (req, res, next) => {
 
 const addFee = async (req, res, next) => {
   const values = req.body;
-  // console.log(values);
   try {
     const data = await createFee(values);
 
-    const parentSystemContact = await getParentContact(values?.studentId);
-    if (!parentSystemContact.includes(values?.contact) && values?.contact) {
-      parentSystemContact.push(values?.contact);
+    // BE-3: confirmation SMS uses the SERVER-computed balance (data.owing),
+    // not the forgeable/stale client-supplied `values.remaining`. SMS failure
+    // must not fail an already-committed payment.
+    try {
+      const parentSystemContact = await getParentContact(values?.studentId);
+      if (!parentSystemContact.includes(values?.contact) && values?.contact) {
+        parentSystemContact.push(values?.contact);
+      }
+      await sendSMSMessage(
+        `Hello, we have received your payment of GHc${data.paid} for ${values.studentName} via ${values.paymentMode}. Balance left for your ward is GHc${data.owing}. Fee ID #${data.feeId}. Thank you! - Perfect Peace`,
+        parentSystemContact
+      );
+    } catch (smsError) {
+      // payment is saved; notification is non-critical
     }
-    await sendSMSMessage(
-      `Hello, we have received your payment of GHc${values.currentPaid} for ${values.studentName} via ${values.paymentMode}. Balance left for your ward is  GHc${values.remaining}. Fee ID #${data.feeId}. Thank you! - Perfect Peace`,
-      parentSystemContact
-    );
+
     res.json(data);
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
@@ -1171,7 +1176,6 @@ const deleteFee = async (req, res, next) => {
     const data = await removeFee(id);
     res.json(data);
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
