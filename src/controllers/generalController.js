@@ -606,8 +606,11 @@ const addFee = async (req, res, next) => {
       if (!parentSystemContact.includes(values?.contact) && values?.contact) {
         parentSystemContact.push(values?.contact);
       }
+      // BE-9: sanitize client-supplied values interpolated into the SMS body
+      // (strip newlines/braces, clamp length) so they can't distort it.
+      const clean = (v) => String(v ?? "").replace(/[\r\n{}]/g, " ").slice(0, 60);
       await sendSMSMessage(
-        `Hello, we have received your payment of GHc${data.paid} for ${values.studentName} via ${values.paymentMode}. Balance left for your ward is GHc${data.owing}. Fee ID #${data.feeId}. Thank you! - Perfect Peace`,
+        `Hello, we have received your payment of GHc${data.paid} for ${clean(values.studentName)} via ${clean(values.paymentMode)}. Balance left for your ward is GHc${data.owing}. Fee ID #${data.feeId}. Thank you! - Perfect Peace`,
         parentSystemContact
       );
     } catch (smsError) {
@@ -882,7 +885,9 @@ const markAttendance = async (req, res, next) => {
     });
 
     // Notify parents (best-effort; SMS failures must not fail the mark since
-    // attendance is already committed). Capped at 5 per request, as before.
+    // attendance is already committed). BE-13: notify EVERY marked student's
+    // parent (the old silent slice(0,5) dropped the rest); messages are
+    // per-child personalized so they are sent concurrently, not batched.
     try {
       const parentPromiseResults = await Promise.all(
         values.studentAttendance.map((mark) =>
@@ -890,8 +895,8 @@ const markAttendance = async (req, res, next) => {
         )
       );
       const parentContacts = parentPromiseResults.filter((data) => data?.contact);
-      await Promise.all(
-        parentContacts.slice(0, 5).map((data) =>
+      await Promise.allSettled(
+        parentContacts.map((data) =>
           sendSMSMessage(
             composeMessage(
               data,

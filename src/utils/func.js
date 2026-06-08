@@ -60,10 +60,18 @@ export function transformReturningKGResult(data) {
   return result;
 }
 
+// BE-9: interpolate {{key}} placeholders, but SANITIZE the substituted values —
+// they can include client-supplied names. Strip newlines and braces (so a value
+// can't inject another {{token}} or distort the body) and clamp length so a
+// crafted value can't inflate the billable segment count.
 export const composeMessage = (data, message) => {
-  Object.keys(data).forEach(key => {
+  Object.keys(data || {}).forEach(key => {
     const regex = new RegExp(`{{\\s*${key}\\s*}}`, 'g');
-    message = message.replace(regex, data[key]);
+    const safe = (data[key] == null ? "" : String(data[key]))
+      .replace(/[\r\n]+/g, " ")
+      .replace(/[{}]/g, "")
+      .slice(0, 120);
+    message = message.replace(regex, safe);
   });
 
   return message;

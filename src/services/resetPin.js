@@ -1,6 +1,7 @@
 import axios from "axios";
 import { Parent, Student, Teacher } from "../models/index.js";
 import { issueResetCode, verifyResetCode } from "./resetCode.js";
+import { SMS_SENDER_ID } from "./messaging.js";
 
 'use-strict'
 
@@ -63,7 +64,9 @@ const sendResetPin = async (contact, indexNumber) => {
     const code = await issueResetCode({ identifier, userType });
 
     const data = {
-        sender: "P Peace",
+        // BE-3: same registered sender ID as every other SMS path (was "P Peace",
+        // a likely-unregistered ID → reset PINs could silently never deliver).
+        sender: SMS_SENDER_ID,
         message: `Your reset pin is ${code}`,
         recipients: contact,
     };
@@ -74,6 +77,8 @@ const sendResetPin = async (contact, indexNumber) => {
             headers: {
                 "api-key": process.env.ARKESEL_KEY,
             },
+            // BE-7: timeout so a hung provider can't hang the reset request.
+            timeout: 10000,
         })
         .then((response) => {
             result = response.data.data.map(obj => ({ ...obj }))
