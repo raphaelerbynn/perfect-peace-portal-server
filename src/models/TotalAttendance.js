@@ -45,13 +45,14 @@ const _ = sequelize.define('totalAttendance', {
     tableName: 'Total_attendance',
     schema: 'dbo',
     timestamps: false,
+    // NOTE: the underlying unique index is created by a separate manual migration;
+    // this array is documentation only (model .sync() is disabled).
     indexes: [
       {
-        name: "PK__Total_at__466DB354A15DBA2B",
+        // BE-3: backs the idempotent term roll-up upsert (one row per student per term).
+        name: "uniq_total_attendance",
         unique: true,
-        fields: [
-          { name: "total_attendance_id" },
-        ]
+        fields: [{ name: "student_id" }, { name: "term_id" }],
       },
     ]
   });

@@ -30,8 +30,7 @@ const attendance = sequelize.define('attendance', {
       references: {
         model: 'Term',
         key: 'term_id'
-      },
-      field: 'term_id'
+      }
     },
     status: {
       type: DataTypes.CHAR(10),
@@ -52,13 +51,14 @@ const attendance = sequelize.define('attendance', {
     tableName: 'Attendance',
     schema: 'dbo',
     timestamps: false,
+    // NOTE: the underlying unique index is created by a separate manual migration;
+    // this array is documentation only (model .sync() is disabled).
     indexes: [
       {
-        name: "PK__Attendan__20D6A9680BD85DFC",
+        // BE-4: backs the non-destructive upsert — one mark per student per day per term.
+        name: "uniq_attendance",
         unique: true,
-        fields: [
-          { name: "attendance_id" },
-        ]
+        fields: [{ name: "student_id" }, { name: "date_marked" }, { name: "term_id" }],
       },
     ]
   });

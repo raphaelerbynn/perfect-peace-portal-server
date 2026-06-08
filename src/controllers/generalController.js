@@ -10,7 +10,9 @@ import {
   removeFeeding,
 } from "../services/account.js";
 import {
-  createClassAttendance,
+  markClassAttendance,
+  assertClassAccess,
+  VALID_STATUSES,
   removeAttendance,
   getAttendance,
   totalAttendanceMarked,
@@ -198,14 +200,14 @@ const fetchClassMarks = async (req, res, next) => {
   }
 };
 
-//not complete
 const fetchAttendance = async (req, res, next) => {
   const values = req.query;
   try {
+    // BE-5: a Class Teacher may only read their own class's attendance.
+    await assertClassAccess(req.user, values.class);
     const data = await getAttendance(values);
     res.json(data);
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
@@ -213,10 +215,10 @@ const fetchAttendance = async (req, res, next) => {
 const fetchAttendanceCount = async (req, res, next) => {
   const values = req.query;
   try {
+    await assertClassAccess(req.user, values.class);
     const data = await totalAttendanceMarked(values);
     res.json(data);
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
@@ -544,7 +546,6 @@ const fetchTotalStudentAttendance = async (req, res, next) => {
     });
     res.json(data);
   } catch (error) {
-    console.error(error);
     next(error);
   }
 };
@@ -910,52 +911,67 @@ const addExtraClasses = async (req, res, next) => {
   }
 };
 
-//needs more test
 const markAttendance = async (req, res, next) => {
   const values = req.body;
-  // console.log(values);
 
   try {
-    let parentContacts = []
-    const getParentContactPromises = values.studentAttendance?.map((mark) => {
-      return getParentContact(mark.studentId, true, mark.status);
-    })
-    const termData = await getTerm();
+    // BE-7: validate the payload before touching the DB.
+    if (!values.class || !values.dateMarked) {
+      throw new AppError("class and dateMarked are required", 400);
+    }
+    if (!Array.isArray(values.studentAttendance) || values.studentAttendance.length === 0) {
+      throw new AppError("studentAttendance must be a non-empty array", 400);
+    }
+    for (const mark of values.studentAttendance) {
+      if (mark?.studentId == null) {
+        throw new AppError("Each attendance entry requires a studentId", 400);
+      }
+      if (!VALID_STATUSES.includes(mark.status)) {
+        throw new AppError(
+          `Invalid status "${mark.status}". Allowed: ${VALID_STATUSES.join(", ")}`,
+          400
+        );
+      }
+    }
 
-    const attendancePromises = values.studentAttendance?.map((mark) => {
-      const data = {
-        ...mark,
-        class: values.class,
-        dateMarked: values.dateMarked,
-        dateEnd: termData?.dataValues?.endDate,
-      };
-      return createClassAttendance(data);
+    // BE-5: a Class Teacher may only mark their own class.
+    await assertClassAccess(req.user, values.class);
+
+    // BE-1/BE-2: atomic delete-then-upsert inside markClassAttendance.
+    const results = await markClassAttendance({
+      className: values.class,
+      dateMarked: values.dateMarked,
+      studentAttendance: values.studentAttendance,
     });
 
-    
-    const parentPromiseResults = await Promise.all(getParentContactPromises);
-    parentContacts = parentPromiseResults.filter((data) => data.contact)
-
-    const sendMessagePromises = parentContacts.slice(0, 5).map(data => {
-      return sendSMSMessage(
-        composeMessage(data, data.status === 'present' ? present_template : absentee_template),
-        [data.contact]
-      )
-    })
-
-
-
-    await removeAttendance(values);
-
-
-    // // console.log(promises);
-
-    const results = await Promise.all([...attendancePromises]);
-    await Promise.all(sendMessagePromises);
+    // Notify parents (best-effort; SMS failures must not fail the mark since
+    // attendance is already committed). Capped at 5 per request, as before.
+    try {
+      const parentPromiseResults = await Promise.all(
+        values.studentAttendance.map((mark) =>
+          getParentContact(mark.studentId, true, mark.status)
+        )
+      );
+      const parentContacts = parentPromiseResults.filter((data) => data?.contact);
+      await Promise.all(
+        parentContacts.slice(0, 5).map((data) =>
+          sendSMSMessage(
+            composeMessage(
+              data,
+              String(data.status).toLowerCase() === "present"
+                ? present_template
+                : absentee_template
+            ),
+            [data.contact]
+          )
+        )
+      );
+    } catch (smsError) {
+      // swallow: attendance is saved; notification is non-critical
+    }
 
     res.json(results);
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
@@ -965,7 +981,6 @@ const calculateTotalAttendance = async (req, res, next) => {
     const totalAttendance = await addTermAttendance();
     res.json(totalAttendance);
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
@@ -1275,10 +1290,13 @@ const deleteBusFee = async (req, res, next) => {
 const deleteAttendance = async (req, res, next) => {
   const values = req.body;
   try {
+    // BE-5: a Class Teacher may only clear their own class's attendance.
+    await assertClassAccess(req.user, values.class);
+    // BE-8: removeAttendance now hard-requires class + dateMarked (a missing
+    // dateMarked used to wipe the whole class across every date).
     const data = await removeAttendance(values);
     res.json(data);
   } catch (error) {
-    console.log(error);
     next(error);
   }
 };
