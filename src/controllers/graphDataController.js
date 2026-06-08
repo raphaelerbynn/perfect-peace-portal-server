@@ -1,4 +1,12 @@
-import { getBusFeeGraph, getExpenseGraph, getExtraClassesGraph, getFeedingGraph, getFeesGraph, getIncomeGraph, getProfitLoss } from "../services/graph.js";
+import { getExpenseGraph, getFeesGraph, getIncomeGraph, getProfitLoss } from "../services/graph.js";
+
+// Coerce SQL SUM results (which come back as strings) into numbers so charts
+// receive numeric values. Works for both plain objects and Sequelize instances.
+const toNumericRows = (data) =>
+  (data || []).map((r) => ({
+    label: r.label ?? r.get?.("label"),
+    totalAmount: Number(r.totalAmount ?? r.get?.("totalAmount")) || 0,
+  }));
 
 const fetchExpenseGraph = async (req, res, next) => {
     const _values = req.query;
@@ -6,10 +14,9 @@ const fetchExpenseGraph = async (req, res, next) => {
       const data = await getExpenseGraph(_values);
       res.json({
         groupBy: _values.groupBy,
-        values: data
+        values: toNumericRows(data)
       });
     } catch (error) {
-      console.log(error);
       next(error);
     }
   }
@@ -20,10 +27,9 @@ const fetchIncomeGraph = async (req, res, next) => {
       const data = await getIncomeGraph(_values);
       res.json({
         groupBy: _values.groupBy,
-        values: data
+        values: toNumericRows(data)
       });
     } catch (error) {
-      console.log(error);
       next(error);
     }
   }
@@ -32,14 +38,11 @@ const fetchFeesGraph = async (req, res, next) => {
     const _values = req.query;
     try {
       const data = await getFeesGraph(_values);
-
-      console.log(data)
       res.json({
         groupBy: _values.groupBy,
-        values: data
+        values: toNumericRows(data)
       });
     } catch (error) {
-      console.log(error);
       next(error);
     }
   }
@@ -52,11 +55,10 @@ const fetchFeesVsExpenseGraph = async (req, res, next) => {
 
       res.json({
         groupBy: _values.groupBy,
-        fees: _fees,
-        expense: _expense,
+        fees: toNumericRows(_fees),
+        expense: toNumericRows(_expense),
       });
     } catch (error) {
-      console.log(error);
       next(error);
     }
   }
@@ -64,14 +66,12 @@ const fetchFeesVsExpenseGraph = async (req, res, next) => {
 const fetchProfitLoss = async (req, res, next) => {
   const _values = req.query;
   try {
-    // console.log("[fetchProfitLoss] request received", { query: _values, headersPreview: { authorization: req.headers.authorization } });
     const data = await getProfitLoss(_values);
     res.json({
       groupBy: _values.groupBy || null,
       values: data,
     });
   } catch (error) {
-    console.log(error);
     next(error);
   }
 }

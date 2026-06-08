@@ -8,12 +8,12 @@ import { GRADUATED_CLASS_IDS } from "../config/school.js";
 export const getDashboardSummary = async () => {
   const [totalStudents, activeStudents, totalStaff, totalClasses] =
     await Promise.all([
-      Student.count(),
+      Student.count({ where: { isDeleted: false } }),
       Student.count({
-        where: { classId: { [Op.notIn]: GRADUATED_CLASS_IDS } },
+        where: { classId: { [Op.notIn]: GRADUATED_CLASS_IDS }, isDeleted: false },
       }),
-      Teacher.count(),
-      Class.count(),
+      Teacher.count({ where: { isDeleted: false } }),
+      Class.count({ where: { isDeleted: false } }),
     ]);
 
   return { totalStudents, activeStudents, totalStaff, totalClasses };
@@ -28,7 +28,7 @@ export const getDashboardSummary = async () => {
 export const getStudentsOwing = async () => {
   const rows = await Student.findAll({
     attributes: ["studentId", "fName", "mName", "lName", "feesOwing"],
-    where: { feesOwing: { [Op.gt]: 0 } },
+    where: { feesOwing: { [Op.gt]: 0 }, isDeleted: false },
     include: [
       {
         model: Class,
