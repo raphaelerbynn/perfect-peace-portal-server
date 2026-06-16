@@ -5,7 +5,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "jest",
     "dev": "nodemon ./src/index",
     "build": "babel src -d dist",
     "start": "node dist/index.js",
@@ -39,6 +39,8 @@
     "@babel/core": "^7.24.0",
     "@babel/node": "^7.29.0",
     "@babel/preset-env": "^7.24.0",
-    "@flydotio/dockerfile": "^0.4.10"
+    "@flydotio/dockerfile": "^0.4.10",
+    "babel-jest": "^29.7.0",
+    "jest": "^29.7.0"
   }
 }
