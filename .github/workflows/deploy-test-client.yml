@@ -1,0 +1,115 @@
+name: Deploy test-client
+
+# Builds the backend image on every push to `test-client`, pushes it to GHCR,
+# then SSHes into the Contabo VPS and brings up the temp-DB + API (:5040) stack.
+#
+# Required repo secrets (Settings -> Secrets and variables -> Actions):
+#   VPS_HOST        Contabo VPS hostname / IP
+#   VPS_USER        SSH user
+#   VPS_SSH_KEY     private SSH key (PEM) for VPS_USER
+#   VPS_PORT        SSH port (optional, defaults to 22)
+#   DB_PASSWORD     temp DB password
+#   JWT_KEY         JWT signing secret (openssl rand -hex 32)
+#   CORS_ORIGINS    comma-separated allowed origins (the client frontend URL)
+#   ADMIN_USERNAME  the single admin's username
+#   ADMIN_PASSWORD  the single admin's password
+#   ADMIN_EMAIL     the single admin's email (optional)
+#   GHCR_TOKEN      (optional) PAT with read:packages for the VPS to pull a
+#                   private image. Omit if you make the GHCR package public.
+
+on:
+  push:
+    branches: [test-client]
+  workflow_dispatch:
+
+env:
+  # ghcr.io/<owner>/<repo>  — must be lowercase (it already is here).
+  IMAGE: ghcr.io/${{ github.repository }}
+  TAG: test-client
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.IMAGE }}:${{ env.TAG }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Ship the compose file + db schema-init to the VPS deploy dir.
+      - name: Copy deploy files to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          source: "docker-compose.test-client.yml,db/init/01-create-schema.sql"
+          target: "perfect-peace-test-client"
+
+      - name: Deploy on VPS
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          envs: GHCR_TOKEN
+          script: |
+            set -e
+            cd ~/perfect-peace-test-client
+
+            # Render the env file from secrets (never committed).
+            cat > .env.test-client <<EOF
+            DB_NAME=perfectpeace_test
+            DB_USERNAME=perfectpeace
+            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+            SERVER_PORT=5040
+            JWT_KEY=${{ secrets.JWT_KEY }}
+            CORS_ORIGINS=${{ secrets.CORS_ORIGINS }}
+            ADMIN_USERNAME=${{ secrets.ADMIN_USERNAME }}
+            ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}
+            ADMIN_EMAIL=${{ secrets.ADMIN_EMAIL }}
+            ADMIN_NAME=Administrator
+            BACKEND_IMAGE=${{ env.IMAGE }}:${{ env.TAG }}
+            ARKESEL_KEY=
+            SMS_SENDER_ID=PPeace Sch
+            CLIENT_ID=
+            CLIENT_SECRET=
+            REDIRECT_URI=
+            ACCESS_TOKEN=
+            REFRESH_TOKEN=
+            DESTINATION_FOLDER_ID=
+            EOF
+
+            # Log in to GHCR to pull the (possibly private) image.
+            echo "${GHCR_TOKEN:-}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin || \
+              echo "No GHCR_TOKEN provided — assuming the package is public."
+
+            docker compose -f docker-compose.test-client.yml --env-file .env.test-client pull
+            docker compose -f docker-compose.test-client.yml --env-file .env.test-client up -d
+            docker image prune -f
+            echo "Deployed. API should be live on :5040"

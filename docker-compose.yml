@@ -1,10 +1,11 @@
 # PerfectPeace backend + PostgreSQL (+ pgAdmin) local/Docker stack.
 #
-# Values are interpolated from a `.env` file next to this compose file (the SAME
-# file the backend reads via env_file). At minimum set: DB_NAME, DB_USERNAME,
-# DB_PASSWORD, JWT_KEY, ARKESEL_KEY, SMS_SENDER_ID, CORS_ORIGINS (see .env.example).
+# Values are interpolated from the env file passed via `--env-file` (defaults to
+# `.env`). For local dev use `.env.docker` (clean, Compose-parseable values); the
+# backend service also reads it via env_file. At minimum set: DB_NAME,
+# DB_USERNAME, DB_PASSWORD, JWT_KEY, CORS_ORIGINS (see .env.example).
 #
-#   docker compose up -d --build
+#   docker compose --env-file .env.docker up -d --build
 #   pgAdmin:  http://localhost:${PGADMIN_PORT:-5051}
 #   API:      http://localhost:${SERVER_PORT:-5050}
 
@@ -35,7 +36,7 @@ services:
     container_name: pp-pgadmin
     restart: unless-stopped
     environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@perfectpeace.local}
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@perfectpeace.com}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
       PGADMIN_CONFIG_SERVER_MODE: "False"
     ports:
@@ -48,9 +49,11 @@ services:
     container_name: pp-backend
     restart: unless-stopped
     # app secrets/config (JWT_KEY, ARKESEL_KEY, Google creds, CORS_ORIGINS, etc.)
-    env_file: .env
+    # Local stack uses .env.docker (clean dev values). For a real deployment,
+    # point this at your production env file instead.
+    env_file: .env.docker
     environment:
-      # these OVERRIDE whatever is in .env so the container always points at the
+      # these OVERRIDE whatever is in the env_file so the container always points at the
       # compose `db` service on the internal network and listens on 5050.
       DB_HOST: db
       DB_PORT: "5432"

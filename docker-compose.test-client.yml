@@ -1,0 +1,58 @@
+# TEST-CLIENT stack — a throwaway environment for a client to try the API.
+#
+#   * Temp PostgreSQL: data lives in tmpfs (RAM), so every restart is a CLEAN
+#     slate — there is NO persistent volume. This is intentional ("temp db").
+#   * Backend: pulled from the registry image built by CI (GitHub Actions), or
+#     built locally with `--build`. On boot it creates the schema and seeds
+#     EXACTLY ONE user (the admin), then starts the API on port 5040.
+#
+# Local:   ./scripts/run-test-client.sh            (builds + runs on :5040)
+# VPS:     docker compose -f docker-compose.test-client.yml --env-file .env.test-client pull \
+#          && docker compose -f docker-compose.test-client.yml --env-file .env.test-client up -d
+
+# Distinct project name so this stack never collides with the local dev stack
+# (docker-compose.yml) that shares the same directory.
+name: pp-test-client
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: pp-test-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-perfectpeace_test}
+      POSTGRES_USER: ${DB_USERNAME:-perfectpeace}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-perfectpeace_test_pw}
+    # Ephemeral storage — wiped on every container recreation ("temp" DB).
+    tmpfs:
+      - /var/lib/postgresql/data
+    volumes:
+      # Creates the `dbo` schema on every fresh init (tmpfs => runs each start).
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-perfectpeace} -d ${DB_NAME:-perfectpeace_test}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  backend:
+    # Registry image produced by .github/workflows/deploy-test-client.yml.
+    # `build: .` lets `--build` rebuild it locally from source.
+    image: ${BACKEND_IMAGE:-pp-backend:test-client}
+    build: .
+    container_name: pp-test-backend
+    restart: unless-stopped
+    env_file: .env.test-client
+    environment:
+      # Always point at the compose db service and listen on 5040, regardless of
+      # what the env file says.
+      DB_HOST: db
+      DB_PORT: "5432"
+      SERVER_PORT: "5040"
+    # Boot sequence (idempotent): create tables -> seed the single admin -> serve.
+    command: ["sh", "-c", "node dist/scripts/devSync.js && node dist/scripts/seedAdmin.js && node dist/index.js"]
+    ports:
+      - "${SERVER_PORT:-5040}:5040"
+    depends_on:
+      db:
+        condition: service_healthy
