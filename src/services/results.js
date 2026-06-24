@@ -406,7 +406,7 @@ const getClassMarks = async (data) => {
       sm.class = ?
       AND sm.term_id = ?
       `;
-  const replacements = [data.class, data.term];
+  const replacements = [data.class, data.termId];
   const results = await sequelize.query(query, {
     type: sequelize.QueryTypes.SELECT,
     replacements,
@@ -423,7 +423,7 @@ const getClassResult = async (data) => {
     },
     where: {
       class: data?.class,
-      termId: data?.term,
+      termId: data?.termId,
     },
   });
   return response;
@@ -433,7 +433,7 @@ const getOneStudentKGResult = async (data) => {
   const response = await KgAssessment.findAll({
     where: {
       class: data?.class,
-      termId: data?.term,
+      termId: data?.termId,
       studentId: data?.studentId,
     },
     raw: true,
@@ -445,7 +445,7 @@ const getKGResultByClassAndTerm = async (data) => {
   const response = await KgAssessment.findAll({
     where: {
       class: data?.class,
-      termId: data?.term,
+      termId: data?.termId,
     },
     raw: true,
   });
@@ -461,7 +461,7 @@ const getOneStudentResult = async (data) => {
     },
     where: {
       class: data?.class,
-      termId: data?.term,
+      termId: data?.termId,
       studentId: data?.studentId,
     },
   });
@@ -500,7 +500,7 @@ const getOneStudentMarks = async (data) => {
       AND sm.term_id = ?
       AND sm.student_id = ?;
   `;
-  const replacements = [data.class, data.term, data.studentId];
+  const replacements = [data.class, data.termId, data.studentId];
   const results = await sequelize.query(query, {
     type: sequelize.QueryTypes.SELECT,
     replacements,

@@ -76,7 +76,27 @@ app.get("/", async (req, res) => {
 // --- Unauthenticated / self-authenticating routers ---
 // authRouter: public login/signup/OTP/reset endpoints — rate limited (BE-14).
 // studentRouter & fileRouter authenticate per-route internally (portal tokens).
-app.use("/", authLimiter, authRouter);
+// BE-14 FIX: scope authLimiter to the auth ENDPOINTS only. Mounting it as
+// `app.use("/", authLimiter, authRouter)` ran the limiter for EVERY request
+// (path "/" matches all), throttling normal authenticated app traffic at
+// 20 req/10min/IP — the opposite of the documented intent. Listing the auth
+// paths keeps the limiter on signin/signup/OTP/reset while leaving the rest of
+// the API unthrottled. (app.use prefix-matches, so "/send-otp" covers
+// "/send-otp/:userId".)
+const AUTH_LIMITED_PATHS = [
+    "/signin",
+    "/signup",
+    "/signin-management",
+    "/signup-management",
+    "/signup-staff-list",
+    "/send-otp",
+    "/reset-password",
+    "/get-pin",
+    "/update-pin",
+    "/verify-pin",
+];
+app.use(AUTH_LIMITED_PATHS, authLimiter);
+app.use("/", authRouter);
 app.use("/", studentRouter);
 app.use("/", fileRouter);
 
