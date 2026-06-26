@@ -7,7 +7,10 @@ WORKDIR /app
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
-COPY package.json package-lock.json ./
+# package-lock.json is gitignored, so it may be absent in CI checkouts. The glob
+# copies package.json always and the lock only if present (npm install handles
+# either case) — avoids "package-lock.json: not found" on the GitHub runner.
+COPY package*.json ./
 RUN npm install
 COPY .babelrc ./
 COPY src ./src
