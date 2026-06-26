@@ -43,11 +43,17 @@ const allowedOrigins = (process.env.CORS_ORIGINS
     ? process.env.CORS_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean)
     : DEFAULT_CORS_ORIGINS);
 
+// Set CORS_ORIGINS="*" to accept ANY origin. We can't return a literal "*"
+// header here because credentials:true forbids it, so instead we REFLECT the
+// caller's Origin (callback(null, true) does exactly that). Tighten this back to
+// a real allowlist before any sensitive production use.
+const allowAnyOrigin = allowedOrigins.includes("*");
+
 const corsOptions = {
     origin: (origin, callback) => {
         // Allow non-browser / same-origin requests (curl, server-to-server,
         // health checks) that send no Origin header.
-        if (!origin || allowedOrigins.includes(origin)) {
+        if (allowAnyOrigin || !origin || allowedOrigins.includes(origin)) {
             return callback(null, true);
         }
         return callback(new Error(`Origin ${origin} not allowed by CORS`));

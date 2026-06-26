@@ -66,7 +66,7 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT || 22 }}
           source: "docker-compose.test-client.yml,db/init/01-create-schema.sql"
-          target: "perfect-peace-test-client"
+          target: "/opt/projects/perfect_peace"
 
       - name: Deploy on VPS
         uses: appleboy/ssh-action@v1.2.0
@@ -80,9 +80,14 @@ jobs:
           envs: GHCR_TOKEN
           script: |
             set -e
-            cd ~/perfect-peace-test-client
+            # The project lives here on the VPS and all envs are picked from here.
+            cd /opt/projects/perfect_peace
 
-            # Render the env file from secrets (never committed).
+            # The env file is managed in this folder. Only bootstrap it from
+            # GitHub secrets if it does NOT already exist, so a hand-edited
+            # .env.test-client on the VPS is never overwritten by a deploy.
+            if [ ! -f .env.test-client ]; then
+            echo "No .env.test-client found — writing one from GitHub secrets."
             cat > .env.test-client <<EOF
             DB_NAME=perfectpeace_test
             DB_USERNAME=perfectpeace
@@ -94,7 +99,6 @@ jobs:
             ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}
             ADMIN_EMAIL=${{ secrets.ADMIN_EMAIL }}
             ADMIN_NAME=Administrator
-            BACKEND_IMAGE=${{ env.IMAGE }}:${{ env.TAG }}
             ARKESEL_KEY=
             SMS_SENDER_ID=PPeace Sch
             CLIENT_ID=
@@ -104,6 +108,14 @@ jobs:
             REFRESH_TOKEN=
             DESTINATION_FOLDER_ID=
             EOF
+            else
+            echo "Using the existing .env.test-client in /opt/projects/perfect_peace."
+            fi
+
+            # Always deploy the image this run just built — a shell env var wins
+            # over any (stale/missing) BACKEND_IMAGE in the env file for Compose
+            # interpolation, so we never accidentally pull an old tag.
+            export BACKEND_IMAGE="${{ env.IMAGE }}:${{ env.TAG }}"
 
             # Log in to GHCR to pull the (possibly private) image.
             echo "${GHCR_TOKEN:-}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin || \

@@ -7,8 +7,11 @@
 #     EXACTLY ONE user (the admin), then starts the API on port 5040.
 #
 # Local:   ./scripts/run-test-client.sh            (builds + runs on :5040)
-# VPS:     docker compose -f docker-compose.test-client.yml --env-file .env.test-client pull \
-#          && docker compose -f docker-compose.test-client.yml --env-file .env.test-client up -d
+# VPS:     lives in /opt/projects/perfect_peace; the GitHub Action deploys there
+#          and Compose reads /opt/projects/perfect_peace/.env.test-client.
+#            cd /opt/projects/perfect_peace
+#            docker compose -f docker-compose.test-client.yml --env-file .env.test-client pull
+#            docker compose -f docker-compose.test-client.yml --env-file .env.test-client up -d
 
 # Distinct project name so this stack never collides with the local dev stack
 # (docker-compose.yml) that shares the same directory.

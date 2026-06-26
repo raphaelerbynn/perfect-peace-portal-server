@@ -214,13 +214,37 @@ const run = async () => {
     await firstStudent.save();
   }
 
-  // --- Accounting categories + a sample income/expense (for analytics) ---
+  // --- Accounting ledger (drives the Data Visualization charts) ---
+  // NOTE: the text column is `income` / `expense` (NOT `description`). Seed a few
+  // rows across 2026 months so the income/expense/profit charts have data to plot.
   let incomeRan = false;
   try {
     const incomeCat = await foc(AccountCategory, { name: "School Fees" }, {});
     const expenseCat = await foc(AccountCategory, { name: "Utilities" }, {});
-    await foc(Income, { description: "Term 1 fees collection" }, { amount: 500, accountCategoryId: incomeCat.accountCategoryId, date: "2026-01-15" }).catch(() => {});
-    await foc(Expense, { description: "Electricity bill" }, { amount: 220, accountCategoryId: expenseCat.accountCategoryId, date: "2026-01-20" }).catch(() => {});
+
+    const incomeRows = [
+      { income: "Term 1 fees collection", amount: 5000, date: "2026-01-15" },
+      { income: "Donations", amount: 1200, date: "2026-02-10" },
+      { income: "Term 1 fees balance", amount: 3000, date: "2026-03-05" },
+      { income: "PTA levy", amount: 800, date: "2026-04-20" },
+      { income: "Term 2 fees collection", amount: 4500, date: "2026-05-12" },
+      { income: "Uniform sales", amount: 950, date: "2026-06-08" },
+    ];
+    for (const r of incomeRows) {
+      await foc(Income, { income: r.income, date: r.date }, { amount: r.amount, accountCategoryId: incomeCat.accountCategoryId });
+    }
+
+    const expenseRows = [
+      { expense: "Electricity bill", amount: 600, date: "2026-01-20" },
+      { expense: "Staff salaries", amount: 3500, date: "2026-02-15" },
+      { expense: "Teaching supplies", amount: 900, date: "2026-03-10" },
+      { expense: "Water bill", amount: 300, date: "2026-04-18" },
+      { expense: "Building maintenance", amount: 1100, date: "2026-05-22" },
+      { expense: "Internet", amount: 250, date: "2026-06-09" },
+    ];
+    for (const r of expenseRows) {
+      await foc(Expense, { expense: r.expense, date: r.date }, { amount: r.amount, accountCategoryId: expenseCat.accountCategoryId });
+    }
     incomeRan = true;
   } catch (e) {
     console.warn("  (accounting seed skipped:", e.message, ")");
