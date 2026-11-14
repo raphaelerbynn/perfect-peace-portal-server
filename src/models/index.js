@@ -25,6 +25,7 @@ import StudentMarks from "./StudentMarks.js";
 import StudentResult from "./StudentResult.js";
 import Subject from "./Subject.js";
 import Teacher from "./Teacher.js";
+import StaffAttendance from "./StaffAttendance.js";
 import TotalAttendance from "./TotalAttendance.js";
 import UserAccount from "./UserAccount.js";
 import Deductions from "./Deductions.js";
@@ -153,6 +154,11 @@ Term.hasMany(Attendance, { as: "attendances", foreignKey: "termId" });
 Term.belongsTo(AcademicYear, { as: "academicYear", foreignKey: "academicYearId" });
 AcademicYear.hasMany(Term, { as: "terms", foreignKey: "academicYearId" });
 
+// B9: staff attendance.
+// constraints: false: the FKs (ON DELETE RESTRICT) come from migration 036 either way.
+StaffAttendance.belongsTo(Teacher, { as: "teacher", foreignKey: "teacherId", constraints: false });
+StaffAttendance.belongsTo(Term, { as: "term", foreignKey: "termId", constraints: false });
+
 // B12: term bills and discounts.
 StudentDiscount.belongsTo(DiscountType, { as: "discountType", foreignKey: "discountTypeId" });
 
@@ -209,4 +215,5 @@ export {
   Document,
   SchoolSettings,
   AdmissionCounter,
+  StaffAttendance,
 };
