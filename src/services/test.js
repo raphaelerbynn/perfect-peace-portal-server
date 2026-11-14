@@ -7,6 +7,18 @@ import { recomputeStudentOwing } from "./fee.js";
 import { tieAdmissionToOpenTerm } from "./termBilling.js";
 import { assertAdmissionNoFree, normaliseAdmissionNo, resolveNewAdmissionNo } from "./admission.js";
 import { getSchoolSettings } from "./school.js";
+import { isEmail } from "./mailer.js";
+
+// B16: the parent's email (for email notifications). Optional. undefined = not
+// sent (an older form: leave it as it is), "" = remove it.
+export const cleanParentEmail = (value) => {
+    if (value === undefined) return undefined;
+    const v = value === null ? "" : String(value).trim();
+    if (!v) return null;
+    if (v.length > 50) throw new AppError("Parent email can be at most 50 characters", 400);
+    if (!isEmail(v)) throw new AppError("Parent email is not a valid email address", 400);
+    return v;
+};
 
 // BE-20: optional, backward-compatible pagination + lazy-loading.
 // Calling `getStudents()` with no options returns EXACTLY what it returned
@@ -401,6 +413,7 @@ export const createStudent = async (data) => {
                 contact1: data.contact1,
                 relationship: data.relationship,
                 occupation: data.occupation,
+                email: cleanParentEmail(data.parentEmail) ?? null, // B16
             },
             { transaction: t }
         );
@@ -490,6 +503,7 @@ export const editStudent = async (data, id) => {
         }
         if (admissionNo) studentUpdate.admissionNo = admissionNo;
 
+        const parentEmail = cleanParentEmail(data.parentEmail); // B16 (400 before any write)
         const response = await sequelize.transaction(async (t) => {
             const studentRes = await Student.update(studentUpdate, {
                 where: { studentId: id },
@@ -505,6 +519,7 @@ export const editStudent = async (data, id) => {
                     contact1: data.contact1,
                     relationship: data.relationship,
                     occupation: data.occupation,
+                    ...(parentEmail !== undefined && { email: parentEmail }), // B16
                 },
                 {
                     where: { parent_id: parent_id },

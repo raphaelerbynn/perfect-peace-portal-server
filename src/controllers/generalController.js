@@ -38,6 +38,7 @@ import {
   reverseFee,
 } from "../services/fee.js";
 import { sendSMSMessage } from "../services/messaging.js";
+import { notifyAbsences, notifyPasswordChanged, notifyPaymentRecorded } from "../services/notify.js";
 import {
   getNews,
   createEvent,
@@ -645,6 +646,8 @@ const addFee = async (req, res, next) => {
     } catch (smsError) {
       // payment is saved; notification is non-critical
     }
+    // B16: in-app (+ email when switched on); never throws.
+    await notifyPaymentRecorded({ studentId: data.studentId ?? values?.studentId, paid: data.paid, owing: data.owing, receiptNo: data.receiptNo, feeId: data.feeId });
 
     res.json(data);
   } catch (error) {
@@ -891,7 +894,9 @@ const officeAuthor = (req) => ({ enteredBy: req.user?.username ?? null, enteredB
 // the mark since attendance is already committed). BE-13: notify EVERY marked
 // student's parent; messages are per-child personalized so they are sent
 // concurrently, not batched. Shared with the teacher portal register (B2).
-const notifyAttendanceParents = async (studentAttendance) => {
+const notifyAttendanceParents = async (studentAttendance, dateMarked) => {
+  // B16: in-app notice for each pupil marked absent (once per day; never throws).
+  await notifyAbsences(studentAttendance, dateMarked);
   try {
     const parentPromiseResults = await Promise.all(
       studentAttendance.map((mark) => getParentContact(mark.studentId, true, mark.status))
@@ -947,7 +952,7 @@ const markAttendance = async (req, res, next) => {
       ...officeAuthor(req),
     });
 
-    await notifyAttendanceParents(values.studentAttendance);
+    await notifyAttendanceParents(values.studentAttendance, values.dateMarked);
 
     res.json(results);
   } catch (error) {
@@ -1391,6 +1396,8 @@ const updatePassword = async (req, res, next) => {
     } else {
       response = await changeStudentPassword(id, password);
     }
+    // B16: tell the account holder (in-app + email); never throws.
+    await notifyPasswordChanged({ type: userRole === "STAFF" ? "STAFF" : "STUDENT", id });
 
     res.json(response);
   } catch (error) {

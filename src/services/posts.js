@@ -25,6 +25,7 @@ import sequelize from "../config/database.js";
 import { Class, Event, PollOption, PollVote, PostComment, PostLike, Student, Teacher } from "../models/index.js";
 import { AppError } from "../utils/errorHandling.js";
 import { saveUpload, storage } from "./storage.js";
+import { notifyPostPublished } from "./notify.js";
 
 export const POST_TYPES = ["NEWS", "EVENT", "POLL"];
 export const STATUSES = ["DRAFT", "PUBLISHED", "ARCHIVED"];
@@ -421,7 +422,11 @@ export const createPost = async (body, v) => {
     if (options) await saveOptions(post.eventId, options, transaction);
     return post.eventId;
   });
-  // B16 (notifications) is not built yet: "new post" notifications hook in here.
+  // B16: tell the post's audience, after the commit, in the background
+  // (notifyPostPublished never throws).
+  if (status === "PUBLISHED") {
+    notifyPostPublished({ ...values, postType, status, createdBy: v.username, eventId: id });
+  }
   return getPost(id, v);
 };
 
@@ -447,6 +452,8 @@ export const setStatus = async (postId, status, v) => {
   if (next === "PUBLISHED" && !post.publishedAt) values.publishedAt = new Date();
   if (next !== "PUBLISHED") values.isPinned = false; // only live posts stay pinned
   await Event.update(values, { where: { eventId: post.eventId } });
+  // B16: the first publish only (a draft -> published again doesn't repeat it).
+  if (next === "PUBLISHED" && !post.publishedAt) notifyPostPublished({ ...plain(post), ...values });
   return getPost(post.eventId, v);
 };
 

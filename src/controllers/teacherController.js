@@ -28,7 +28,7 @@ const updateRegister = async (req, res, next) => {
   try {
     const { studentAttendance, register } = await saveRegister(teacherId(req), req.body);
     // Parent SMS exactly as the office register does (best-effort).
-    await notifyAttendanceParents(studentAttendance);
+    await notifyAttendanceParents(studentAttendance, req.body?.date);
     res.json(register);
   } catch (error) {
     next(error);

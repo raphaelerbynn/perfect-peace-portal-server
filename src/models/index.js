@@ -30,6 +30,10 @@ import StudentResult from "./StudentResult.js";
 import Subject from "./Subject.js";
 import Teacher from "./Teacher.js";
 import StaffAttendance from "./StaffAttendance.js";
+// B16: notifications (migration 040)
+import UserNotification from "./UserNotification.js";
+import EmailLog from "./EmailLog.js";
+import NotificationSetting from "./NotificationSetting.js";
 import TotalAttendance from "./TotalAttendance.js";
 import UserAccount from "./UserAccount.js";
 import Deductions from "./Deductions.js";
@@ -229,4 +233,7 @@ export {
   SchoolSettings,
   AdmissionCounter,
   StaffAttendance,
+  UserNotification,
+  EmailLog,
+  NotificationSetting,
 };
