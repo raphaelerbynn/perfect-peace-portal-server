@@ -31,6 +31,21 @@ import Deductions from "./Deductions.js";
 import Term from "./Term.js";
 import Tax from "./Tax.js";
 import PasswordResetCode from "./PasswordResetCode.js";
+import TeachingAssignment from "./TeachingAssignment.js";
+import TimetableEntry from "./TimetableEntry.js";
+import TimetablePeriod from "./TimetablePeriod.js";
+import PromotionRule from "./PromotionRule.js";
+import StudentPromotion from "./StudentPromotion.js";
+import AcademicYear from "./AcademicYear.js";
+import StudentTermBill from "./StudentTermBill.js";
+import DiscountType from "./DiscountType.js";
+import StudentDiscount from "./StudentDiscount.js";
+import Document from "./Document.js";
+import SchoolSettings from "./SchoolSettings.js";
+import AdmissionCounter from "./AdmissionCounter.js";
+import GradingScale from "./GradingScale.js";
+import GradeBand from "./GradeBand.js";
+import GradingScaleSection from "./GradingScaleSection.js";
 
 Allowance.belongsTo(Salary, { as: "salary", foreignKey: "salaryId" });
 Salary.hasMany(Allowance, { as: "allowances", foreignKey: "salaryId" });
@@ -63,6 +78,9 @@ Income.belongsTo(AccountCategory, { foreignKey: 'accountCategoryId' });
 AccountCategory.hasMany(Income, { foreignKey: 'accountCategoryId' });
 
 Fee.belongsTo(Class, { as: "class", foreignKey: "classId" });
+// B13: payments list shows the payer's name. constraints:false = no new FK is
+// created by model sync (legacy payments may point at archived students).
+Fee.belongsTo(Student, { as: "student", foreignKey: "studentId", constraints: false });
 Class.hasMany(Fee, { as: "classFees", foreignKey: "classId" });
 
 ClassFee.belongsTo(Class, { as: "class", foreignKey: "classId" });
@@ -111,10 +129,32 @@ Student.hasMany(TotalAttendance, {
 });
 
 UserAccount.belongsTo(Teacher, { as: "teacher", foreignKey: "teacherId" });
+
+// B2: teaching assignments.
+TeachingAssignment.belongsTo(Teacher, { as: "teacher", foreignKey: "teacherId" });
+TeachingAssignment.belongsTo(Class, { as: "class", foreignKey: "classId" });
+TeachingAssignment.belongsTo(Subject, { as: "subject", foreignKey: "subjectId" });
+TeachingAssignment.belongsTo(Term, { as: "term", foreignKey: "termId" });
+
+// B3: timetable.
+TimetableEntry.belongsTo(Teacher, { as: "teacher", foreignKey: "teacherId" });
+TimetableEntry.belongsTo(Class, { as: "class", foreignKey: "classId" });
+TimetableEntry.belongsTo(Subject, { as: "subject", foreignKey: "subjectId" });
+TimetableEntry.belongsTo(Term, { as: "term", foreignKey: "termId" });
+
+// B5: promotion history.
+StudentPromotion.belongsTo(Term, { as: "term", foreignKey: "termId" });
 Teacher.hasMany(UserAccount, { as: "userAccounts", foreignKey: "teacherId" });
 
 Attendance.belongsTo(Term, { as: "term", foreignKey: "termId" });
 Term.hasMany(Attendance, { as: "attendances", foreignKey: "termId" });
+
+// B7: academic years group terms.
+Term.belongsTo(AcademicYear, { as: "academicYear", foreignKey: "academicYearId" });
+AcademicYear.hasMany(Term, { as: "terms", foreignKey: "academicYearId" });
+
+// B12: term bills and discounts.
+StudentDiscount.belongsTo(DiscountType, { as: "discountType", foreignKey: "discountTypeId" });
 
 Student.hasMany(Fee, {
   foreignKey: "studentId",
@@ -146,6 +186,14 @@ export {
   StudentFee,
   Subject,
   Teacher,
+  TeachingAssignment,
+  TimetableEntry,
+  TimetablePeriod,
+  PromotionRule,
+  StudentPromotion,
+  GradingScale,
+  GradeBand,
+  GradingScaleSection,
   TotalAttendance,
   UserAccount,
   FeeCheck,
@@ -154,4 +202,11 @@ export {
   Tax,
   ClassFee,
   PasswordResetCode,
+  AcademicYear,
+  StudentTermBill,
+  DiscountType,
+  StudentDiscount,
+  Document,
+  SchoolSettings,
+  AdmissionCounter,
 };

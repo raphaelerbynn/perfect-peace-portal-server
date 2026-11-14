@@ -42,6 +42,21 @@ const term = sequelize.define('term', {
       defaultValue: false,
       field: 'active'
     },
+    promotedByOldSystem: {
+      // Migration 028: a Term 3 the old system already promoted on (before
+      // go-live). The Promotion page must not move those pupils again.
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+      field: 'promoted_by_old_system'
+    },
+    academicYearId: {
+      // Migration 029 (B7): the academic year this term belongs to. Old terms
+      // with no dates have none.
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      field: 'academic_year_id'
+    },
     nextTermBegins: {
       // Migration 013 (A5a): printed on report cards as "NEXT TERM BEGINS".
       type: DataTypes.DATEONLY,

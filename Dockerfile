@@ -26,6 +26,9 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 # The SQL migrations: `node dist/scripts/migrate.js` (run from /app) reads db/migrations.
 COPY db ./db
+# B17: uploaded photos/documents (mount a volume here; owned by the app user).
+RUN mkdir -p /app/uploads && chown node:node /app/uploads
+ENV UPLOAD_DIR=/app/uploads
 EXPOSE 5050
 USER node
 CMD ["node", "dist/index.js"]

@@ -34,7 +34,7 @@ import {
   createFee,
   getFeesData,
   getOneFee,
-  removeFee,
+  reverseFee,
 } from "../services/fee.js";
 import { sendSMSMessage } from "../services/messaging.js";
 import {
@@ -88,6 +88,7 @@ import {
   setTerm,
   inactivateTerms,
   getTerms,
+  getActiveTermDetails,
 } from "../services/term.js";
 import {
   createStudent,
@@ -249,7 +250,8 @@ const fetchOneFee = async (req, res, next) => {
 
 const fetchActiveTerm = async (req, res, next) => {
   try {
-    const data = await getTerm();
+    // B7: with the academic year's name for the dashboard badge.
+    const data = await getActiveTermDetails();
     res.json(data);
   } catch (error) {
     console.log(error);
@@ -621,7 +623,8 @@ const addClassFee = async (req, res, next) => {
 const addFee = async (req, res, next) => {
   const values = req.body;
   try {
-    const data = await createFee(values);
+    // B13: the receipt records who took the money (management username).
+    const data = await createFee(values, { recordedBy: req.user?.username ?? null });
 
     // BE-3: confirmation SMS uses the SERVER-computed balance (data.owing),
     // not the forgeable/stale client-supplied `values.remaining`. SMS failure
@@ -635,7 +638,7 @@ const addFee = async (req, res, next) => {
       // (strip newlines/braces, clamp length) so they can't distort it.
       const clean = (v) => String(v ?? "").replace(/[\r\n{}]/g, " ").slice(0, 60);
       await sendSMSMessage(
-        `Hello, we have received your payment of GHc${data.paid} for ${clean(values.studentName)} via ${clean(values.paymentMode)}. Balance left for your ward is GHc${data.owing}. Fee ID #${data.feeId}. Thank you! - Perfect Peace`,
+        `Hello, we have received your payment of GHc${data.paid} for ${clean(values.studentName)} via ${clean(values.paymentMode)}. Balance left for your ward is GHc${data.owing}. Receipt ${data.receiptNo}. Thank you! - Perfect Peace`,
         parentSystemContact
       );
     } catch (smsError) {
@@ -689,7 +692,7 @@ const addResult = async (req, res, next) => {
 
     // BE-W2: marks + observations are saved in ONE transaction (saveResult),
     // as non-destructive upserts — a partial submit never wipes other subjects.
-    const result = await saveResult(values);
+    const result = await saveResult({ ...values, ...officeAuthor(req) });
 
     res.json(result);
   } catch (error) {
@@ -879,10 +882,14 @@ const addExtraClasses = async (req, res, next) => {
   }
 };
 
+// B2: who typed a mark / register on the office side (from the token, never
+// the request body).
+const officeAuthor = (req) => ({ enteredBy: req.user?.username ?? null, enteredByTeacherId: null });
+
 // Notify parents of a marked register (best-effort; SMS failures must not fail
 // the mark since attendance is already committed). BE-13: notify EVERY marked
 // student's parent; messages are per-child personalized so they are sent
-// concurrently, not batched.
+// concurrently, not batched. Shared with the teacher portal register (B2).
 const notifyAttendanceParents = async (studentAttendance) => {
   try {
     const parentPromiseResults = await Promise.all(
@@ -936,6 +943,7 @@ const markAttendance = async (req, res, next) => {
       className: values.class,
       dateMarked: values.dateMarked,
       studentAttendance: values.studentAttendance,
+      ...officeAuthor(req),
     });
 
     await notifyAttendanceParents(values.studentAttendance);
@@ -1119,10 +1127,35 @@ const deleteResult = async (req, res, next) => {
   }
 };
 
-const deleteFee = async (req, res, next) => {
+// B13: payments are never hard-deleted any more (receipt numbers and the audit
+// trail must survive). Old clients calling DELETE get a clear pointer.
+const deleteFee = async (req, res) => {
+  res.status(410).json({
+    message: "Payments can no longer be deleted. Reverse the payment instead (POST /fees/:fee_id/reverse).",
+  });
+};
+
+// B13: reverse a payment entered by mistake. Body: { reason, notifyParent }.
+const reverseFeePayment = async (req, res, next) => {
   const id = req.params.fee_id;
+  const { reason, notifyParent } = req.body || {};
   try {
-    const data = await removeFee(id);
+    const data = await reverseFee(id, { reason, reversedBy: req.user?.username ?? null });
+
+    if (notifyParent === true && data.studentId != null) {
+      // Payment is already reversed; an SMS failure must not undo or fail it.
+      try {
+        const contacts = await getParentContact(data.studentId);
+        await sendSMSMessage(
+          `Dear Parent, payment of GHc${Number(data.paid)} on receipt ${data.receiptNo} has been cancelled by the school office. Balance now GHc${data.owing}. Please contact the office with any questions. - Perfect Peace`,
+          contacts
+        );
+        data.parentNotified = true;
+      } catch (smsError) {
+        data.parentNotified = false;
+      }
+    }
+
     res.json(data);
   } catch (error) {
     next(error);
@@ -1374,6 +1407,7 @@ const addSingleSubjectResult = async (req, res, next) => {
       class: values.class,
       term: values.term,
       termId: values.termId,
+      ...officeAuthor(req),
     });
 
     res.json(result);
@@ -1395,6 +1429,7 @@ const upsertSingleSubjectResult = async (req, res, next) => {
       class: values.class,
       term: values.term,
       termId: values.termId,
+      ...officeAuthor(req),
     });
 
     res.json(result);
@@ -1456,6 +1491,7 @@ export {
   deleteStaff,
   deleteResult,
   deleteFee,
+  reverseFeePayment,
   deleteSalary,
   deleteSalaryPayment,
   deleteClass,

@@ -41,9 +41,13 @@ services:
       NODE_ENV: production
     ports:
       - "127.0.0.1:${SERVER_PORT:-5050}:5050"
+    # B17: uploaded photos / documents / logo. Back this volume up with the database.
+    volumes:
+      - uploads:/app/uploads
     depends_on:
       db:
         condition: service_healthy
 
 volumes:
   pgdata:
+  uploads:

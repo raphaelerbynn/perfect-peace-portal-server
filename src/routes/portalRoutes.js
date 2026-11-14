@@ -2,7 +2,10 @@ import { Router } from "express";
 import { fetchNews, fetchUserDetails } from "../controllers/generalController.js";
 import { fetchClass } from "../controllers/onlyTeacherController.js";
 import { fetchSubject } from "../controllers/subjectController.js";
+import { fetchPortalTimetable } from "../controllers/timetableController.js";
+import { fetchMyPhoto } from "../controllers/mediaController.js";
 import { authenticateUser } from "../utils/middlewares.js";
+import { portalTerms, pupilAttendance } from "../services/portalAttendance.js";
 
 // Portal (student / teacher) read routes that share a path with management
 // routes in generalRouter (/news, /class, /subject, /user-details).
@@ -39,12 +42,34 @@ const staffOnly = (req, res, next) => {
 const router = Router();
 
 // Only these paths: other requests must not be authenticated (or rejected) here.
-router.use(["/user-details", "/news", "/class", "/subject"], portalOnly);
+router.use(["/user-details", "/news", "/class", "/subject", "/portal/timetable", "/portal/photo", "/portal/terms", "/portal/attendance"], portalOnly);
 
 router.get("/user-details", fetchUserDetails);
 router.get("/news", fetchNews);
 // Teachers pick a class/subject when uploading assignments.
 router.get("/class", staffOnly, fetchClass);
 router.get("/subject", staffOnly, fetchSubject);
+// B3: a pupil's class timetable, or a teacher's own lessons (open term).
+router.get("/portal/timetable", fetchPortalTimetable);
+// B17: the signed-in pupil's or teacher's own photo (by token id).
+router.get("/portal/photo", fetchMyPhoto);
+// Attendance page: terms for the picker, and the signed-in pupil's own
+// register (by token id; teachers refused).
+const pupilOnly = (req, res, next) => {
+  if (req.user?.userRole !== "STU") {
+    res.status(403);
+    return next(new Error("You do not have permission to perform this action"));
+  }
+  return next();
+};
+const send = (fn) => async (req, res, next) => {
+  try {
+    res.json(await fn(req));
+  } catch (error) {
+    next(error);
+  }
+};
+router.get("/portal/terms", send(() => portalTerms()));
+router.get("/portal/attendance", pupilOnly, send((req) => pupilAttendance(req.user.id, req.query.termId)));
 
 export { router as portalRouter, portalOnly, PORTAL_ROLES };

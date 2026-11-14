@@ -79,7 +79,16 @@ const assertClassWrite = async (user, className, studentIds = [], termId = null)
 // failure rolls everything back and a re-mark is last-write-wins with no dupes.
 // The composite UNIQUE index (student_id, date_marked, term_id) backs this at
 // the DB level against concurrent callers.
-const markClassAttendance = async ({ className, dateMarked, dateEnd, studentAttendance }) => {
+// B2: `enteredBy` / `enteredByTeacherId` record who took the register (set by
+// the server from the token).
+const markClassAttendance = async ({
+    className,
+    dateMarked,
+    dateEnd,
+    studentAttendance,
+    enteredBy = null,
+    enteredByTeacherId = null,
+}) => {
     const term = await getTerm();
     const termId = term ? term.termId : null;
 
@@ -103,6 +112,8 @@ const markClassAttendance = async ({ className, dateMarked, dateEnd, studentAtte
                     // was always null. Read the plain field instead.
                     dateEnd: dateEnd ?? (term ? term.endDate : null),
                     termId,
+                    enteredBy,
+                    enteredByTeacherId,
                 },
                 { transaction: t }
             );
@@ -177,8 +188,25 @@ const getTotalStudentAttendance = async (data) => {
         raw: true,
         order: [["totalAttendanceId", "DESC"]],
     });
+    if (response) return response;
 
-    return response;
+    // B4: the term hasn't been closed (rolled up) yet, so count the daily
+    // register live; the report card then shows attendance so far.
+    const rows = await Attendance.findAll({
+        where: { studentId: data.studentId, termId: data.termId },
+        attributes: ["status"],
+        raw: true,
+    });
+    if (!rows.length) return null;
+    // status is CHAR(10) in Postgres: values come back space-padded.
+    const status = (r) => String(r.status ?? "").trim();
+    return {
+        studentId: Number(data.studentId),
+        termId: Number(data.termId),
+        present: rows.filter((r) => status(r) === "Present").length,
+        sick: rows.filter((r) => status(r) === "Sick").length,
+        attendance: rows.length,
+    };
 };
 
 // BE-3/BE-17: roll the active term's daily attendance into TotalAttendance.
@@ -208,7 +236,7 @@ const addTermAttendance = async () => {
 
     return await sequelize.transaction(async (t) => {
         // Select ONLY the grouped columns + aggregates. The old version selected
-        // every other column too (class, date_end…): MySQL allowed that, but
+        // every other column too (class, entered_by…): MySQL allowed that, but
         // Postgres refuses it, so closing a term failed on Postgres.
         const attendances = await Attendance.findAll({
             attributes: [

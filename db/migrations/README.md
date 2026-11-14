@@ -26,3 +26,19 @@ The runner uses the same `DB_*` env vars as the API.
 
 ## Baseline
 The schema that existed before this folder was created comes from the MySQL → Postgres data move (see `DOCKER.md` and `scripts/migrate-from-mysql/`). Migrations start from that baseline.
+
+## Part A / Part B numbering (2026-11-14)
+
+The release is split in two: Part A goes live first (001, 007–009, 011–013, 022), and Part B follows on top of it. Part B's migrations were renumbered so they come after everything Part A applies (the runner refuses a file numbered below one already applied). Contents are unchanged, so checksums are the same; only the file names moved:
+
+| Old | New | | Old | New |
+|---|---|---|---|---|
+| 002_fee_receipts_and_reversal | 023 | | 015_term_billing | 030 |
+| 003_teaching_assignments | 024 | | 016_fee_discounts | 031 |
+| 004_timetable | 025 | | 018_grading_scales | 032 |
+| 005_promotion | 026 | | 019_photos_and_documents | 033 |
+| 006_constraints_after_data_move | 027 | | 020_school_settings | 034 |
+| 010_terms_promoted_by_old_system | 028 | | 021_admission_numbers | 035 |
+| 014_academic_years | 029 | | | |
+
+Comments inside the SQL files still use the old numbers. A database that applied the old names (only local copies) needs its `dbo._migrations` names updated, e.g. `UPDATE dbo."_migrations" SET name = '023_fee_receipts_and_reversal.sql' WHERE name = '002_fee_receipts_and_reversal.sql';`, or a rebuild.

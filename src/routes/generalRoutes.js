@@ -1,5 +1,27 @@
 import { Router } from "express";
 import {
+  acceptClassPromotion,
+  fetchClassOrder,
+  fetchPromotionHistory,
+  fetchPromotionPreview,
+  fetchPromotionRules,
+  fetchPromotionStatus,
+  updateClassOrder,
+  updatePromotionRules,
+} from "../controllers/promotionController.js";
+import { fetchClassReportCards, fetchReportCardCompleteness } from "../controllers/reportCardController.js";
+import {
+  addTimetableEntries,
+  addTimetableEntry,
+  copyTermTimetable,
+  editTimetableEntry,
+  fetchPeriods,
+  fetchTimetable,
+  removeTimetableEntry,
+  savePeriods,
+  syncTimetableAssignments,
+} from "../controllers/timetableController.js";
+import {
   addBusFee,
   addClass,
   addClassFee,
@@ -22,6 +44,7 @@ import {
   deleteStudentFee,
   deleteExtraClasses,
   deleteFee,
+  reverseFeePayment,
   deleteFeeding,
   deleteResult,
   deleteSalary,
@@ -82,6 +105,22 @@ import {
 } from "../controllers/subjectController.js";
 import { fetchExpenseGraph, fetchFeesGraph, fetchFeesVsExpenseGraph, fetchIncomeGraph, fetchProfitLoss } from "../controllers/graphDataController.js";
 
+import {
+  copyTermTeachingAssignments,
+  deleteTeachingAssignment,
+  fetchTeachingAssignments,
+  upsertTeachingAssignment,
+} from "../controllers/teacherController.js";
+
+import {
+  addGradingScale,
+  editGradingScale,
+  fetchClassGrading,
+  fetchGradingScales,
+  removeGradingScale,
+} from "../controllers/gradingController.js";
+import { fetchClassSubjectScores, saveClassSubjectScoresSheet } from "../controllers/scoreSheetController.js";
+
 const router = Router();
 
 // Role helpers (mirrors docs/management-system-features.md §15).
@@ -104,10 +143,21 @@ router.get("/subject", ACADEMIC, fetchSubject);               // Subjects view: 
 router.get("/events", ALL_ROLES, fetchNews);
 router.get("/active-term", ALL_ROLES, fetchActiveTerm);       // term metadata: shared
 router.get("/terms", ALL_ROLES, fetchTerms);
-// BE-D4: close-term promotes students AND deactivates the active term — a
+// BE-D4: close-term deactivates the active term (B5: it no longer promotes) — a
 // state-mutating, non-idempotent operation that must NOT be a GET. Frontend
 // already calls POST and expects { message } on success.
-router.post("/close-term", ADMIN_ONLY, closeTerm);            // mutating term state: Administrator
+router.post("/close-term", ADMIN_ONLY, closeTerm);
+
+// --- B5: promotion. Moving pupils is Administrator only; close-term no
+// longer promotes (see services/term.js inactivateTerms).
+router.get("/promotion/rules", ADMIN_ONLY, fetchPromotionRules);
+router.put("/promotion/rules", ADMIN_ONLY, updatePromotionRules);
+router.get("/promotion/class-order", ADMIN_ONLY, fetchClassOrder);
+router.put("/promotion/class-order", ADMIN_ONLY, updateClassOrder);
+router.get("/promotion/preview", ADMIN_ONLY, fetchPromotionPreview);
+router.post("/promotion/accept", ADMIN_ONLY, acceptClassPromotion);
+router.get("/promotion/status", ADMIN_ONLY, fetchPromotionStatus);
+router.get("/promotion/history/:studentId", ACADEMIC, fetchPromotionHistory);            // mutating term state: Administrator
 
 // --- Staff (Administrator only) ---
 // Authenticated replacement for the removed unauthenticated `app.get("/staff")`.
@@ -123,6 +173,9 @@ router.get("/student-results", ACADEMIC, fetchClassResult);
 router.get("/student-marks", ACADEMIC, fetchOneStudentResult);
 router.get("/kg-assessment", ACADEMIC, fetchOneKGStudentResult);
 router.get("/student-kg-results", ACADEMIC, fetchClassKGResult);
+// B4: check a class before printing, then every card in one payload.
+router.get("/report-cards/completeness", ACADEMIC, fetchReportCardCompleteness);
+router.get("/report-cards/class", ACADEMIC, fetchClassReportCards);
 
 // --- Attendance (hidden for Accountant) ---
 router.get("/student-attendance", ACADEMIC, fetchAttendance);
@@ -134,6 +187,8 @@ router.get("/calculate-term-attendance", ADMIN_ONLY, calculateTotalAttendance);
 // --- Fees (hidden for Class Teacher) ---
 router.get("/fees", FINANCE, fetchFees);
 router.get("/fees/:fee_id", FINANCE, fetchOneFee);
+// B13: reversing a payment is Administrator-only (recording stays FINANCE).
+router.post("/fees/:fee_id/reverse", ADMIN_ONLY, reverseFeePayment);
 
 // --- Ancillary fee collectors (Accounting domain; hidden for Class Teacher) ---
 router.get("/feeding", FINANCE, fetchFeeding);
@@ -166,6 +221,37 @@ router.post("/add-student-fee", FINANCE, addStudentFee);   // BE-4: finance op (
 router.post("/add-term", ADMIN_ONLY, addTerm);
 router.post("/add-news", ADMIN_ONLY, addEvent);               // Events add: Administrator
 
+// B2: who teaches which subject in which class, per term (Administrator).
+router.get("/teaching-assignments", ADMIN_ONLY, fetchTeachingAssignments);
+router.post("/teaching-assignments", ADMIN_ONLY, upsertTeachingAssignment);
+router.post("/teaching-assignments/copy", ADMIN_ONLY, copyTermTeachingAssignments);
+router.delete("/teaching-assignments/:id", ADMIN_ONLY, deleteTeachingAssignment);
+
+// --- B8: grading scales. Everyone who enters results can read them (live
+// remark previews); only the Administrator changes them.
+router.get("/grading-scales", ACADEMIC, fetchGradingScales);
+router.get("/grading-scales/for-class", ACADEMIC, fetchClassGrading);
+router.post("/grading-scales", ADMIN_ONLY, addGradingScale);
+router.put("/grading-scales/:id", ADMIN_ONLY, editGradingScale);
+router.delete("/grading-scales/:id", ADMIN_ONLY, removeGradingScale);
+
+// --- B6: one subject for a whole class (Upload scores page). Class Teachers
+// are scoped to their own class in services/scoreSheet.js.
+router.get("/class-subject-scores", ACADEMIC, fetchClassSubjectScores);
+router.post("/class-subject-scores", ACADEMIC, saveClassSubjectScoresSheet);
+
+// --- B3: timetable. Everyone in the office can read it; only the
+// Administrator builds it (TODO B3 Q4). Fixed paths before "/timetable/:id".
+router.get("/timetable/periods", ALL_ROLES, fetchPeriods);
+router.put("/timetable/periods", ADMIN_ONLY, savePeriods);
+router.post("/timetable/bulk", ADMIN_ONLY, addTimetableEntries);
+router.post("/timetable/copy", ADMIN_ONLY, copyTermTimetable);
+router.post("/timetable/sync-assignments", ADMIN_ONLY, syncTimetableAssignments);
+router.get("/timetable", ALL_ROLES, fetchTimetable);
+router.post("/timetable", ADMIN_ONLY, addTimetableEntry);
+router.put("/timetable/:id", ADMIN_ONLY, editTimetableEntry);
+router.delete("/timetable/:id", ADMIN_ONLY, removeTimetableEntry);
+
 router.post("/mark-attendance", ACADEMIC, markAttendance);
 router.post("/delete-attendance", ACADEMIC, deleteAttendance);
 router.post("/assign-salary", FINANCE, assignSalary);
@@ -187,7 +273,7 @@ router.delete("/delete-class/:class_id", ADMIN_ONLY, deleteClass);
 router.delete("/delete-class-fee/:class_fee_id", FINANCE, deleteClassFee);     // BE-4: finance op (was ADMIN_ONLY)
 router.delete("/delete-student-fee/:student_fee_id", FINANCE, deleteStudentFee); // BE-4: finance op (was ADMIN_ONLY)
 router.delete("/delete-result", ACADEMIC, deleteResult);
-router.delete("/delete-fee/:fee_id", FINANCE, deleteFee);
+router.delete("/delete-fee/:fee_id", FINANCE, deleteFee); // B13: now 410 Gone — use /fees/:id/reverse
 router.delete("/delete-subject/:subject_id", ADMIN_ONLY, deleteSubject);
 router.delete("/delete-salary/:salary_id", FINANCE, deleteSalary);
 router.delete("/delete-salary-payment/:payment_id", FINANCE, deleteSalaryPayment);

@@ -1,8 +1,9 @@
-import { ClassFee, Fee, FeeCheck, Student, StudentFee, Term } from "../models/index.js";
+import { Class, ClassFee, Fee, FeeCheck, Student, StudentFee, Term } from "../models/index.js";
 import { Op } from "sequelize";
 import sequelize from "../config/database.js";
 import { AppError } from "../utils/errorHandling.js";
 import { isPesewaAmount, round2, sumMoney } from "../utils/money.js";
+import { computeDiscounts, discountsForTerm } from "./feeBill.js";
 
 // BE-1: a payment amount must be a finite number > 0. (Mirrors
 // studentFees.validateAmount; defined locally to avoid a circular import.)
@@ -29,7 +30,7 @@ const ensureStudentExists = async (studentId, transaction = null) => {
   }
   const student = await Student.findOne({
     where: { studentId, isDeleted: false },
-    // Lock the student row for the rest of the payment transaction, so two
+    // B13: lock the student row for the rest of the payment transaction, so two
     // payments recorded at the same moment are checked one after the other
     // (otherwise both pass the "not more than the balance" check together).
     ...(transaction ? { transaction, lock: transaction.LOCK?.UPDATE } : {}),
@@ -45,7 +46,7 @@ const ensureStudentExists = async (studentId, transaction = null) => {
 //
 // FEE PERIODS (migration 008): balances carry over from the live system.
 //   bill            = sum(ClassFee for the pupil's current class) + sum(StudentFee)
-//   paidInPeriod    = payments with fee_id > feesPeriodAfterFeeId
+//   paidInPeriod    = non-reversed payments with fee_id > feesPeriodAfterFeeId
 //   feesOwing       = feesOpeningBalance + (bill - feesBillAtStart) - paidInPeriod
 //                     (below 0 = the pupil is in credit; live has such pupils,
 //                     and the credit must carry over, not vanish on recompute)
@@ -54,14 +55,18 @@ const ensureStudentExists = async (studentId, transaction = null) => {
 // bill then); a class fee added later adds to what pupils owe; correcting a
 // pupil's class swaps the old bill for the new one; promotion starts a new
 // period (startFeePeriod). Owing never goes below 0 (overpayment is refused).
+//
+// B12: bill = fee items - the pupil's discounts for the period's term
+// (feesPeriodTermId; a period with no term yet has no discounts). Billing a
+// term starts its period (services/termBilling.js).
 export const recomputeStudentOwing = async (studentId, { transaction = null } = {}) => {
   if (studentId == null) return null;
 
-  // Lock the pupil (inside a transaction) so a payment, deletion or fee change
+  // Lock the pupil (inside a transaction) so a payment, reversal or fee change
   // happening at the same moment can't be left out of the balance.
   const student = await Student.findOne({
     where: { studentId },
-    attributes: ["studentId", "classId", "feesOpeningBalance", "feesBillAtStart", "feesPaidAtStart", "feesPeriodAfterFeeId"],
+    attributes: ["studentId", "classId", "feesOpeningBalance", "feesBillAtStart", "feesPaidAtStart", "feesPeriodAfterFeeId", "feesPeriodTermId"],
     raw: true,
     transaction,
     ...(transaction?.LOCK ? { lock: transaction.LOCK.UPDATE } : {}),
@@ -72,14 +77,19 @@ export const recomputeStudentOwing = async (studentId, { transaction = null } = 
   // One query at a time: inside a transaction they share one connection.
   const classFees =
     student.classId != null
-      ? await ClassFee.findAll({ where: { classId: student.classId }, attributes: ["amount"], raw: true, transaction })
+      ? await ClassFee.findAll({ where: { classId: student.classId }, attributes: ["name", "amount"], raw: true, transaction })
       : [];
-  const studentFees = await StudentFee.findAll({ where: { studentId }, attributes: ["amount"], raw: true, transaction });
-  // Only this period's payments.
-  const fees = await Fee.findAll({ where: { studentId, feeId: { [Op.gt]: after } }, attributes: ["paid"], raw: true, transaction });
+  const studentFees = await StudentFee.findAll({ where: { studentId }, attributes: ["name", "amount"], raw: true, transaction });
+  // B12: the pupil's discounts for the term this period bills.
+  const discounts =
+    student.feesPeriodTermId != null
+      ? (await discountsForTerm([studentId], student.feesPeriodTermId, { transaction })).get(Number(studentId)) || []
+      : [];
+  // B13: reversed payments no longer count; only this period's payments.
+  const fees = await Fee.findAll({ where: { studentId, reversedAt: null, feeId: { [Op.gt]: after } }, attributes: ["paid"], raw: true, transaction });
 
   // Summed to the pesewa (amounts can have decimals since migration 012).
-  const billed = round2(sumMoney(classFees, "amount") + sumMoney(studentFees, "amount"));
+  const billed = computeDiscounts([...classFees, ...studentFees], discounts).net;
   const paidInPeriod = sumMoney(fees, "paid");
   const opening = Number(student.feesOpeningBalance) || 0;
   const billAtStart = Number(student.feesBillAtStart) || 0;
@@ -101,7 +111,19 @@ export const recomputeStudentOwing = async (studentId, { transaction = null } = 
  * keeping arrears instead of dropping them. Call BEFORE moving the pupil, then
  * recomputeStudentOwing after the move.
  */
-export const startFeePeriod = async (studentId, { transaction = null } = {}) => {
+export const startFeePeriod = async (studentId, { transaction = null, termId = null, unlessBilledAfter = null } = {}) => {
+  // B12: promotion passes its term's start date. A pupil already billed for a
+  // LATER term (the office billed the new term before accepting promotion)
+  // keeps that period: the class change just swaps the bill, no second bill.
+  if (unlessBilledAfter) {
+    const s = await Student.findOne({ where: { studentId }, attributes: ["studentId", "feesPeriodTermId"], raw: true, transaction });
+    if (s?.feesPeriodTermId != null) {
+      const billedTerm = await Term.findOne({ where: { termId: s.feesPeriodTermId }, attributes: ["termId", "startDate"], raw: true, transaction });
+      if (billedTerm?.startDate && String(billedTerm.startDate).slice(0, 10) > String(unlessBilledAfter).slice(0, 10)) {
+        return { arrears: null, skipped: true };
+      }
+    }
+  }
   const now = await recomputeStudentOwing(studentId, { transaction });
   if (!now) return null;
   const [[{ maxId }]] = await sequelize.query(`SELECT COALESCE(MAX(fee_id), 0) AS "maxId" FROM "dbo"."Fee"`, { transaction });
@@ -112,13 +134,16 @@ export const startFeePeriod = async (studentId, { transaction = null } = {}) => 
       feesPaidAtStart: 0,
       feesPeriodAfterFeeId: Number(maxId) || 0,
       feesPeriodStartedAt: new Date(),
+      // B12: the term this period bills (null = started by promotion; the
+      // next term billed takes it over).
+      feesPeriodTermId: termId ?? null,
     },
     { where: { studentId }, transaction }
   );
   return { arrears: now.owing, afterFeeId: Number(maxId) || 0 };
 };
 
-const createFee = async (data) => {
+const createFee = async (data, { recordedBy = null } = {}) => {
   // BE-1/BE-2/BE-4: record the payment AND reconcile the student's cached owing
   // from the underlying rows in ONE transaction. Previously the payment amount
   // was written straight from the request with no validation (a negative/NaN
@@ -155,6 +180,8 @@ const createFee = async (data) => {
         amountInWords: data?.amountInWords,
         datePaid: data?.datePaid,
         term: data?.term ?? openTerm?.term ?? null,
+        // B13: receipt_no is assigned by the database; record who took the money.
+        recordedBy,
       },
       { transaction: t }
     );
@@ -170,71 +197,139 @@ const createFee = async (data) => {
   });
 }
 
-const removeFee = async (id) => {
-  // BE-D3: deleting a payment must RESTORE the balance. Read the row first to
-  // know which student to reconcile, delete, then recompute — all atomically.
+export const REVERSAL_REASON_MIN = 5;
+export const REVERSAL_REASON_MAX = 500;
+
+// B13: reverse a payment entered by mistake. The row is KEPT (receipt number
+// stays used, audit trail intact) and marked reversed; the student's balance is
+// recomputed without it. Claimed atomically: two people reversing the same
+// payment at once -> exactly one succeeds, the other gets 409.
+const reverseFee = async (id, { reason, reversedBy = null } = {}) => {
   if (!/^\d+$/.test(String(id ?? ""))) throw new AppError("Fee payment not found", 404);
+  const cleanReason = String(reason ?? "").trim();
+  if (cleanReason.length < REVERSAL_REASON_MIN) {
+    throw new AppError(`Give a reason for the reversal (at least ${REVERSAL_REASON_MIN} characters)`, 400);
+  }
+  if (cleanReason.length > REVERSAL_REASON_MAX) {
+    throw new AppError(`The reason must be ${REVERSAL_REASON_MAX} characters or fewer`, 400);
+  }
+
   return await sequelize.transaction(async (t) => {
     const existing = await Fee.findOne({ where: { feeId: id }, transaction: t });
-    // BE-5: distinguish "deleted" from "didn't exist" — 404 instead of a silent
-    // 200/0 with no recompute.
     if (!existing) {
       throw new AppError("Fee payment not found", 404);
     }
-    const studentId = existing.studentId;
+    if (existing.reversedAt) {
+      throw new AppError(`Receipt ${existing.receiptNo} was already reversed`, 409);
+    }
     // Lock the pupil like createFee does, so a payment recorded at the same
     // moment can't be left out of the recomputed balance.
-    const p = studentId != null
-      ? await Student.findOne({
-          where: { studentId },
-          attributes: ["studentId", "feesPeriodAfterFeeId", "feesOpeningBalance", "feesPaidAtStart"],
-          raw: true,
-          transaction: t,
-          lock: t.LOCK?.UPDATE,
-        })
-      : null;
+    if (existing.studentId != null) {
+      await Student.findOne({ where: { studentId: existing.studentId }, attributes: ["studentId"], transaction: t, lock: t.LOCK?.UPDATE });
+    }
 
-    const response = await Fee.destroy({ where: { feeId: id }, transaction: t });
-    // Someone deleted it between our read and now (double click, two people):
-    // the balance was already corrected once. Nothing more to do.
-    if (response === 0) {
-      throw new AppError("Fee payment not found", 404);
+    const [claimed] = await Fee.update(
+      { reversedAt: new Date(), reversedBy, reversalReason: cleanReason },
+      { where: { feeId: id, reversedAt: null }, transaction: t }
+    );
+    if (claimed === 0) {
+      // Someone else reversed it between our read and our update.
+      throw new AppError(`Receipt ${existing.receiptNo} was already reversed`, 409);
     }
 
     // A payment from before the pupil's current fee period (e.g. paid on the
     // live system before go-live) is inside the opening balance, not the
-    // period's payments: deleting it puts the money back on what is owed.
-    if (p && Number(existing.feeId) <= (Number(p.feesPeriodAfterFeeId) || 0)) {
-      const amount = Number(existing.paid) || 0;
-      await Student.update(
-        {
-          feesOpeningBalance: round2((Number(p.feesOpeningBalance) || 0) + amount),
-          feesPaidAtStart: Math.max(0, round2((Number(p.feesPaidAtStart) || 0) - amount)),
-        },
-        { where: { studentId }, transaction: t }
-      );
+    // period's payments: reversing it puts the money back on what is owed.
+    if (existing.studentId != null) {
+      const p = await Student.findOne({
+        where: { studentId: existing.studentId },
+        attributes: ["feesPeriodAfterFeeId", "feesOpeningBalance", "feesPaidAtStart"],
+        raw: true,
+        transaction: t,
+      });
+      if (p && Number(existing.feeId) <= (Number(p.feesPeriodAfterFeeId) || 0)) {
+        const amount = Number(existing.paid) || 0;
+        await Student.update(
+          {
+            feesOpeningBalance: (Number(p.feesOpeningBalance) || 0) + amount,
+            feesPaidAtStart: Math.max(0, (Number(p.feesPaidAtStart) || 0) - amount),
+          },
+          { where: { studentId: existing.studentId }, transaction: t }
+        );
+      }
     }
-    if (studentId != null) {
-      await recomputeStudentOwing(studentId, { transaction: t });
-    }
+    const recompute = existing.studentId != null
+      ? await recomputeStudentOwing(existing.studentId, { transaction: t })
+      : null;
 
-    return response;
+    const updated = await Fee.findOne({ where: { feeId: id }, transaction: t });
+    const result = typeof updated.toJSON === "function" ? updated.toJSON() : updated;
+    result.owing = recompute?.owing ?? null;
+    return result;
   });
-}
+};
 
+// B13: payment rows for the admin list, each with the payer's name and class
+// (the admin page used to look names up in a paged student list, so most rows
+// showed "—").
+const LIST_INCLUDE = [
+  { model: Student, as: "student", attributes: ["fName", "mName", "lName"], required: false },
+  { model: Class, as: "class", attributes: ["name"], required: false },
+];
+const withNames = (rows) =>
+  rows.map((row) => {
+    const { student, class: klass, ...fee } = typeof row.toJSON === "function" ? row.toJSON() : row;
+    return {
+      ...fee,
+      studentName: student ? [student.fName, student.mName, student.lName].filter(Boolean).join(" ") : null,
+      className: klass?.name ?? null,
+    };
+  });
+
+// B13: everything a printed receipt needs, in one call.
 const getOneFee = async (id) => {
-  const response = await Fee.findOne({
-    where: {
-      feeId: id
-    }
-  })
-  return response;
-}
+  if (!/^\d+$/.test(String(id ?? ""))) throw new AppError("Fee payment not found", 404);
+  const fee = await Fee.findOne({ where: { feeId: id }, raw: true });
+  if (!fee) throw new AppError("Fee payment not found", 404);
+
+  const [student, klass] = await Promise.all([
+    fee.studentId != null
+      ? Student.findOne({
+          where: { studentId: fee.studentId },
+          attributes: ["studentId", "fName", "mName", "lName", "class", "feesOwing"],
+          raw: true,
+        })
+      : null,
+    fee.classId != null
+      ? Class.findOne({ where: { classId: fee.classId }, attributes: ["classId", "name"], raw: true })
+      : null,
+  ]);
+
+  return {
+    ...fee,
+    studentName: student ? [student.fName, student.mName, student.lName].filter(Boolean).join(" ") : null,
+    indexNumber: student ? `STU/${student.studentId}` : null,
+    className: klass?.name ?? student?.class ?? null,
+    currentOwing: student ? Number(student.feesOwing ?? 0) : null,
+  };
+};
 
 const getFeesData = async (data) => {
   // console.log(data)
+  // B13: look up a receipt by its number (partial, case-insensitive).
+  if (data?.receiptNo) {
+    return withNames(await Fee.findAll({
+      // % and _ are LIKE wildcards: match them literally.
+      where: { receiptNo: { [Op.iLike]: `%${String(data.receiptNo).trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%` } },
+      include: LIST_INCLUDE,
+      order: [["feeId", "DESC"]],
+      limit: 50,
+    }));
+  }
+  // Reversed payments ARE returned (flagged by reversedAt) so the list can show
+  // them struck through; every total must skip them.
   if (data.all === "true") {
-    return await Fee.findAll();
+    return withNames(await Fee.findAll({ include: LIST_INCLUDE }));
   } else {
     // BE-6: validate the date params up front. Previously a missing/garbage date
     // made `new Date(...).toISOString()` throw a RangeError -> opaque 500.
@@ -251,13 +346,14 @@ const getFeesData = async (data) => {
     // bounds line up with the DATEONLY-style values stored in `date_paid`.
     const startDate = start.toISOString().slice(0, 10);
     const endDate = end.toISOString().slice(0, 10);
-    return await Fee.findAll({
+    return withNames(await Fee.findAll({
       where: {
         datePaid: {
           [Op.between]: [startDate, endDate],
         },
       },
-    });
+      include: LIST_INCLUDE,
+    }));
   }
 };
 
@@ -272,7 +368,8 @@ const getLastFee = async (indexNumber) => {
     // as a 1-element array for parent-app back-compat.
     const lastFee = await Fee.findAll({
       where: {
-        studentId: indexNumber
+        studentId: indexNumber,
+        reversedAt: null, // B13: a reversed payment is not "the last payment"
       },
       limit: 1,
       order: [['fee_id', 'DESC']]
@@ -281,4 +378,4 @@ const getLastFee = async (indexNumber) => {
     return lastFee;
 };
 
-export { createFee, removeFee, getFeeCheck, getLastFee, getFeesData, getOneFee };
+export { createFee, reverseFee, getFeeCheck, getLastFee, getFeesData, getOneFee };

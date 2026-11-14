@@ -39,7 +39,7 @@ export const getStaff = async (options = {}) => {
   const { page, limit } = options;
 
   const queryOptions = {
-    attributes: { exclude: ["password"] },
+    attributes: { exclude: ["password", "photoKey"] }, // B17: no storage keys
     // BE-T3: never list archived staff.
     where: { isDeleted: { [Op.not]: true } },
     include: [

@@ -2,14 +2,16 @@
 // rehearsed on real databases by scripts/rehearse-sync.sh.
 import {
   NEW_ROW_TABLES,
+  newRowsSql,
   NO_MIRROR_DELETE_TABLES,
   REPLACEABLE_DUPLICATE_TABLES,
+  activityProblems,
   clashSql,
-  newRowsSql,
   dedupeSqls,
   identityClashSql,
   insertSql,
   keyMatchSql,
+  NEW_SYSTEM_ACTIVITY,
   resolvePassword,
   skipRemovedSql,
   uniqueKeysFor,
@@ -62,7 +64,7 @@ describe("row SQL", () => {
     expect(skipRemovedSql('"dbo"."Attendance"', "attendance_id")).toContain(`row_data->>'attendance_id'`);
   });
 
-  it("inserts payments in date order", () => {
+  it("inserts payments in date order so receipts follow migration 023", () => {
     expect(insertSql('"dbo"."Fee"', "fee_id", ["fee_id", "date_paid"], "Fee")).toContain('ORDER BY "date_paid" NULLS FIRST, "fee_id"');
     expect(insertSql('"dbo"."Term"', "term_id", ["term_id"], "Term")).toContain('ORDER BY "term_id"');
   });
@@ -74,12 +76,12 @@ describe("row SQL", () => {
   });
 });
 
-describe("new-system rows guard", () => {
-  it("covers payments, registers, marks, results, salaries and fee items", () => {
-    expect([...NEW_ROW_TABLES].sort()).toEqual(["Attendance", "ClassFee", "Fee", "KG_assessment", "Salary_payment", "StudentFee", "Student_marks", "Student_result", "Total_attendance"]);
-  });
-  it("flags rows above the recorded live max (even if live has since used the id)", () => {
-    expect(newRowsSql('"dbo"."Fee"', "fee_id")).toContain('t."fee_id" > :threshold');
+describe("new-system activity guard", () => {
+  it("lists only what has rows", () => {
+    const counts = NEW_SYSTEM_ACTIVITY.map(() => 0);
+    expect(activityProblems(counts)).toEqual([]);
+    counts[0] = 3;
+    expect(activityProblems(counts)).toEqual([{ what: "payments recorded or reversed in the new system", rows: 3 }]);
   });
 });
 
@@ -98,5 +100,12 @@ describe("passwords", () => {
   it("leaves empty values and live hashes alone", async () => {
     expect(await resolvePassword(null, "$2b$10$x", compare)).toBeNull();
     expect(await resolvePassword("$2b$10$already", "$2b$10$x", compare)).toBe("$2b$10$already");
+  });
+});
+
+describe("rows not copied from live", () => {
+  it("covers payments, registers, marks, results, salaries and fee items, above the recorded live max", () => {
+    expect([...NEW_ROW_TABLES].sort()).toEqual(["Attendance", "ClassFee", "Fee", "KG_assessment", "Salary_payment", "StudentFee", "Student_marks", "Student_result", "Total_attendance"]);
+    expect(newRowsSql('"dbo"."Fee"', "fee_id")).toContain('t."fee_id" > :threshold');
   });
 });

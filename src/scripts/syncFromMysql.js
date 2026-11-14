@@ -10,8 +10,8 @@
 // `npm run migrate`. For every table the old system has, in one transaction:
 //   - rows missing in the new database are added (same ids as live);
 //   - rows whose values changed in live are updated: LIVE WINS, but only on
-//     columns live has. Columns the new system added (fee periods, the term of
-//     each payment, next-term dates …) are kept or recomputed;
+//     columns live has. Columns the new system added (receipt numbers, photos,
+//     admission numbers, fee periods, grades …) are kept or recomputed;
 //   - duplicates are avoided: ids the duplicate clean-up removed never come
 //     back, and a new row that clashes with another on a unique key (a register
 //     saved twice …) keeps only the most recent save, as the clean-up does;
@@ -22,17 +22,18 @@
 //     and payments are never removed automatically). "Not in live" also means
 //     rows created in the new system (an office login, a term set up early),
 //     so read the dry run's list before using --mirror-deletes;
-//   - tables only the new system has (sign-in reset codes …)
+//   - tables only the new system has (settings, grading scales, timetable …)
 //     are never touched.
-// Then what the migrations computed from the data is redone (011: the term of
-// each payment) and every pupil's fee period is re-based on their live
-// balance (008/022). Finally the app's own balance calculation runs for every
+// Then what the migrations computed from the data is redone for the changed
+// rows (023 receipt year, 011 payment term, 028/029 terms and years, 032 JHS
+// grades) and every pupil's fee period is re-based on their live balance
+// (008/030/022). Finally the app's own balance calculation runs for every
 // pupil; if any balance differs from live, everything is rolled back.
 //
-// Refuses to run when the new database has been used: a payment, register,
-// mark, result or salary row numbered above everything live has can only have
-// been created in the new system. --dry-run does all of it and then rolls
-// back, so it shows exactly what a real run would do.
+// Refuses to run when the new database has been used (payments, registers,
+// marks, bills, promotions, discounts or salaries entered in the new system).
+// --dry-run does all of it and then rolls back, so it shows exactly what a
+// real run would do.
 import fs from "fs";
 import path from "path";
 import bcrypt from "bcrypt";
@@ -46,11 +47,17 @@ import {
   NO_MIRROR_DELETE_TABLES,
   REPLACEABLE_DUPLICATE_TABLES,
   clashSql,
+  FEE_RECEIPT_YEAR_SQL,
   FEE_TERM_SQL,
   IDENTITY_COLUMNS,
   LIVE,
   LIVE_FIXUPS,
+  MARK_GRADE_SQLS,
+  NEW_SYSTEM_ACTIVITY,
   REBASE_STUDENTS_SQL,
+  TERM_PROMOTED_SQL,
+  TERM_YEAR_SQLS,
+  activityProblems,
   candidatesSql,
   changedCountSql,
   dedupeSqls,
@@ -99,6 +106,24 @@ const assertTargetMigrated = async () => {
   if (!ok) throw new Refused("The target has no migrations: run `npm run move-data`, the clean-up and `npm run migrate` first.");
   const [pending] = await sequelize.query(`SELECT COUNT(*)::int AS n FROM "dbo"."_migrations"`);
   if (!pending[0].n) throw new Refused("The target has no migrations applied: run `npm run migrate` first.");
+};
+
+const assertNewSystemUnused = async () => {
+  const counts = [];
+  for (const a of NEW_SYSTEM_ACTIVITY) {
+    const [[{ exists }]] = await sequelize.query("SELECT to_regclass(:t) IS NOT NULL AS exists", {
+      replacements: { t: pgTable(a.table) },
+    });
+    counts.push(exists ? (await sequelize.query(a.sql))[0][0].n : 0);
+  }
+  const problems = activityProblems(counts);
+  if (problems.length) {
+    throw new Refused(
+      "The new system has already been used, so live can't simply win:\n" +
+        problems.map((p) => `  - ${p.rows} ${p.what}`).join("\n") +
+        "\nThe sync is only for before go-live. After go-live the new system is the one to use."
+    );
+  }
 };
 
 // ---------------------------------------------------------------- one table
@@ -188,13 +213,14 @@ const syncTable = async (p, transaction, result) => {
 
   out.skippedRemoved = (await run(skipRemovedSql(T, pk), transaction, { table })).length;
 
+  // Rows not copied from live (above the highest id live had at the last
+  // move/sync): typed into the new system, even if live has used the id since.
   if (NEW_ROW_TABLES.has(table)) {
     const [{ n: liveMax }] = await run(liveMaxSql(pk), transaction);
     out.liveMax = Number(liveMax);
     const recorded = result.syncState.get(table);
-    const threshold = recorded ?? out.liveMax;
-    const fresh = await run(newRowsSql(T, pk), transaction, { threshold });
-    if (fresh.length) result.newSystemRows.push({ table, ids: ids(fresh), recorded: recorded != null });
+    const fresh = await run(newRowsSql(T, pk), transaction, { threshold: recorded ?? out.liveMax });
+    if (fresh.length) result.newSystemRows.push({ table, ids: ids(fresh) });
   }
 
   const identity = IDENTITY_COLUMNS[table];
@@ -267,8 +293,18 @@ const tableResult = (result, table) => result.tables.find((t) => t.table === tab
 const afterRows = async (transaction, result) => {
   const derived = {};
   const fee = tableResult(result, "Fee");
+  if (fee.inserted.length) await run(FEE_RECEIPT_YEAR_SQL, transaction, { ids: fee.inserted });
   const feeIds = [...fee.inserted, ...fee.updated];
   derived.paymentTermsSet = (await run(FEE_TERM_SQL, transaction, { ids: feeIds.length ? feeIds : [-1] })).length;
+
+  derived.termsMarkedPromotedByOldSystem = (await run(TERM_PROMOTED_SQL, transaction)).length;
+  for (const sql of TERM_YEAR_SQLS) await run(sql, transaction);
+
+  const marks = tableResult(result, "Student_marks");
+  const markIds = [...marks.inserted, ...marks.updated];
+  if (markIds.length) await run(MARK_GRADE_SQLS[0], transaction, { ids: markIds });
+  derived.marksGraded = (await run(MARK_GRADE_SQLS[1], transaction)).length;
+
   derived.pupilsRebased = (await run(REBASE_STUDENTS_SQL, transaction)).length;
   return derived;
 };
@@ -298,15 +334,37 @@ const writeReport = (report) => {
   return file;
 };
 
+// nextval() is not undone by a rollback. Sequences a run may use without
+// giving explicit ids: receipt numbers and new school years.
+const SEQUENCES = [`"dbo".receipt_seq`, `pg_get_serial_sequence('"dbo"."Academic_year"', 'academic_year_id')`];
+const saveSequences = async () => {
+  const out = [];
+  for (const expr of SEQUENCES) {
+    const [[{ name }]] = await sequelize.query(`SELECT (${expr.startsWith("pg_") ? expr : `'${expr}'`})::text AS name`);
+    if (!name) continue;
+    const [[row]] = await sequelize.query(`SELECT last_value, is_called FROM ${name}`);
+    out.push({ name, ...row });
+  }
+  return out;
+};
+const restoreSequences = async (saved) => {
+  for (const s of saved) {
+    await sequelize.query(`SELECT setval(:name, :v, :called)`, { replacements: { name: s.name, v: s.last_value, called: s.is_called } });
+  }
+};
+
 // ---------------------------------------------------------------- main
 const main = async () => {
   assertSafeTarget({ dryRun: false }); // a dry run writes too (then rolls back)
   await sequelize.authenticate();
   await assertTargetMigrated();
+  await assertNewSystemUnused();
 
   const my = await connectSource();
   const report = { mode: DRY_RUN ? "dry-run" : "sync", mirrorDeletes: MIRROR_DELETES, startedAt: new Date().toISOString() };
   const result = { tables: [], skipped: [], identityClashes: [], newSystemRows: [], syncState: new Map() };
+  const seqBefore = await saveSequences();
+  let committed = false;
 
   try {
     log(`Source: MySQL ${my.config.database} -> Target: Postgres ${sequelize.getDatabaseName()}${DRY_RUN ? "  (DRY RUN: rolled back at the end)" : ""}`);
@@ -375,8 +433,13 @@ const main = async () => {
         orphanCheck = fks;
         if (DRY_RUN) throw new DryRunRollback();
       });
+      committed = true;
     } catch (e) {
       if (!(e instanceof DryRunRollback)) throw e;
+    } finally {
+      // Rolled back (dry run or failure): give back the receipt numbers and
+      // year ids it used, so receipts stay consecutive.
+      if (!committed) await restoreSequences(seqBefore);
     }
 
     if (!DRY_RUN) {

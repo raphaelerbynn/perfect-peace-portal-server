@@ -11,8 +11,8 @@
 # dry run -> real move -> clean-up SQL (fixture: the planted duplicates) ->
 # npm run migrate (MUST apply every file; any failure stops the rehearsal) ->
 # migrate again (MUST be a no-op) -> checks: every migration recorded, the
-# Part A columns, the 001 unique indexes, every pupil's fees_owing equal to
-# the source -> devSync over
+# 020 settings row, Admission_counter and its defaults, the named constraints
+# of 029-035, every pupil's fees_owing equal to the source -> devSync over
 # the migrated database (tables already there) -> a second move is refused.
 # Any failed step or check exits non-zero with "REHEARSAL FAILED".
 #
@@ -89,20 +89,44 @@ APPLIED=$(psql_q 'SELECT name FROM dbo."_migrations" ORDER BY name')
 $(diff <(echo "$FILES") <(echo "$APPLIED"))"
 echo "✓ all $(echo "$APPLIED" | wc -l | tr -d ' ') migration files applied: $(echo "$APPLIED" | sed 's/_.*//' | tr '\n' ' ')"
 
-# Part A columns the migrations add (fee periods 008, payment term 011,
-# next term begins 013) and the defaults 022 sets.
-for col in Student.fees_opening_balance Student.fees_period_after_fee_id Fee.term_id Term.next_term_begins; do
+[ "$(psql_q "SELECT admission_format FROM dbo.\"School_settings\" WHERE school_settings_id = 1")" = "PPS/{YYYY}/{0000}" ] \
+  || fail "the 020 School_settings seed row is missing"
+echo "✓ School_settings row 1 seeded (034)"
+[ "$(psql_q "SELECT to_regclass('dbo.\"Admission_counter\"') IS NOT NULL")" = "t" ] || fail "Admission_counter is missing"
+echo "✓ Admission_counter exists"
+
+# Defaults a table made by the model's sync would not have.
+for col in School_settings.updated_at Document.created_at Admission_counter.updated_at Admission_counter.last_value Grading_scale.is_default; do
   t=${col%.*}; c=${col#*.}
-  [ "$(psql_q "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='dbo' AND table_name='$t' AND column_name='$c'")" = "1" ] \
-    || fail "column $t.$c is missing"
+  d=$(psql_q "SELECT column_default FROM information_schema.columns WHERE table_schema='dbo' AND table_name='$t' AND column_name='$c'")
+  [ -n "$d" ] || fail "no database default on $t.$c"
 done
-[ -n "$(psql_q "SELECT column_default FROM information_schema.columns WHERE table_schema='dbo' AND table_name='Student' AND column_name='fees_owing'")" ] \
-  || fail "no database default on Student.fees_owing (022)"
-echo "✓ Part A columns present (008, 011, 013) and Student.fees_owing defaults to 0 (022)"
-for i in uniq_marks uniq_result uniq_kg uniq_attendance uniq_total_attendance uniq_subject_name; do
-  [ "$(psql_q "SELECT to_regclass('dbo.$i') IS NOT NULL")" = "t" ] || fail "unique index $i (001) is missing"
+echo "✓ database defaults present (updated_at / created_at / last_value / is_default)"
+# The service's insert, and an insert that leaves the defaults to the database.
+psql_q "BEGIN; INSERT INTO dbo.\"Admission_counter\" (scope) VALUES ('rehearsal'); ROLLBACK;" >/dev/null \
+  || fail "Admission_counter insert relying on defaults failed"
+
+EXPECTED_CONSTRAINTS="academic_year_status_chk academic_year_dates_chk Term_academic_year_id_fkey
+Student_fees_period_term_id_fkey Student_term_bill_term_id_fkey student_term_bill_kind_chk
+discount_type_kind_chk discount_type_value_chk student_discount_source_chk Student_discount_discount_type_id_fkey
+Student_discount_from_term_id_fkey Student_discount_to_term_id_fkey
+ck_grade_band_range Grade_band_grading_scale_id_fkey Grading_scale_section_grading_scale_id_fkey
+document_owner_type_chk document_size_bytes_chk Document_storage_key_key
+school_settings_one_row_chk school_settings_primary_color_chk school_settings_accent_color_chk
+admission_counter_last_value_chk"
+EXPECTED_INDEXES="academic_year_name_uq academic_year_one_current_uq student_term_bill_uq discount_type_name_uq
+ux_grading_scale_name ux_grading_scale_one_default idx_grade_band_scale idx_document_owner uniq_student_admission_no"
+missing=""
+for c in $EXPECTED_CONSTRAINTS; do
+  [ "$(psql_q "SELECT COUNT(*) FROM pg_constraint WHERE conname = '$c'")" = "1" ] || missing="$missing $c"
 done
-echo "✓ the 6 unique indexes from 001 exist"
+for i in $EXPECTED_INDEXES; do
+  [ "$(psql_q "SELECT to_regclass('dbo.$i') IS NOT NULL")" = "t" ] || missing="$missing $i"
+done
+[ -z "$missing" ] || fail "missing constraints/indexes:$missing"
+echo "✓ $(echo $EXPECTED_CONSTRAINTS | wc -w | tr -d ' ') named constraints and $(echo $EXPECTED_INDEXES | wc -w | tr -d ' ') named indexes (029-035) exist"
+[ "$(psql_q "SELECT COUNT(*) FROM dbo.\"Grade_band\"")" = "15" ] || fail "018 grade band seed incomplete"
+echo "✓ 018 grading scales seeded (15 bands)"
 
 # Every pupil's fees_owing after move + migrate equals the source.
 SRC_STUDENT=$(docker exec "$MY" mysql -uroot -prootpw -N dbo -e "SHOW TABLES" 2>/dev/null | grep -ix student | head -1)

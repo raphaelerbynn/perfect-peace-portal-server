@@ -6,6 +6,7 @@ import { studentRouter } from "./routes/onlyStudentRoutes.js";
 import { authRouter } from "./routes/authRoutes.js";
 import { fileRouter } from "./routes/fileRoutes.js";
 import { portalRouter } from "./routes/portalRoutes.js";
+import { teacherRouter } from "./routes/teacherRoutes.js";
 import { errorHandler } from "./utils/errorHandling.js";
 import { authenticateManagementUser, authorizeRoles, undefinedEndpoint } from "./utils/middlewares.js";
 import dotenv from "dotenv";
@@ -13,6 +14,10 @@ import cors from "cors";
 import sequelize from "./config/database.js";
 import { accountRouter } from "./routes/accountRoutes.js";
 import { communicationRouter } from "./routes/communicationRoutes.js";
+import { academicYearRouter } from "./routes/academicYearRoutes.js";
+import { feeBillingRouter } from "./routes/feeBillingRoutes.js";
+import { mediaRouter } from "./routes/mediaRoutes.js";
+import { schoolRouter } from "./routes/schoolRoutes.js";
 
 dotenv.config();
 const app = express();
@@ -131,17 +136,27 @@ const AUTH_LIMITED_PATHS = [
 ];
 app.use(AUTH_LIMITED_PATHS, authIpCeiling, authLimiter); // body already parsed (express.json above)
 app.use("/", authRouter);
+// B18: GET /school and /school/logo are public; the rest authenticate per route.
+app.use("/", schoolRouter);
 app.use("/", studentRouter);
 app.use("/", fileRouter);
 // Portal (STU/STAFF) reads on paths shared with generalRouter. Must be mounted
 // BEFORE the management router; management tokens fall through untouched.
 app.use("/", portalRouter);
+// B2: teacher portal tools (/teacher/*, STAFF tokens only).
+app.use("/", teacherRouter);
 
 // --- Management (admin portal) routers: token required at mount time ---
 // NOTE: the standalone unauthenticated `app.get("/staff", fetchAllStaff)` route
 // was removed previously — it leaked all staff records. The authenticated,
 // Administrator-only `/staff` route is wired into generalRouter below.
 app.use("/", authenticateManagementUser, generalRouter);
+// B7: academic years (reads: all office roles; changes: Administrator).
+app.use("/", authenticateManagementUser, academicYearRouter);
+// B12: discounts, term billing and statements (roles per route).
+app.use("/", authenticateManagementUser, feeBillingRouter);
+// B17: pupil / staff photos and documents (office tokens, role + class scoped).
+app.use("/", authenticateManagementUser, mediaRouter);
 // Accounting/Fees domain: hidden for Class Teacher (Administrator + Accountant only).
 app.use("/", authenticateManagementUser, authorizeRoles("Administrator", "Accountant"), accountRouter);
 

@@ -10,12 +10,12 @@
 # 3. change "live": a payment (and the old app's balance update), a phone, a
 #    password, a new pupil, a register saved twice, a JHS mark, a new term, a
 #    deleted event
-# 4. dry run: reports the changes, saves nothing
+# 4. dry run: reports the changes, saves nothing (row counts, receipt numbers)
 # 5. sync: every change arrives, duplicates resolved, derived columns right,
 #    balances equal live by the app's own calculation
 # 6. sync again: no change
 # 7. --mirror-deletes removes the deleted event
-# 8. a payment typed into the new system: the sync refuses
+# 8. a payment recorded in the new system: the sync refuses
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -87,27 +87,29 @@ grep -q "Subject: new live row(s) clash with another on uniq_subject_name" "$WOR
 echo "✓ refused"
 my "DELETE FROM Subject WHERE subject_id = 3"
 
-COUNTS='SELECT (SELECT count(*) FROM dbo."Fee")||'"'"'/'"'"'||(SELECT count(*) FROM dbo."Student")||'"'"'/'"'"'||(SELECT count(*) FROM dbo."Attendance")'
+COUNTS='SELECT (SELECT count(*) FROM dbo."Fee")||'"'"'/'"'"'||(SELECT count(*) FROM dbo."Student")||'"'"'/'"'"'||(SELECT last_value FROM dbo.receipt_seq)'
 BEFORE=$(pg "$COUNTS")
 
 echo; echo "=== 4. dry run ==="
 $SYNC --dry-run > "$WORK/dry.log" 2>&1 || { cat "$WORK/dry.log"; fail "dry run"; }
 grep -q "^+5 added, ~2 updated, 1 duplicate(s) removed" "$WORK/dry.log" || { cat "$WORK/dry.log"; fail "dry-run summary"; }
-expect "dry run saved nothing (fees/pupils/registers)" "$(pg "$COUNTS")" "$BEFORE"
+expect "dry run saved nothing (fees/pupils/receipt seq)" "$(pg "$COUNTS")" "$BEFORE"
 
 echo; echo "=== 5. sync ==="
 $SYNC > "$WORK/s1.log" 2>&1 || { cat "$WORK/s1.log"; fail "sync"; }
 cat "$WORK/s1.log"
+expect "new payment has the next receipt number, in the year it was paid" "$(pg "SELECT receipt_no FROM dbo.\"Fee\" WHERE fee_id = 3")" "PPS-2026-000003"
 expect "new payment has its term (011)" "$(pg "SELECT term_id FROM dbo.\"Fee\" WHERE fee_id = 3")" "2"
 expect "pupil 1 owes the live balance" "$(pg "SELECT fees_owing::int||'/'||fees_paid::int||'/'||fees_opening_balance::int||'/'||fees_period_after_fee_id FROM dbo.\"Student\" WHERE student_id = 1")" "300/600/300/3"
-expect "new pupil 60 added, not archived, owing the live balance" "$(pg "SELECT f_name||'/'||is_deleted||'/'||fees_owing::int FROM dbo.\"Student\" WHERE student_id = 60")" "Esi/false/900"
+expect "new pupil 60 added, not archived, period tied to the active term" "$(pg "SELECT f_name||'/'||is_deleted||'/'||fees_owing::int||'/'||fees_period_term_id FROM dbo.\"Student\" WHERE student_id = 60")" "Esi/false/900/2"
 expect "parent phone updated (live wins)" "$(pg "SELECT contact FROM dbo.\"Parent\" WHERE parent_id = 1")" "0209998888"
 HASH=$(pg "SELECT password FROM dbo.\"Student\" WHERE student_id = 1")
 expect "changed password is hashed and matches" "$($NODE -e "require('bcrypt').compare('newpass9', process.argv[1]).then(ok => console.log(ok))" "$HASH")" "true"
 expect "register saved twice: only the latest (id 7) kept" "$(pg "SELECT string_agg(attendance_id::text, ',') FROM dbo.\"Attendance\" WHERE student_id = 1 AND date_marked = '2026-01-08'")" "7"
 expect "the replaced register row is in _removed_duplicates" "$(pg "SELECT count(*) FROM dbo._removed_duplicates WHERE table_name = 'Attendance' AND row_data->>'attendance_id' = '2'")" "1"
 expect "cleaned-up duplicates stayed out (Attendance 1, marks 2)" "$(pg "SELECT count(*) FROM dbo.\"Attendance\" WHERE attendance_id = 1")/$(pg "SELECT count(*) FROM dbo.\"Student_marks\" WHERE student_marks_id = 2")" "0/0"
-expect "new mark and new term added" "$(pg "SELECT count(*) FROM dbo.\"Student_marks\" WHERE student_marks_id = 8")/$(pg "SELECT count(*) FROM dbo.\"Term\" WHERE term_id = 4")" "1/1"
+expect "new JHS mark has its BECE grade (032)" "$(pg "SELECT grade FROM dbo.\"Student_marks\" WHERE student_marks_id = 8")" "3"
+expect "new term is in its school year (029)" "$(pg "SELECT ay.name FROM dbo.\"Term\" t JOIN dbo.\"Academic_year\" ay USING (academic_year_id) WHERE t.term_id = 4")" "2026/2027"
 expect "deleted event kept without --mirror-deletes" "$(pg "SELECT count(*) FROM dbo.\"Event\"")" "1"
 grep -q "every balance equals live" "$WORK/s1.log" || fail "balance check did not run"
 expect "next new pupil id is above live's" "$(pg "SELECT nextval(pg_get_serial_sequence('dbo.\"Student\"', 'student_id'))")" "61"
@@ -118,6 +120,13 @@ grep -q "^+0 added, ~0 updated, 0 duplicate(s) removed" "$WORK/s2.log" || { cat 
 grep -q '"pupilsRebased":0' "$WORK/s2.log" || { cat "$WORK/s2.log"; fail "second sync re-based balances"; }
 echo "✓ no change"
 
+echo; echo "=== 6b. live opens a term in a school year the new database already has ==="
+my "UPDATE Term SET active = b'0' WHERE term_id = 2; UPDATE Term SET active = b'1' WHERE term_id = 4"
+$SYNC > "$WORK/s2b.log" 2>&1 || { cat "$WORK/s2b.log"; fail "sync after the year switch"; }
+expect "exactly one current year, the active term's" "$(pg "SELECT string_agg(name, ',') FROM dbo.\"Academic_year\" WHERE is_current")" "2026/2027"
+expect "pupils' fee period follows the active term" "$(pg "SELECT DISTINCT fees_period_term_id FROM dbo.\"Student\"")" "4"
+grep -q "every balance equals live" "$WORK/s2b.log" || fail "balances after the year switch"
+
 echo; echo "=== 7. --mirror-deletes ==="
 my "DELETE FROM Term WHERE term_id = 1"
 $SYNC --mirror-deletes > "$WORK/s3.log" 2>&1 || { cat "$WORK/s3.log"; fail "mirror-deletes"; }
@@ -126,13 +135,9 @@ expect "a term live deleted is kept (never removed automatically)" "$(pg "SELECT
 grep -q "KEPT: terms and payments are never removed automatically" "$WORK/s3.log" || { cat "$WORK/s3.log"; fail "kept-term message"; }
 
 echo; echo "=== 8. new system used: the sync refuses ==="
-# A payment typed into the new system gets the next id (4) ... and then live
-# records its own payment with the same id. "Live wins" must not overwrite it.
-pg "INSERT INTO dbo.\"Fee\" (fee_id, student_id, class_id, paid, date_paid, term) VALUES (4, 1, 1, 50, '2026-02-20', '2')" >/dev/null
-my "INSERT INTO Fee VALUES (4,2,2,600,100,500,'Cash','One hundred','2','2026-02-21')"
+pg "UPDATE dbo.\"Fee\" SET recorded_by = 'office' WHERE fee_id = 3" >/dev/null
 if $SYNC > "$WORK/s4.log" 2>&1; then cat "$WORK/s4.log"; fail "sync ran although the new system was used"; fi
-grep -q "Fee: ids 4" "$WORK/s4.log" || { cat "$WORK/s4.log"; fail "refusal message"; }
-expect "the new-system payment is untouched" "$(pg "SELECT student_id||'/'||paid::int FROM dbo.\"Fee\" WHERE fee_id = 4")" "1/50"
+grep -q "payments recorded or reversed in the new system" "$WORK/s4.log" || { cat "$WORK/s4.log"; fail "refusal message"; }
 echo "✓ refused"
 
 echo; echo "✓ SYNC REHEARSAL PASSED"

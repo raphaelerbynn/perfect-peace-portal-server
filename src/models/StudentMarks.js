@@ -57,7 +57,14 @@ const _ = sequelize.define('studentMarks', {
       type: DataTypes.STRING(50),
       allowNull: true
     },
+    // B8: the band's remark and grade when the mark was saved (migration 032
+    // widened remarks to 50 and added grade), so later scale edits don't
+    // change old report cards.
     remarks: {
+      type: DataTypes.STRING(50),
+      allowNull: true
+    },
+    grade: {
       type: DataTypes.STRING(10),
       allowNull: true
     },
@@ -77,6 +84,17 @@ const _ = sequelize.define('studentMarks', {
     date: {
       type: DataTypes.DATEONLY,
       allowNull: true
+    },
+    // B2: who entered it (office username or the teacher's name); NULL on old rows.
+    enteredBy: {
+      type: DataTypes.STRING(100),
+      allowNull: true,
+      field: 'entered_by'
+    },
+    enteredByTeacherId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      field: 'entered_by_teacher_id'
     }
   }, {
     sequelize,
