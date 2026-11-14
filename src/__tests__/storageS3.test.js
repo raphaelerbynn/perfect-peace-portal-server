@@ -225,3 +225,14 @@ describe("S3 driver: lost bucket", () => {
     expect(client.calls.filter((c) => c.kind === "CreateBucketCommand")).toHaveLength(1);
   });
 });
+
+describe("postImage (B15 news pictures)", () => {
+  it("one file, same type, up to 1280px, metadata gone", async () => {
+    const big = await sharp({ create: { width: 3000, height: 1500, channels: 3, background: "#123456" } }).jpeg().withExif({ IFD0: { Make: "X" } }).toBuffer();
+    const parts = await processImage(big, "image/jpeg", "postImage");
+    expect(parts).toHaveLength(1);
+    const m = await sharp(parts[0].buffer).metadata();
+    expect(m).toMatchObject({ format: "jpeg", width: 1280, height: 640 });
+    expect(m.exif).toBeUndefined();
+  });
+});

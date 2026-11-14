@@ -469,7 +469,7 @@ export const deletePost = async (postId, v) => {
 // ------------------------------------------------------------------ image
 export const setPostImage = async (postId, file, v) => {
   const post = await loadManaged(postId, v);
-  const saved = await saveUpload(file, "photo");
+  const saved = await saveUpload(file, "postImage");
   try {
     await Event.update({ imageKey: saved.key, updatedAt: new Date() }, { where: { eventId: post.eventId } });
   } catch (e) {

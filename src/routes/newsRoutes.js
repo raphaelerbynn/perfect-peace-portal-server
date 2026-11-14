@@ -79,7 +79,7 @@ router.get(
     }
   }
 );
-router.post("/posts/:id/image", writers, canChangeImage, uploadOne("photo"), send((req) => posts.setPostImage(req.params.id, req.file, req.viewer)));
+router.post("/posts/:id/image", writers, canChangeImage, uploadOne("postImage"), send((req) => posts.setPostImage(req.params.id, req.file, req.viewer)));
 router.delete("/posts/:id/image", writers, send((req) => posts.removePostImage(req.params.id, req.viewer)));
 
 // Likes, comments, polls: anyone who can see the (published) post.

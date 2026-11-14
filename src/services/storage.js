@@ -41,6 +41,8 @@ export const PRESETS = {
   photo: { folder: "photos", maxBytes: 5 * MB, types: IMAGES },
   document: { folder: "documents", maxBytes: 10 * MB, types: [...IMAGES, "application/pdf"] },
   logo: { folder: "branding", maxBytes: 2 * MB, types: IMAGES },
+  // B15: a picture on a news post (one file, up to 1280px, no thumbnail).
+  postImage: { folder: "photos", maxBytes: 5 * MB, types: IMAGES },
 };
 
 // --- Magic bytes ---------------------------------------------------------
@@ -323,7 +325,7 @@ const ENCODE = {
   "image/png": (img) => img.png({ compressionLevel: 9 }),
   "image/webp": (img) => img.webp({ quality: 88 }),
 };
-const SIZES = { photo: 512, thumb: 128, logo: 1024, document: 3000 };
+const SIZES = { photo: 512, thumb: 128, logo: 1024, postImage: 1280, document: 3000 };
 const TOO_MANY_PIXELS = "That image is too large (too many pixels). Take a smaller photo or scan.";
 
 const decode = (sharp, buffer) => sharp(buffer, { limitInputPixels: MAX_INPUT_PIXELS, failOn: "error" }).rotate();
