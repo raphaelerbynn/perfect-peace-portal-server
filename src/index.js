@@ -18,6 +18,7 @@ import { academicYearRouter } from "./routes/academicYearRoutes.js";
 import { feeBillingRouter } from "./routes/feeBillingRoutes.js";
 import { mediaRouter } from "./routes/mediaRoutes.js";
 import { schoolRouter } from "./routes/schoolRoutes.js";
+import { staffAttendanceRouter } from "./routes/staffAttendanceRoutes.js";
 
 dotenv.config();
 const app = express();
@@ -157,6 +158,8 @@ app.use("/", authenticateManagementUser, academicYearRouter);
 app.use("/", authenticateManagementUser, feeBillingRouter);
 // B17: pupil / staff photos and documents (office tokens, role + class scoped).
 app.use("/", authenticateManagementUser, mediaRouter);
+// B9: staff attendance (Administrator).
+app.use("/", authenticateManagementUser, staffAttendanceRouter);
 // Accounting/Fees domain: hidden for Class Teacher (Administrator + Accountant only).
 app.use("/", authenticateManagementUser, authorizeRoles("Administrator", "Accountant"), accountRouter);
 
