@@ -292,29 +292,42 @@ export const storage = {
 // orientation; sharp writes no metadata unless asked, so EXIF (GPS, device),
 // XMP and IPTC are gone from every stored image.
 sharp.cache(false);
-const MAX_INPUT_PIXELS = 120_000_000; // a 108 MP phone photo still fits
+sharp.concurrency(1); // one libvips thread per job: a small VPS, predictable memory
+// 50 MP: any phone photo shrunk to the 5 MB photo limit, or a 600 dpi A4 scan.
+// Checked from the file header before decoding (cheap), and again by sharp.
+const MAX_INPUT_PIXELS = 50_000_000;
 const ENCODE = {
   "image/jpeg": (img) => img.jpeg({ quality: 88, mozjpeg: true }),
   "image/png": (img) => img.png({ compressionLevel: 9 }),
   "image/webp": (img) => img.webp({ quality: 88 }),
 };
 const SIZES = { photo: 512, thumb: 128, logo: 1024, document: 3000 };
+const TOO_MANY_PIXELS = "That image is too large (too many pixels). Take a smaller photo or scan.";
 
 const decode = (buffer) => sharp(buffer, { limitInputPixels: MAX_INPUT_PIXELS, failOn: "error" }).rotate();
 const fit = (img, px) => img.resize({ width: px, height: px, fit: "inside", withoutEnlargement: true });
 
-// Returns the files to store: [{ buffer, mime, ext, suffix? }]. Photos: a
-// 512px WebP and a 128px square thumbnail (cropped to the centre, for lists).
-// Logos and image documents keep their type, sized down, metadata stripped.
-// PDFs are stored as uploaded.
-export const processImage = async (buffer, mime, kind) => {
-  if (!IMAGES.includes(mime)) return [{ buffer, mime, ext: EXT[mime] }];
+// At most one image is decoded at a time (B17 review: a few parallel uploads
+// of a small, huge-dimension PNG could otherwise exhaust memory).
+let imageQueue = Promise.resolve();
+const oneAtATime = (job) => {
+  const run = imageQueue.then(job, job);
+  imageQueue = run.catch(() => {});
+  return run;
+};
+
+const processImageNow = async (buffer, mime, kind) => {
   try {
+    const { width = 0, height = 0 } = await sharp(buffer).metadata(); // header only
+    if (!width || !height) throw new Error("no size");
+    if (width * height > MAX_INPUT_PIXELS) throw new AppError(TOO_MANY_PIXELS, 413);
     if (kind === "photo") {
-      const [main, thumb] = await Promise.all([
-        fit(decode(buffer), SIZES.photo).webp({ quality: 82 }).toBuffer(),
-        decode(buffer).resize({ width: SIZES.thumb, height: SIZES.thumb, fit: "cover", position: "attention" }).webp({ quality: 75 }).toBuffer(),
-      ]);
+      // Decode the original once; the thumbnail is made from the 512px result.
+      const main = await fit(decode(buffer), SIZES.photo).webp({ quality: 82 }).toBuffer();
+      const thumb = await sharp(main)
+        .resize({ width: SIZES.thumb, height: SIZES.thumb, fit: "cover", position: "attention" })
+        .webp({ quality: 75 })
+        .toBuffer();
       return [
         { buffer: main, mime: "image/webp", ext: "webp" },
         { buffer: thumb, mime: "image/webp", ext: "webp", suffix: "-thumb" },
@@ -323,11 +336,19 @@ export const processImage = async (buffer, mime, kind) => {
     const out = await ENCODE[mime](fit(decode(buffer), SIZES[kind] || SIZES.document)).toBuffer();
     return [{ buffer: out, mime, ext: EXT[mime] }];
   } catch (e) {
-    if (/pixel limit/i.test(String(e?.message))) {
-      throw new AppError("That image is too large (too many pixels). Take a smaller photo or scan.", 413);
-    }
+    if (e instanceof AppError) throw e;
+    if (/pixel limit/i.test(String(e?.message))) throw new AppError(TOO_MANY_PIXELS, 413);
     throw new AppError("That image could not be read. It may be damaged; try another file.", 415);
   }
+};
+
+// Returns the files to store: [{ buffer, mime, ext, suffix? }]. Photos: a
+// 512px WebP and a 128px square thumbnail (cropped to the centre, for lists).
+// Logos and image documents keep their type, sized down, metadata stripped.
+// PDFs are stored as uploaded.
+export const processImage = (buffer, mime, kind) => {
+  if (!IMAGES.includes(mime)) return Promise.resolve([{ buffer, mime, ext: EXT[mime] }]);
+  return oneAtATime(() => processImageNow(buffer, mime, kind));
 };
 
 // Save a validated upload. Returns { key, thumbKey (photos), mime, ext, size,

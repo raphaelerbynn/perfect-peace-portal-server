@@ -186,3 +186,21 @@ describe("processImage (sharp)", () => {
     await expect(storage.remove("photos/2026/" + "a".repeat(32) + ".webp")).resolves.toBeUndefined();
   });
 });
+
+describe("processImage limits (B17 review)", () => {
+  it("an image over 50 MP is refused from its header, before decoding (413)", async () => {
+    // 8000 x 7000 = 56 MP, a tiny flat PNG
+    const huge = await sharp({ create: { width: 8000, height: 7000, channels: 3, background: "#000" } }).png().toBuffer();
+    expect(huge.length).toBeLessThan(5 * 1024 * 1024);
+    await expect(processImage(huge, "image/png", "photo")).rejects.toMatchObject({ statusCode: 413 });
+    await expect(processImage(huge, "image/png", "document")).rejects.toMatchObject({ statusCode: 413 });
+  });
+  it("jobs run one at a time and a failure does not block the next", async () => {
+    const results = await Promise.allSettled([
+      processImage(BROKEN_JPEG, "image/jpeg", "photo"),
+      processImage(JPEG, "image/jpeg", "photo"),
+      processImage(PNG, "image/png", "logo"),
+    ]);
+    expect(results.map((r) => r.status)).toEqual(["rejected", "fulfilled", "fulfilled"]);
+  });
+});
