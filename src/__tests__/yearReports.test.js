@@ -2,7 +2,7 @@
 // helpers run for real; the services run against mocked models.
 jest.mock("../config/database.js", () => ({
   __esModule: true,
-  default: { transaction: jest.fn(async (cb) => cb({})), fn: jest.fn((...a) => ({ fn: a })), literal: jest.fn((x) => x), col: jest.fn((x) => x) },
+  default: { transaction: jest.fn(async (cb) => cb({})), fn: jest.fn((...a) => ({ fn: a })), literal: jest.fn((x) => x), col: jest.fn((x) => x), escape: jest.fn((x) => `'${x}'`) },
 }));
 jest.mock("../models/index.js", () => {
   const model = () => ({ findAll: jest.fn(async () => []), findOne: jest.fn() });
@@ -89,7 +89,7 @@ describe("buildYearResults", () => {
   });
 
   it("names the other class a pupil had results in that year", () => {
-    const rows = buildYearResults({ terms, results: [r(1, 1, 12, 400, 500)], elsewhere: [{ studentId: 1, class: " Basic 3 " }] });
+    const rows = buildYearResults({ klass, terms, results: [r(1, 1, 12, 400, 500)], elsewhere: [{ studentId: 1, class: " Basic 3 " }, { studentId: 1, class: " BASIC 4" }] });
     expect(rows[0].otherClasses).toEqual(["Basic 3"]);
   });
 });
@@ -191,12 +191,12 @@ describe("getClassAttendanceSummary", () => {
   });
 
   it("past term: roster from the results and register filed under the class, not today's pupils", async () => {
-    Term.findOne.mockResolvedValue(terms[1]); // closed
+    Term.findOne.mockResolvedValue({ ...terms[1], academicYearId: 7 }); // closed
     StudentResult.findAll.mockResolvedValueOnce([{ studentId: 1 }]).mockResolvedValueOnce([]);
     TotalAttendance.findAll.mockResolvedValue([{ totalAttendanceId: 1, studentId: 1, termId: 12, present: 50, sick: 1, attendance: 55 }]);
     Student.findAll.mockResolvedValue([{ studentId: 1, fName: "Ama" }]);
     const out = await getClassAttendanceSummary({ classId: 4, termId: 12 }, admin);
-    expect(out.kind).toBe("term");
+    expect(out).toMatchObject({ kind: "term", academicYear: { name: "2025/2026" } });
     expect(out.students).toEqual([expect.objectContaining({ studentId: 1, name: "Ama", present: 50, absent: 4, total: 55 })]);
     // Only the name lookup: no current-roster query for a closed term.
     expect(Student.findAll).toHaveBeenCalledTimes(1);

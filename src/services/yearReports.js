@@ -54,7 +54,9 @@ const loadScope = async ({ termId, academicYearId }) => {
   if (hasTerm) {
     const term = await Term.findOne({ where: { termId: toInt(termId, "termId") }, raw: true });
     if (!term) throw new AppError("Term not found", 404);
-    return { kind: "term", year: null, terms: [term] };
+    // Its year, to name it ("Term 2 · 2025/2026"); old terms may have none.
+    const year = term.academicYearId != null ? await getYear(term.academicYearId).catch(() => null) : null;
+    return { kind: "term", year, terms: [term] };
   }
   const year = await getYear(academicYearId);
   const terms = await Term.findAll({
@@ -106,7 +108,7 @@ const termPercent = (r) => {
  * (each term = raw score / total raw score), so a pupil isn't ranked on terms
  * they had no results for; the position ranks that average (1, 1, 3).
  */
-export const buildYearResults = ({ terms, results, elsewhere = [], names = new Map() }) => {
+export const buildYearResults = ({ klass = null, terms, results, elsewhere = [], names = new Map() }) => {
   const termIds = terms.map((t) => Number(t.termId));
   const byPupil = new Map();
   for (const r of results) {
@@ -120,6 +122,8 @@ export const buildYearResults = ({ terms, results, elsewhere = [], names = new M
   }
   const other = new Map();
   for (const r of elsewhere) {
+    // Old names differ only by spaces or case (" NURSERY 2"): the same class.
+    if (klass && sameClass(r.class, klass.name)) continue;
     const sid = Number(r.studentId);
     if (!other.has(sid)) other.set(sid, new Set());
     other.get(sid).add(String(r.class ?? "").trim());
@@ -181,7 +185,7 @@ export const getClassYearResults = async (query = {}, user) => {
     raw: true,
   });
   const names = await namesFor(ids);
-  out.students = buildYearResults({ terms: scope.terms, results, elsewhere, names });
+  out.students = buildYearResults({ klass, terms: scope.terms, results, elsewhere, names });
   return out;
 };
 
@@ -263,7 +267,7 @@ export const getClassAttendanceSummary = async (query = {}, user) => {
 
   // The registers still held for these terms (closed terms' daily rows are
   // removed at close, after the roll-up). status is CHAR(10): trimmed.
-  const count = (s) => [sequelize.fn("SUM", sequelize.literal(`CASE WHEN TRIM(status) = '${s}' THEN 1 ELSE 0 END`)), s.toLowerCase()];
+  const count = (s) => [sequelize.fn("SUM", sequelize.literal(`CASE WHEN TRIM(status) = ${sequelize.escape(s)} THEN 1 ELSE 0 END`)), s.toLowerCase()];
   const liveAll = await Attendance.findAll({
     attributes: ["studentId", "termId", "class", count("Present"), count("Sick"), count("Absent"), [sequelize.fn("COUNT", sequelize.col("status")), "total"]],
     where: { termId: { [Op.in]: termIds } },
