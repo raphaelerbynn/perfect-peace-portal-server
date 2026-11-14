@@ -46,3 +46,7 @@ Comments inside the SQL files still use the old numbers. A database that applied
 ## B9 / B15 / B17 (2026-11-14)
 
 036 (B9 staff attendance), 037 (B15 news feed) and 039 (B17 photo thumbnails) were built in parallel; 038 is unused. **Merge all three into `feature/part-b` before migrating any database from it.** The runner refuses a pending file numbered below one already applied, so a database that got 039 first would refuse 036 and 037.
+
+## B16 (2026-11-14)
+
+040 (B16 notifications: `User_notification`, `Email_log`, `Notification_setting`) was built on `feature/part-b` alongside B11 / B14 (041 / 042 reserved for them). **040 must ship together with 036 / 037 / 039 on part-b**: merge it before migrating any database from part-b, so no database applies a higher number first and then refuses 040.

@@ -21,6 +21,7 @@ import { initStorage } from "./services/storage.js";
 import { schoolRouter } from "./routes/schoolRoutes.js";
 import { staffAttendanceRouter } from "./routes/staffAttendanceRoutes.js";
 import { newsRouter } from "./routes/newsRoutes.js";
+import { notificationRouter } from "./routes/notificationRoutes.js";
 
 dotenv.config();
 const app = express();
@@ -149,6 +150,9 @@ app.use("/", portalRouter);
 // B15: news feed, polls, events calendar (/posts*, /events?month=), for portal
 // AND office tokens; audience-filtered per caller. A plain /events falls through.
 app.use("/", newsRouter);
+// B16: notifications (/notifications*, /notification-settings) for portal AND
+// office tokens; each caller sees only their own. Office actions role-checked per route.
+app.use("/", notificationRouter);
 // B2: teacher portal tools (/teacher/*, STAFF tokens only).
 app.use("/", teacherRouter);
 

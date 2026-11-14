@@ -136,6 +136,24 @@ echo "✓ 037: old news row is NEWS / PUBLISHED / ALL, published_at from the old
 [ "$(psql_q "SELECT COUNT(*) FROM dbo.\"Grade_band\"")" = "15" ] || fail "018 grade band seed incomplete"
 echo "✓ 018 grading scales seeded (15 bands)"
 
+# 040 (B16): the notification tables, made by move-data from the models first.
+for col in User_notification.created_at Email_log.created_at Notification_setting.in_app Notification_setting.email Notification_setting.updated_at; do
+  t=${col%.*}; c=${col#*.}
+  [ -n "$(psql_q "SELECT column_default FROM information_schema.columns WHERE table_schema='dbo' AND table_name='$t' AND column_name='$c'")" ] || fail "no database default on $t.$c (040)"
+done
+missing=""
+for c in user_notification_recipient_type_check email_log_status_check; do
+  [ "$(psql_q "SELECT COUNT(*) FROM pg_constraint WHERE conname = '$c'")" = "1" ] || missing="$missing $c"
+done
+for i in idx_user_notification_unread idx_user_notification_recent idx_user_notification_entity idx_email_log_created; do
+  [ "$(psql_q "SELECT to_regclass('dbo.$i') IS NOT NULL")" = "t" ] || missing="$missing $i"
+done
+[ -z "$missing" ] || fail "040 missing constraints/indexes:$missing"
+[ "$(psql_q "SELECT COUNT(*) FROM dbo.\"Notification_setting\"")" = "6" ] || fail "040 Notification_setting seed incomplete"
+psql_q "BEGIN; INSERT INTO dbo.\"User_notification\" (recipient_type, recipient_id, type, title) VALUES ('STUDENT', '1', 'NEWS_POST', 'x'); ROLLBACK;" >/dev/null \
+  || fail "040 User_notification insert relying on defaults failed"
+echo "✓ 040: notification tables, defaults, 2 checks, 4 indexes, 6 settings rows"
+
 # Every pupil's fees_owing after move + migrate equals the source.
 SRC_STUDENT=$(docker exec "$MY" mysql -uroot -prootpw -N dbo -e "SHOW TABLES" 2>/dev/null | grep -ix student | head -1)
 SRC=$(docker exec "$MY" mysql -uroot -prootpw -N dbo -e \

@@ -10,6 +10,7 @@ import {
   studentSignUp,
   teacherSignUp,
 } from "../services/user.js";
+import { notifyPasswordChanged } from "../services/notify.js";
 import jwt from "jsonwebtoken";
 import { sendPasswordConfirmationCode } from "../services/auth.js";
 import { getStaffForSignup } from "../services/staff.js";
@@ -242,6 +243,8 @@ const resetForgottenPassword = async (req, res, next) => {
       throw new AppError("Unable to reset password.", 400);
     }
 
+    // B16: tell the office login holder (in-app + email); never throws.
+    await notifyPasswordChanged({ type: "OFFICE", teacherId: staffId });
     res.status(200).json({ message: "Password reset successful" });
   } catch (err) {
     next(err);
