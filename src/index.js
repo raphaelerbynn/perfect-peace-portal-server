@@ -17,6 +17,7 @@ import { communicationRouter } from "./routes/communicationRoutes.js";
 import { academicYearRouter } from "./routes/academicYearRoutes.js";
 import { feeBillingRouter } from "./routes/feeBillingRoutes.js";
 import { mediaRouter } from "./routes/mediaRoutes.js";
+import { initStorage } from "./services/storage.js";
 import { schoolRouter } from "./routes/schoolRoutes.js";
 
 dotenv.config();
@@ -176,12 +177,15 @@ const start = async () => {
   try {
     await sequelize.authenticate();
     console.log("Connection has been established successfully.");
+    // B17: local disk or the object store (MinIO); a bad STORAGE_DRIVER
+    // setting stops the start, an object store still booting is retried.
+    await initStorage();
 
     app.listen(PORT, () =>
       console.log(`📡 server running on port ${PORT}`)
     );
   } catch (err) {
-    console.error("Unable to connect to the database. Refusing to start:", err);
+    console.error("Unable to start (database or storage setting). Refusing to start:", err);
     process.exit(1);
   }
 };

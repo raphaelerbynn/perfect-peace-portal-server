@@ -8,7 +8,8 @@ import os from "os";
 import path from "path";
 import jwt from "jsonwebtoken";
 import request from "supertest";
-import { JPEG, PDF, PNG } from "./uploadFixtures.js";
+import sharp from "sharp";
+import { BROKEN_JPEG, JPEG, PDF, PNG } from "./uploadFixtures.js";
 
 const app = require("../index.js").default;
 const sequelize = require("../config/database.js").default;
@@ -111,34 +112,46 @@ describe("pupil photo", () => {
   it("Administrator uploads, reads back, replaces (old file removed) and deletes", async () => {
     const up = await upload("/students/7/photo", admin, JPEG);
     expect(up.status).toBe(200);
-    expect(up.body).toEqual({ hasPhoto: true, mime: "image/jpeg", size: JPEG.length });
+    // Stored as WebP (processed), photo + thumbnail.
+    expect(up.body).toEqual({ hasPhoto: true, mime: "image/webp", size: expect.any(Number) });
     expect(JSON.stringify(up.body)).not.toMatch(/photos\//); // key never sent
-    const first = students[7].photoKey;
-    expect(storedFiles()).toEqual([first]);
+    const first = [students[7].photoKey, students[7].photoThumbKey];
+    expect(first[1]).toMatch(/-thumb\.webp$/);
+    expect(storedFiles().sort()).toEqual([...first].sort());
 
-    const get = await auth(request(app).get("/students/7/photo"), admin).buffer(true).parse((res, cb) => {
-      const c = [];
-      res.on("data", (d) => c.push(d));
-      res.on("end", () => cb(null, Buffer.concat(c)));
-    });
+    const bytes = (r) =>
+      r.buffer(true).parse((res, cb) => {
+        const c = [];
+        res.on("data", (d) => c.push(d));
+        res.on("end", () => cb(null, Buffer.concat(c)));
+      });
+    const get = await bytes(auth(request(app).get("/students/7/photo"), admin));
     expect(get.status).toBe(200);
-    expect(get.headers["content-type"]).toBe("image/jpeg");
+    expect(get.headers["content-type"]).toBe("image/webp");
     expect(get.headers["cache-control"]).toBe("private, no-store");
     expect(get.headers["x-content-type-options"]).toBe("nosniff");
-    expect(get.body.equals(JPEG)).toBe(true);
+    const meta = await sharp(get.body).metadata();
+    expect(meta).toMatchObject({ format: "webp", width: 64, height: 48 }); // never enlarged
+    expect(meta.exif).toBeUndefined(); // camera + GPS gone
+
+    const thumb = await bytes(auth(request(app).get("/students/7/photo?size=thumb"), admin));
+    expect(thumb.status).toBe(200);
+    expect(await sharp(thumb.body).metadata()).toMatchObject({ format: "webp", width: 128, height: 128 }); // square
 
     expect((await upload("/students/7/photo", admin, PNG, "b.png")).status).toBe(200);
-    expect(storedFiles()).toEqual([students[7].photoKey]);
-    expect(students[7].photoKey).not.toBe(first);
+    expect(storedFiles().sort()).toEqual([students[7].photoKey, students[7].photoThumbKey].sort());
+    expect(students[7].photoKey).not.toBe(first[0]);
 
     expect((await auth(request(app).delete("/students/7/photo"), admin)).status).toBe(200);
     expect(storedFiles()).toEqual([]);
+    expect(students[7]).toMatchObject({ photoKey: null, photoThumbKey: null });
     expect((await auth(request(app).get("/students/7/photo"), admin)).status).toBe(404);
   });
 
   it("refuses fake images, PDFs and oversize files, and keeps nothing", async () => {
     expect((await upload("/students/7/photo", admin, Buffer.from("<html><script>x</script></html>"), "x.jpg")).status).toBe(415);
     expect((await upload("/students/7/photo", admin, PDF, "x.jpg")).status).toBe(415);
+    expect((await upload("/students/7/photo", admin, BROKEN_JPEG, "x.jpg")).status).toBe(415); // right first bytes, not an image
     const big = Buffer.alloc(5 * 1024 * 1024 + 1, 0);
     JPEG.copy(big);
     expect((await upload("/students/7/photo", admin, big)).status).toBe(413);
@@ -152,7 +165,7 @@ describe("pupil photo", () => {
     const other = await upload("/students/8/photo", ct, JPEG);
     expect(other.status).toBe(403);
     expect((await auth(request(app).get("/students/8/photo"), ct)).status).toBe(403);
-    expect(storedFiles()).toHaveLength(1);
+    expect(storedFiles()).toHaveLength(2); // photo + thumbnail of pupil 7 only
   });
 
   it("Accountant and portal tokens are refused; no token is 401", async () => {
@@ -251,10 +264,10 @@ describe("portal /portal/photo (own photo only)", () => {
     await upload("/staff/3/photo", admin, PNG, "t.png");
     const p = await auth(request(app).get("/portal/photo"), pupilToken);
     expect(p.status).toBe(200);
-    expect(p.headers["content-type"]).toBe("image/jpeg");
+    expect(p.headers["content-type"]).toBe("image/webp");
     const t = await auth(request(app).get("/portal/photo"), teacherToken);
     expect(t.status).toBe(200);
-    expect(t.headers["content-type"]).toBe("image/png");
+    expect(t.headers["content-type"]).toBe("image/webp");
   });
   it("no photo = 404; no token = 401; an office token is not served here", async () => {
     expect((await auth(request(app).get("/portal/photo"), pupilToken)).status).toBe(404);

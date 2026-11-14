@@ -13,11 +13,13 @@
     "backfill-password-hash": "babel-node src/scripts/backfillPasswordHash.js",
     "migrate": "babel-node src/scripts/migrate.js",
     "move-data": "babel-node src/scripts/moveFromMysql.js",
-    "sync-data": "babel-node src/scripts/syncFromMysql.js"
+    "sync-data": "babel-node src/scripts/syncFromMysql.js",
+    "uploads-to-s3": "babel-node src/scripts/uploadsToS3.js"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1169.0",
     "axios": "^1.4.0",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.5",
@@ -34,6 +36,7 @@
     "pg-hstore": "^2.3.4",
     "sequelize": "^6.31.1",
     "sequelize-auto": "^0.8.8",
+    "sharp": "^0.33.5",
     "stream": "^0.0.2",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.0"

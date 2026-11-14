@@ -50,7 +50,7 @@ const loadOwner = async (ownerType, id, { transaction, lock } = {}) => {
   const o = OWNERS[ownerType];
   const row = await o.model.findOne({
     where: { [o.idField]: id, isDeleted: { [Op.not]: true } },
-    attributes: ownerType === "STUDENT" ? ["studentId", "class", "classId", "photoKey"] : ["teacherId", "photoKey"],
+    attributes: ownerType === "STUDENT" ? ["studentId", "class", "classId", "photoKey", "photoThumbKey"] : ["teacherId", "photoKey", "photoThumbKey"],
     raw: true,
     transaction,
     ...(lock && transaction ? { lock: transaction.LOCK.UPDATE } : {}),
@@ -73,11 +73,16 @@ export const assertStudentAccess = async (user, studentId) => {
 };
 
 // --- Photos --------------------------------------------------------------
-export const getPhoto = async (ownerType, id) => {
+// size "thumb": the 128px square (photos uploaded before thumbnails existed
+// fall back to the full photo).
+export const getPhoto = async (ownerType, id, { size } = {}) => {
   const row = await loadOwner(ownerType, parseId(id, OWNERS[ownerType].label));
   if (!row.photoKey) throw new AppError("No photo yet", 404);
-  return { key: row.photoKey, mime: MIME_FOR_EXT[row.photoKey.split(".").pop()] };
+  const key = size === "thumb" && row.photoThumbKey ? row.photoThumbKey : row.photoKey;
+  return { key, mime: MIME_FOR_EXT[key.split(".").pop()] };
 };
+
+const removeAll = (keys) => Promise.all(keys.filter(Boolean).map((k) => storage.remove(k)));
 
 // Save the new file, point the record at it, then remove the old file. If the
 // database write fails the new file is removed again (no orphans).
@@ -86,31 +91,33 @@ export const setPhoto = async (ownerType, id, file) => {
   const ownerId = parseId(id, o.label);
   await loadOwner(ownerType, ownerId); // 404 before writing anything
   const saved = await saveUpload(file, "photo");
-  let oldKey = null;
+  let old = [];
   try {
     await sequelize.transaction(async (t) => {
       const row = await loadOwner(ownerType, ownerId, { transaction: t, lock: true });
-      oldKey = row.photoKey;
-      await o.model.update({ photoKey: saved.key }, { where: { [o.idField]: ownerId }, transaction: t });
+      old = [row.photoKey, row.photoThumbKey];
+      await o.model.update({ photoKey: saved.key, photoThumbKey: saved.thumbKey }, { where: { [o.idField]: ownerId }, transaction: t });
     });
   } catch (e) {
-    await storage.remove(saved.key);
+    await removeAll([saved.key, saved.thumbKey]);
     throw e;
   }
-  if (oldKey && oldKey !== saved.key) await storage.remove(oldKey);
+  await removeAll(old.filter((k) => k !== saved.key && k !== saved.thumbKey));
   return { hasPhoto: true, mime: saved.mime, size: saved.size };
 };
 
 export const removePhoto = async (ownerType, id) => {
   const o = OWNERS[ownerType];
   const ownerId = parseId(id, o.label);
-  let oldKey = null;
+  let old = [];
   await sequelize.transaction(async (t) => {
     const row = await loadOwner(ownerType, ownerId, { transaction: t, lock: true });
-    oldKey = row.photoKey;
-    if (oldKey) await o.model.update({ photoKey: null }, { where: { [o.idField]: ownerId }, transaction: t });
+    old = [row.photoKey, row.photoThumbKey];
+    if (row.photoKey || row.photoThumbKey) {
+      await o.model.update({ photoKey: null, photoThumbKey: null }, { where: { [o.idField]: ownerId }, transaction: t });
+    }
   });
-  if (oldKey) await storage.remove(oldKey);
+  await removeAll(old);
   return { hasPhoto: false };
 };
 

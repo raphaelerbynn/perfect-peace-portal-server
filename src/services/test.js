@@ -180,7 +180,7 @@ export const getStudents = async (options = {}) => {
     // office app reads (student.parent.fName, student.class_.classFee).
     const order = [["fName", "ASC"], ["lName", "ASC"], ["studentId", "ASC"]];
     const queryOptions = {
-        attributes: { exclude: ['password', 'photoKey'] }, // B17: no storage keys
+        attributes: { exclude: ['password', 'photoKey', 'photoThumbKey'] }, // B17: no storage keys
         where,
         include,
         order,

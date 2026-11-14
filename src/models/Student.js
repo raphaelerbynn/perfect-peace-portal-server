@@ -96,6 +96,7 @@ const _ = sequelize.define('student', {
     // B17: current photo (storage key, migration 033). Never sent as a URL:
     // the API streams it to users allowed to see the pupil.
     photoKey: { type: DataTypes.STRING(120), allowNull: true, field: 'photo_key' },
+    photoThumbKey: { type: DataTypes.STRING(120), allowNull: true, field: 'photo_thumb_key' },
     // BE-S4/BE-S5: soft delete. The underlying `is_deleted` column is added by a
     // manual DB migration (see report). Archived students are excluded from every
     // read; deleteStudent flips this flag instead of destroying rows.
