@@ -8,6 +8,10 @@ import ClassFee from "./ClassFee.js";
 import StudentFee from "./StudentFee.js";
 import EmployeeSalary from "./EmployeeSalary.js";
 import Event from "./Event.js";
+import PostLike from "./PostLike.js";
+import PostComment from "./PostComment.js";
+import PollOption from "./PollOption.js";
+import PollVote from "./PollVote.js";
 import AccountCategory from "./AccountCategory.js";
 import Income from "./Income.js";
 import Expense from "./Expense.js";
@@ -162,6 +166,11 @@ StaffAttendance.belongsTo(Term, { as: "term", foreignKey: "termId", constraints:
 // B12: term bills and discounts.
 StudentDiscount.belongsTo(DiscountType, { as: "discountType", foreignKey: "discountTypeId" });
 
+// B15: posts (the Event table), their likes, comments and polls. The keys
+// (ON DELETE CASCADE) are added by migration 037, not by these associations.
+Event.hasMany(PollOption, { as: "options", foreignKey: "postId", constraints: false });
+PollOption.belongsTo(Event, { foreignKey: "postId", constraints: false });
+
 Student.hasMany(Fee, {
   foreignKey: "studentId",
   as: "fee",
@@ -175,6 +184,10 @@ export {
   Class,
   EmployeeSalary,
   Event,
+  PostLike,
+  PostComment,
+  PollOption,
+  PollVote,
   Expense,
   Income,
   AccountCategory,

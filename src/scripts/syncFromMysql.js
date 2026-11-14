@@ -53,6 +53,7 @@ import {
   LIVE,
   LIVE_FIXUPS,
   MARK_GRADE_SQLS,
+  EVENT_PUBLISHED_AT_SQL,
   NEW_SYSTEM_ACTIVITY,
   REBASE_STUDENTS_SQL,
   TERM_PROMOTED_SQL,
@@ -306,6 +307,8 @@ const afterRows = async (transaction, result) => {
   derived.marksGraded = (await run(MARK_GRADE_SQLS[1], transaction)).length;
 
   derived.pupilsRebased = (await run(REBASE_STUDENTS_SQL, transaction)).length;
+  // 037: news rows added from live get their publish time.
+  if (tableResult(result, "Event").inserted.length) derived.newsPublishedAtSet = (await run(EVENT_PUBLISHED_AT_SQL, transaction)).length;
   return derived;
 };
 

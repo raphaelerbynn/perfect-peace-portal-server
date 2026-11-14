@@ -126,7 +126,28 @@ export const NEW_SYSTEM_ACTIVITY = [
   { what: "marks entered in the new system", table: "Student_marks", sql: `SELECT COUNT(*)::int AS n FROM "dbo"."Student_marks" WHERE entered_by IS NOT NULL OR entered_by_teacher_id IS NOT NULL` },
   { what: "registers taken in the new system", table: "Attendance", sql: `SELECT COUNT(*)::int AS n FROM "dbo"."Attendance" WHERE entered_by IS NOT NULL OR entered_by_teacher_id IS NOT NULL` },
   { what: "salaries paid in the new system", table: "Salary_payment", sql: `SELECT COUNT(*)::int AS n FROM "dbo"."Salary_payment" WHERE salary_snapshot IS NOT NULL` },
+  // B15 (037): posts written in the new system, and likes, comments, votes.
+  // A --mirror-deletes would remove such a post with its children left behind
+  // (keys are off during the sync), and "live wins" could retitle it.
+  // Keyed on Post_like so a database without 037 skips it. (Not by id like
+  // NEW_ROW_TABLES: live deletes news rows, so its highest id goes down.)
+  // Every post made in the new system has created_by (also the old /add-news).
+  {
+    what: "news posts, likes, comments or votes made in the new system",
+    table: "Post_like",
+    sql: `SELECT ((SELECT COUNT(*) FROM "dbo"."Event" WHERE created_by IS NOT NULL OR post_type <> 'NEWS' OR status <> 'PUBLISHED')
+      + (SELECT COUNT(*) FROM "dbo"."Post_like") + (SELECT COUNT(*) FROM "dbo"."Post_comment") + (SELECT COUNT(*) FROM "dbo"."Poll_vote"))::int AS n`,
+  },
 ];
+
+// 037: published_at for news rows the sync adds (live stores Date.now() as
+// text); otherwise the event date. Only rows still without one.
+export const EVENT_PUBLISHED_AT_SQL = `UPDATE "dbo"."Event" SET published_at = CASE
+    WHEN TRIM(created_at) ~ '^[0-9]{13}$' THEN to_timestamp(TRIM(created_at)::BIGINT / 1000.0)
+    WHEN TRIM(created_at) ~ '^[0-9]{10}$' THEN to_timestamp(TRIM(created_at)::BIGINT)
+    ELSE "date"::timestamptz END
+  WHERE published_at IS NULL AND (TRIM(created_at) ~ '^[0-9]{10}([0-9]{3})?$' OR "date" IS NOT NULL)
+  RETURNING event_id`;
 
 export const activityProblems = (counts) =>
   NEW_SYSTEM_ACTIVITY.map((a, i) => ({ what: a.what, rows: Number(counts[i] || 0) })).filter((a) => a.rows > 0);

@@ -353,7 +353,8 @@ INSERT INTO Fee VALUES (1,1,1,900,500,400,'Cash','Five hundred','2',  '2026-01-1
 INSERT INTO Fee VALUES (2,50,1,900,100,800,'Cash','One hundred','2',  '2026-01-11');
 INSERT INTO User_account VALUES ('admin','Head','head@pp.com','Administrator','admin123',NULL),('staff/1','Ama Mensah',NULL,'Class Teacher','$2b$10$abcdefghijklmnopqrstuuJ8sQ0rGkF6Jf2c3yC9m0Yb0Q2y7hP2K',1);
 INSERT INTO FeeCheck VALUES (1,1);
-INSERT INTO Event VALUES (1,'PTA Meeting','Termly PTA','2026-02-20','10:00','2026-02-01 08:00:00');
+-- created_at as the old app stored it (Date.now() text): 037 turns it into published_at.
+INSERT INTO Event VALUES (1,'PTA Meeting','Termly PTA','2026-02-20','10:00','1769932800000');
 INSERT INTO AccountCategory VALUES (1,'Utilities','expense');
 INSERT INTO Expense VALUES (1,'ECG bill',350.50,1,'2026-01-20');
 INSERT INTO KgCalcValues VALUES (1,1);

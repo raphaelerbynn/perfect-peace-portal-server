@@ -96,7 +96,7 @@ echo "✓ School_settings row 1 seeded (034)"
 echo "✓ Admission_counter exists"
 
 # Defaults a table made by the model's sync would not have.
-for col in School_settings.updated_at Document.created_at Admission_counter.updated_at Admission_counter.last_value Grading_scale.is_default; do
+for col in School_settings.updated_at Document.created_at Admission_counter.updated_at Admission_counter.last_value Grading_scale.is_default Post_like.created_at Post_comment.created_at Post_comment.status Poll_vote.created_at Poll_option.position Event.post_type Event.status Event.audience; do
   t=${col%.*}; c=${col#*.}
   d=$(psql_q "SELECT column_default FROM information_schema.columns WHERE table_schema='dbo' AND table_name='$t' AND column_name='$c'")
   [ -n "$d" ] || fail "no database default on $t.$c"
@@ -113,9 +113,13 @@ Student_discount_from_term_id_fkey Student_discount_to_term_id_fkey
 ck_grade_band_range Grade_band_grading_scale_id_fkey Grading_scale_section_grading_scale_id_fkey
 document_owner_type_chk document_size_bytes_chk Document_storage_key_key
 school_settings_one_row_chk school_settings_primary_color_chk school_settings_accent_color_chk
-admission_counter_last_value_chk"
+admission_counter_last_value_chk
+chk_event_post_type chk_event_status chk_event_audience chk_event_end_after_start chk_post_like_actor
+chk_post_comment_actor chk_post_comment_status chk_poll_vote_actor fk_post_like_post fk_post_comment_post
+fk_poll_option_post fk_poll_vote_post fk_poll_vote_option"
 EXPECTED_INDEXES="academic_year_name_uq academic_year_one_current_uq student_term_bill_uq discount_type_name_uq
-ux_grading_scale_name ux_grading_scale_one_default idx_grade_band_scale idx_document_owner uniq_student_admission_no"
+ux_grading_scale_name ux_grading_scale_one_default idx_grade_band_scale idx_document_owner uniq_student_admission_no
+idx_event_feed idx_event_date uniq_post_like idx_post_comment_post idx_poll_option_post uniq_poll_vote_voter idx_poll_vote_option"
 missing=""
 for c in $EXPECTED_CONSTRAINTS; do
   [ "$(psql_q "SELECT COUNT(*) FROM pg_constraint WHERE conname = '$c'")" = "1" ] || missing="$missing $c"
@@ -124,7 +128,11 @@ for i in $EXPECTED_INDEXES; do
   [ "$(psql_q "SELECT to_regclass('dbo.$i') IS NOT NULL")" = "t" ] || missing="$missing $i"
 done
 [ -z "$missing" ] || fail "missing constraints/indexes:$missing"
-echo "✓ $(echo $EXPECTED_CONSTRAINTS | wc -w | tr -d ' ') named constraints and $(echo $EXPECTED_INDEXES | wc -w | tr -d ' ') named indexes (029-035) exist"
+echo "✓ $(echo $EXPECTED_CONSTRAINTS | wc -w | tr -d ' ') named constraints and $(echo $EXPECTED_INDEXES | wc -w | tr -d ' ') named indexes (029-037) exist"
+# 037: the old news row is a published NEWS post for everyone, with its publish time.
+[ "$(psql_q "SELECT post_type||'/'||status||'/'||audience||'/'||is_pinned||'/'||comments_enabled||'/'||to_char(published_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') FROM dbo.\"Event\" WHERE event_id = 1")" = "NEWS/PUBLISHED/ALL/false/true/2026-02-01 08:00" ] \
+  || fail "037 did not turn the old news row into a published post"
+echo "✓ 037: old news row is NEWS / PUBLISHED / ALL, published_at from the old created_at"
 [ "$(psql_q "SELECT COUNT(*) FROM dbo.\"Grade_band\"")" = "15" ] || fail "018 grade band seed incomplete"
 echo "✓ 018 grading scales seeded (15 bands)"
 

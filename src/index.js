@@ -19,6 +19,7 @@ import { feeBillingRouter } from "./routes/feeBillingRoutes.js";
 import { mediaRouter } from "./routes/mediaRoutes.js";
 import { schoolRouter } from "./routes/schoolRoutes.js";
 import { staffAttendanceRouter } from "./routes/staffAttendanceRoutes.js";
+import { newsRouter } from "./routes/newsRoutes.js";
 
 dotenv.config();
 const app = express();
@@ -144,6 +145,9 @@ app.use("/", fileRouter);
 // Portal (STU/STAFF) reads on paths shared with generalRouter. Must be mounted
 // BEFORE the management router; management tokens fall through untouched.
 app.use("/", portalRouter);
+// B15: news feed, polls, events calendar (/posts*, /events?month=), for portal
+// AND office tokens; audience-filtered per caller. A plain /events falls through.
+app.use("/", newsRouter);
 // B2: teacher portal tools (/teacher/*, STAFF tokens only).
 app.use("/", teacherRouter);
 
