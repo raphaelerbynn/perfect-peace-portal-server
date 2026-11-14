@@ -204,3 +204,24 @@ describe("processImage limits (B17 review)", () => {
     expect(results.map((r) => r.status)).toEqual(["rejected", "fulfilled", "fulfilled"]);
   });
 });
+
+describe("S3 driver: lost bucket", () => {
+  it("put re-creates a missing bucket once and retries", async () => {
+    const client = fakeClient();
+    const send = client.send.bind(client);
+    let gone = true;
+    client.send = async (cmd) => {
+      if (cmd.constructor.name === "PutObjectCommand" && gone) {
+        gone = false;
+        throw Object.assign(new Error("NoSuchBucket"), { name: "NoSuchBucket" });
+      }
+      return send(cmd);
+    };
+    client.dropBucket();
+    jest.spyOn(console, "log").mockImplementation(() => {});
+    const d = createS3Driver({ client, bucket: "pp" });
+    const key = await d.put(Buffer.from("x"), { folder: "documents", ext: "pdf" });
+    expect(client.objects.has(key)).toBe(true);
+    expect(client.calls.filter((c) => c.kind === "CreateBucketCommand")).toHaveLength(1);
+  });
+});

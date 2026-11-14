@@ -19,7 +19,6 @@ import fsp from "fs/promises";
 import path from "path";
 import crypto from "crypto";
 import multer from "multer";
-import sharp from "sharp";
 import { CreateBucketCommand, DeleteObjectCommand, GetObjectCommand, HeadBucketCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { AppError } from "../utils/errorHandling.js";
 
@@ -171,9 +170,16 @@ export const createS3Driver = ({ client, bucket }) => ({
   client,
   async put(buffer, { folder, ext, suffix }) {
     const key = newKey(folder, ext, suffix);
-    await client.send(
-      new PutObjectCommand({ Bucket: bucket, Key: key, Body: buffer, ContentLength: buffer.length, ContentType: MIME_FOR_EXT[ext] })
-    );
+    const send = () =>
+      client.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: buffer, ContentLength: buffer.length, ContentType: MIME_FOR_EXT[ext] }));
+    try {
+      await send();
+    } catch (e) {
+      // The store lost its bucket (a wiped test volume): make it again, once.
+      if (e?.name !== "NoSuchBucket" && e?.Code !== "NoSuchBucket") throw e;
+      await this.ensureBucket();
+      await send();
+    }
     return key;
   },
   async open(key) {
@@ -291,8 +297,24 @@ export const storage = {
 // small VPS). .rotate() turns the pixels the right way up from the EXIF
 // orientation; sharp writes no metadata unless asked, so EXIF (GPS, device),
 // XMP and IPTC are gone from every stored image.
-sharp.cache(false);
-sharp.concurrency(1); // one libvips thread per job: a small VPS, predictable memory
+// sharp is a native module, loaded on the first image (not at start): if it
+// can't load on a host (old glibc on a shared cPanel server), uploads of
+// images answer 503 and the rest of the API still runs.
+let sharpLib = null;
+const loadSharp = async () => {
+  if (sharpLib) return sharpLib;
+  try {
+    const mod = await import("sharp");
+    const lib = mod.default || mod;
+    lib.cache(false);
+    lib.concurrency(1); // one libvips thread per job: a small VPS, predictable memory
+    sharpLib = lib;
+    return lib;
+  } catch (e) {
+    console.error("Storage: the image library (sharp) could not be loaded:", e?.message);
+    throw new AppError("Image uploads are not available on this server right now. Ask the system administrator.", 503);
+  }
+};
 // 50 MP: any phone photo shrunk to the 5 MB photo limit, or a 600 dpi A4 scan.
 // Checked from the file header before decoding (cheap), and again by sharp.
 const MAX_INPUT_PIXELS = 50_000_000;
@@ -304,7 +326,7 @@ const ENCODE = {
 const SIZES = { photo: 512, thumb: 128, logo: 1024, document: 3000 };
 const TOO_MANY_PIXELS = "That image is too large (too many pixels). Take a smaller photo or scan.";
 
-const decode = (buffer) => sharp(buffer, { limitInputPixels: MAX_INPUT_PIXELS, failOn: "error" }).rotate();
+const decode = (sharp, buffer) => sharp(buffer, { limitInputPixels: MAX_INPUT_PIXELS, failOn: "error" }).rotate();
 const fit = (img, px) => img.resize({ width: px, height: px, fit: "inside", withoutEnlargement: true });
 
 // At most one image is decoded at a time (B17 review: a few parallel uploads
@@ -317,13 +339,14 @@ const oneAtATime = (job) => {
 };
 
 const processImageNow = async (buffer, mime, kind) => {
+  const sharp = await loadSharp();
   try {
     const { width = 0, height = 0 } = await sharp(buffer).metadata(); // header only
     if (!width || !height) throw new Error("no size");
     if (width * height > MAX_INPUT_PIXELS) throw new AppError(TOO_MANY_PIXELS, 413);
     if (kind === "photo") {
       // Decode the original once; the thumbnail is made from the 512px result.
-      const main = await fit(decode(buffer), SIZES.photo).webp({ quality: 82 }).toBuffer();
+      const main = await fit(decode(sharp, buffer), SIZES.photo).webp({ quality: 82 }).toBuffer();
       const thumb = await sharp(main)
         .resize({ width: SIZES.thumb, height: SIZES.thumb, fit: "cover", position: "attention" })
         .webp({ quality: 75 })
@@ -333,7 +356,7 @@ const processImageNow = async (buffer, mime, kind) => {
         { buffer: thumb, mime: "image/webp", ext: "webp", suffix: "-thumb" },
       ];
     }
-    const out = await ENCODE[mime](fit(decode(buffer), SIZES[kind] || SIZES.document)).toBuffer();
+    const out = await ENCODE[mime](fit(decode(sharp, buffer), SIZES[kind] || SIZES.document)).toBuffer();
     return [{ buffer: out, mime, ext: EXT[mime] }];
   } catch (e) {
     if (e instanceof AppError) throw e;
