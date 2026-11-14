@@ -21,6 +21,8 @@ import { initStorage } from "./services/storage.js";
 import { schoolRouter } from "./routes/schoolRoutes.js";
 import { staffAttendanceRouter } from "./routes/staffAttendanceRoutes.js";
 import { newsRouter } from "./routes/newsRoutes.js";
+// B14
+import { invoicePortalRouter, invoiceRouter } from "./routes/invoiceRoutes.js";
 
 dotenv.config();
 const app = express();
@@ -151,6 +153,8 @@ app.use("/", portalRouter);
 app.use("/", newsRouter);
 // B2: teacher portal tools (/teacher/*, STAFF tokens only).
 app.use("/", teacherRouter);
+// B14: a pupil's own invoices (STU tokens only; parents use the pupil login).
+app.use("/portal/invoices", invoicePortalRouter);
 
 // --- Management (admin portal) routers: token required at mount time ---
 // NOTE: the standalone unauthenticated `app.get("/staff", fetchAllStaff)` route
@@ -165,6 +169,8 @@ app.use("/", authenticateManagementUser, feeBillingRouter);
 app.use("/", authenticateManagementUser, mediaRouter);
 // B9: staff attendance (Administrator).
 app.use("/", authenticateManagementUser, staffAttendanceRouter);
+// B14: invoices and credit notes (roles per route).
+app.use("/", authenticateManagementUser, invoiceRouter);
 // Accounting/Fees domain: hidden for Class Teacher (Administrator + Accountant only).
 app.use("/", authenticateManagementUser, authorizeRoles("Administrator", "Accountant"), accountRouter);
 

@@ -296,6 +296,9 @@ export const TERM_REFERENCES = [
     ["term bill", `SELECT COUNT(*) FROM "dbo"."Student_term_bill" WHERE term_id = :id`],
     ["pupil fee period", `SELECT COUNT(*) FROM "dbo"."Student" WHERE fees_period_term_id = :id`],
     ["pupil discount", `SELECT COUNT(*) FROM "dbo"."Student_discount" WHERE from_term_id = :id OR to_term_id = :id`],
+    // B14
+    ["invoice", `SELECT COUNT(*) FROM "dbo"."Invoice" WHERE term_id = :id`],
+    ["credit note", `SELECT COUNT(*) FROM "dbo"."Credit_note" WHERE term_id = :id`],
 ];
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;

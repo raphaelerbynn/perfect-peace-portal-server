@@ -20,6 +20,9 @@ jest.mock("../models/index.js", () => {
     StudentFee: m(),
     StudentPromotion: m(),
     StudentTermBill: m(),
+    Invoice: m(),
+    InvoiceLine: m(),
+    CreditNote: m(),
     Term: m(),
   };
 });
@@ -98,6 +101,8 @@ const seed = () => {
   fakeTable(DiscountType, db.types, "discountTypeId");
   fakeTable(StudentDiscount, db.given, "studentDiscountId");
   fakeTable(StudentTermBill, db.bills, "studentTermBillId");
+  fakeTable(models.Invoice, [], "invoiceId");
+  fakeTable(models.CreditNote, [], "creditNoteId");
   fakeTable(StudentPromotion, db.promotions, "studentPromotionId");
 };
 function pupil(studentId, fName, classId, { owing, paid }) {

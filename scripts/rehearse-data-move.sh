@@ -128,6 +128,17 @@ for i in $EXPECTED_INDEXES; do
   [ "$(psql_q "SELECT to_regclass('dbo.$i') IS NOT NULL")" = "t" ] || missing="$missing $i"
 done
 [ -z "$missing" ] || fail "missing constraints/indexes:$missing"
+# B14 (042): invoices and credit notes.
+for c in invoice_status_chk invoice_issued_number_chk invoice_void_reason_chk Invoice_student_id_fkey Invoice_term_id_fkey \
+  Invoice_line_invoice_id_fkey invoice_line_kind_chk Credit_note_invoice_id_fkey Credit_note_student_id_fkey credit_note_amount_chk; do
+  [ "$(psql_q "SELECT COUNT(*) FROM pg_constraint WHERE conname = '$c'")" = "1" ] || fail "042: missing constraint $c"
+done
+for i in invoice_one_live_uq invoice_no_uq credit_note_no_uq credit_note_period_idx; do
+  [ "$(psql_q "SELECT to_regclass('dbo.$i') IS NOT NULL")" = "t" ] || fail "042: missing index $i"
+done
+[ -n "$(psql_q "SELECT column_default FROM information_schema.columns WHERE table_schema='dbo' AND table_name='Credit_note' AND column_name='credit_note_no'")" ] \
+  || fail "042: Credit_note.credit_note_no has no default (numbering)"
+echo "✓ 042 invoices / credit notes: constraints, indexes, numbering default"
 echo "✓ $(echo $EXPECTED_CONSTRAINTS | wc -w | tr -d ' ') named constraints and $(echo $EXPECTED_INDEXES | wc -w | tr -d ' ') named indexes (029-037) exist"
 # 037: the old news row is a published NEWS post for everyone, with its publish time.
 [ "$(psql_q "SELECT post_type||'/'||status||'/'||audience||'/'||is_pinned||'/'||comments_enabled||'/'||to_char(published_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') FROM dbo.\"Event\" WHERE event_id = 1")" = "NEWS/PUBLISHED/ALL/false/true/2026-02-01 08:00" ] \

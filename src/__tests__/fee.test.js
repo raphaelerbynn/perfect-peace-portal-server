@@ -17,6 +17,9 @@ jest.mock("../models/index.js", () => ({
   FeeCheck: { findOne: jest.fn() },
   Term: { findOne: jest.fn(async () => ({ termId: 15, term: "1" })) },
   Student: { findOne: jest.fn(), update: jest.fn() },
+  // B14: no invoices or credit notes in these tests.
+  Invoice: { findAll: jest.fn(async () => []) },
+  CreditNote: { findAll: jest.fn(async () => []) },
 }));
 
 import { recomputeStudentOwing, createFee } from "../services/fee.js";

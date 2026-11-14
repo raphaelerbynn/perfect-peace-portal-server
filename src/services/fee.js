@@ -4,6 +4,7 @@ import sequelize from "../config/database.js";
 import { AppError } from "../utils/errorHandling.js";
 import { isPesewaAmount, round2, sumMoney } from "../utils/money.js";
 import { computeDiscounts, discountsForTerm } from "./feeBill.js";
+import { periodCredits, recalcStudentInvoices } from "./invoiceLedger.js";
 
 // BE-1: a payment amount must be a finite number > 0. (Mirrors
 // studentFees.validateAmount; defined locally to avoid a circular import.)
@@ -59,6 +60,8 @@ const ensureStudentExists = async (studentId, transaction = null) => {
 // B12: bill = fee items - the pupil's discounts for the period's term
 // (feesPeriodTermId; a period with no term yet has no discounts). Billing a
 // term starts its period (services/termBilling.js).
+// B14: owing also subtracts the period's credit notes, and the pupil's
+// invoices are recalculated (services/invoiceLedger.js).
 export const recomputeStudentOwing = async (studentId, { transaction = null } = {}) => {
   if (studentId == null) return null;
 
@@ -93,13 +96,17 @@ export const recomputeStudentOwing = async (studentId, { transaction = null } = 
   const paidInPeriod = sumMoney(fees, "paid");
   const opening = Number(student.feesOpeningBalance) || 0;
   const billAtStart = Number(student.feesBillAtStart) || 0;
-  const owing = round2(opening + (billed - billAtStart) - paidInPeriod); // < 0 = in credit, kept
+  // B14: credit notes made in this period come off what is owed (not "paid").
+  const credits = await periodCredits(student, { transaction });
+  const owing = round2(opening + (billed - billAtStart) - paidInPeriod - credits); // < 0 = in credit, kept
   const paid = round2((Number(student.feesPaidAtStart) || 0) + paidInPeriod);
 
   await Student.update(
     { feesPaid: paid, feesOwing: owing },
     { where: { studentId }, transaction }
   );
+  // B14: the pupil's invoices follow every change to the balance.
+  await recalcStudentInvoices(studentId, { transaction });
 
   return { billed, paid, owing };
 };
