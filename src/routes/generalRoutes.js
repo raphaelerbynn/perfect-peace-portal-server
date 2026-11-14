@@ -10,6 +10,7 @@ import {
   updatePromotionRules,
 } from "../controllers/promotionController.js";
 import { fetchClassReportCards, fetchReportCardCompleteness } from "../controllers/reportCardController.js";
+import { fetchClassAttendanceSummary, fetchClassYearResults } from "../controllers/yearReportController.js";
 import {
   addTimetableEntries,
   addTimetableEntry,
@@ -176,11 +177,15 @@ router.get("/student-kg-results", ACADEMIC, fetchClassKGResult);
 // B4: check a class before printing, then every card in one payload.
 router.get("/report-cards/completeness", ACADEMIC, fetchReportCardCompleteness);
 router.get("/report-cards/class", ACADEMIC, fetchClassReportCards);
+// B7: a class's results over a whole academic year.
+router.get("/class-results/year", ACADEMIC, fetchClassYearResults);
 
 // --- Attendance (hidden for Accountant) ---
 router.get("/student-attendance", ACADEMIC, fetchAttendance);
 router.get("/student-attendance-count", ACADEMIC, fetchAttendanceCount);
 router.get("/student-total-attendance", ACADEMIC, fetchTotalStudentAttendance);
+// B7: a class's attendance per pupil for one term or a whole year.
+router.get("/attendance-summary", ACADEMIC, fetchClassAttendanceSummary);
 // Rolls up AND deletes the term's daily registers: Administrator only.
 router.get("/calculate-term-attendance", ADMIN_ONLY, calculateTotalAttendance);
 
