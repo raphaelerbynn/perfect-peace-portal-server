@@ -80,6 +80,7 @@ describe("new-system activity guard", () => {
   it("lists only what has rows", () => {
     const counts = NEW_SYSTEM_ACTIVITY.map(() => 0);
     expect(activityProblems(counts)).toEqual([]);
+    expect(NEW_SYSTEM_ACTIVITY.map((a) => a.table)).toContain("Post_like"); // B15: posts, likes, comments, votes
     counts[0] = 3;
     expect(activityProblems(counts)).toEqual([{ what: "payments recorded or reversed in the new system", rows: 3 }]);
   });

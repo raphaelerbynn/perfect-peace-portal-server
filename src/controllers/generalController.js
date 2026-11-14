@@ -1,3 +1,4 @@
+import { viewerFromUser } from "../services/posts.js";
 import {
   createFeeding,
   createBusFee,
@@ -591,7 +592,7 @@ const updateStudentFee = async (req, res, next) => {
 const addEvent = async (req, res, next) => {
   const values = req.body;
   try {
-    const data = await createEvent(values);
+    const data = await createEvent(values, req.user?.username || null);
     res.json(data);
   } catch (error) {
     console.log(error);
@@ -1294,7 +1295,10 @@ const fetchNews = async (req, res, next) => {
   try {
     // BE-20: pagination is opt-in via query params; no params => unchanged.
     const { page, limit } = req.query;
-    const data = await getNews({ page, limit });
+    // B15: only an Administrator gets every row. Portal pupils/teachers get the
+    // published posts they may see; other office roles also their own drafts.
+    const viewer = req.user?.category === "Administrator" ? null : await viewerFromUser(req.user);
+    const data = await getNews({ page, limit, viewer });
     res.json(data);
   } catch (error) {
     console.log(error);
