@@ -21,6 +21,7 @@ import { initStorage } from "./services/storage.js";
 import { schoolRouter } from "./routes/schoolRoutes.js";
 import { staffAttendanceRouter } from "./routes/staffAttendanceRoutes.js";
 import { newsRouter } from "./routes/newsRoutes.js";
+import { academicReportRouter } from "./routes/academicReportRoutes.js"; // B11
 
 dotenv.config();
 const app = express();
@@ -165,6 +166,8 @@ app.use("/", authenticateManagementUser, feeBillingRouter);
 app.use("/", authenticateManagementUser, mediaRouter);
 // B9: staff attendance (Administrator).
 app.use("/", authenticateManagementUser, staffAttendanceRouter);
+// B11: academic reports (school-wide: Administrator; one class: + its Class Teacher).
+app.use("/", authenticateManagementUser, academicReportRouter);
 // Accounting/Fees domain: hidden for Class Teacher (Administrator + Accountant only).
 app.use("/", authenticateManagementUser, authorizeRoles("Administrator", "Accountant"), accountRouter);
 
