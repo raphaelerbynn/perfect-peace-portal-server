@@ -8,6 +8,7 @@
 #   docker compose --env-file .env.docker up -d --build
 #   pgAdmin:  http://localhost:${PGADMIN_PORT:-5051}
 #   API:      http://localhost:${SERVER_PORT:-5050}
+#   MinIO:    http://localhost:${MINIO_CONSOLE_PORT:-9001} (console; files for B17)
 
 services:
   db:
@@ -44,6 +45,31 @@ services:
     depends_on:
       - db
 
+  # B17: private object store for photos, documents and the logo. The API
+  # creates the bucket on start and streams files after its own permission
+  # checks; buckets have no public access. The official minio/minio image can
+  # no longer be pulled (MinIO went source-only), so the default is
+  # Chainguard's build of MinIO (MINIO_IMAGE to change it).
+  minio:
+    image: ${MINIO_IMAGE:-cgr.dev/chainguard/minio:latest}
+    container_name: pp-minio
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-ppminio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-ppminio-dev-password}
+    ports:
+      # local only: S3 API + web console (http://localhost:9001)
+      - "127.0.0.1:${MINIO_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /minio/health/live HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && read -r l <&3 && [[ $$l == *' 200 '* ]]"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
   backend:
     build: .
     container_name: pp-backend
@@ -58,11 +84,20 @@ services:
       DB_HOST: db
       DB_PORT: "5432"
       SERVER_PORT: "5050"
+      # B17: files in MinIO (STORAGE_DRIVER=local to use the disk instead)
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-s3}
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: ${S3_BUCKET:-perfect-peace}
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER:-ppminio}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-ppminio-dev-password}
     ports:
       - "${SERVER_PORT:-5050}:5050"
     depends_on:
       db:
         condition: service_healthy
+      minio:
+        condition: service_healthy
 
 volumes:
   pgdata:
+  miniodata:

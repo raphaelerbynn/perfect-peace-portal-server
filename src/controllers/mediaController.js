@@ -35,7 +35,7 @@ const who = (req) => req.user?.username || req.user?.category || null;
 
 export const photoHandlers = (ownerType) => ({
   get: wrap(async (req, res) => {
-    const f = await getPhoto(ownerType, req.params.id);
+    const f = await getPhoto(ownerType, req.params.id, { size: req.query?.size === "thumb" ? "thumb" : undefined });
     await sendStoredFile(res, { key: f.key, mime: f.mime, name: `photo.${f.key.split(".").pop()}` });
   }),
   put: wrap(async (req, res) => res.json(await setPhoto(ownerType, req.params.id, req.file))),
@@ -55,6 +55,6 @@ export const documentHandlers = (ownerType) => ({
 // Portal: a pupil's or teacher's own photo (by token id, never a parameter).
 export const fetchMyPhoto = wrap(async (req, res) => {
   const ownerType = req.user?.userRole === "STU" ? "STUDENT" : "STAFF";
-  const f = await getPhoto(ownerType, req.user?.id);
+  const f = await getPhoto(ownerType, req.user?.id, { size: req.query?.size === "thumb" ? "thumb" : undefined });
   await sendStoredFile(res, { key: f.key, mime: f.mime, name: `photo.${f.key.split(".").pop()}` });
 });

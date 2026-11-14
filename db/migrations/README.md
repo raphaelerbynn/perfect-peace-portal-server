@@ -42,3 +42,7 @@ The release is split in two: Part A goes live first (001, 007–009, 011–013, 
 | 014_academic_years | 029 | | | |
 
 Comments inside the SQL files still use the old numbers. A database that applied the old names (only local copies) needs its `dbo._migrations` names updated, e.g. `UPDATE dbo."_migrations" SET name = '023_fee_receipts_and_reversal.sql' WHERE name = '002_fee_receipts_and_reversal.sql';`, or a rebuild.
+
+## B9 / B15 / B17 (2026-11-14)
+
+036 (B9 staff attendance), 037 (B15 news feed) and 039 (B17 photo thumbnails) were built in parallel; 038 is unused. **Merge all three into `feature/part-b` before migrating any database from it.** The runner refuses a pending file numbered below one already applied, so a database that got 039 first would refuse 036 and 037.

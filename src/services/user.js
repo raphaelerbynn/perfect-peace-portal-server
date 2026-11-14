@@ -102,7 +102,7 @@ const signUpManagementUser = async (data) => {
 const getStudentDetails = async (indexNumber) => {
     const student = await Student.findOne({
         // Never send the password hash to the browser (GET /user-details).
-        attributes: { exclude: ["password", "photoKey"] }, // B17: no storage keys
+        attributes: { exclude: ["password", "photoKey", "photoThumbKey"] }, // B17: no storage keys
         include: [
             {
                 model: Parent,
