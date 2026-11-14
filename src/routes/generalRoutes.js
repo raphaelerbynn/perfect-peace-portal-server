@@ -114,7 +114,9 @@ router.post("/close-term", ADMIN_ONLY, closeTerm);            // mutating term s
 router.get("/staff", ADMIN_ONLY, fetchAllStaff);
 
 // --- Students (hidden for Accountant) ---
-router.get("/students", ACADEMIC, fetchAllStudents);
+// All office roles: Accountants pick pupils when recording fees. Class Teachers
+// are scoped to their class in getStudents.
+router.get("/students", ALL_ROLES, fetchAllStudents);
 
 // --- Student Reports / Results (hidden for Accountant) ---
 router.get("/student-results", ACADEMIC, fetchClassResult);
@@ -126,7 +128,8 @@ router.get("/student-kg-results", ACADEMIC, fetchClassKGResult);
 router.get("/student-attendance", ACADEMIC, fetchAttendance);
 router.get("/student-attendance-count", ACADEMIC, fetchAttendanceCount);
 router.get("/student-total-attendance", ACADEMIC, fetchTotalStudentAttendance);
-router.get("/calculate-term-attendance", ACADEMIC, calculateTotalAttendance);
+// Rolls up AND deletes the term's daily registers: Administrator only.
+router.get("/calculate-term-attendance", ADMIN_ONLY, calculateTotalAttendance);
 
 // --- Fees (hidden for Class Teacher) ---
 router.get("/fees", FINANCE, fetchFees);

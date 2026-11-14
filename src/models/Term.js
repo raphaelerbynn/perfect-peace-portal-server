@@ -41,6 +41,12 @@ const term = sequelize.define('term', {
       allowNull: false,
       defaultValue: false,
       field: 'active'
+    },
+    nextTermBegins: {
+      // Migration 013 (A5a): printed on report cards as "NEXT TERM BEGINS".
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+      field: 'next_term_begins'
     }
   }, {
     sequelize,

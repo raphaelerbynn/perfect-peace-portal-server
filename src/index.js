@@ -5,6 +5,7 @@ import { generalRouter } from "./routes/generalRoutes.js";
 import { studentRouter } from "./routes/onlyStudentRoutes.js";
 import { authRouter } from "./routes/authRoutes.js";
 import { fileRouter } from "./routes/fileRoutes.js";
+import { portalRouter } from "./routes/portalRoutes.js";
 import { errorHandler } from "./utils/errorHandling.js";
 import { authenticateManagementUser, authorizeRoles, undefinedEndpoint } from "./utils/middlewares.js";
 import dotenv from "dotenv";
@@ -16,18 +17,45 @@ import { communicationRouter } from "./routes/communicationRoutes.js";
 dotenv.config();
 const app = express();
 
+// Behind a reverse proxy (nginx, Apache/Passenger, a load balancer) set
+// TRUST_PROXY to the number of proxy hops (usually 1), so req.ip - used by the
+// sign-in rate limits - is the real client, not the proxy.
+if (process.env.TRUST_PROXY) {
+    const hops = Number(process.env.TRUST_PROXY);
+    app.set("trust proxy", Number.isFinite(hops) ? hops : process.env.TRUST_PROXY);
+}
+
 const PORT = process.env.SERVER_PORT || 5050;
 
 // BE-14: auth-sensitive rate limiter. Scoped to signin/signup/OTP/reset routes
 // (the authRouter) rather than applied globally, so normal authenticated app
 // traffic is not throttled. 20 requests / 10 min / IP is generous for a human
 // logging in or resetting a PIN but blocks credential-stuffing / OTP abuse.
+//
+// Go-live review: per IP alone, a school computer lab (one NAT address) or any
+// reverse proxy (every request comes from the proxy's IP) shares 20 attempts
+// between EVERYONE, locking the school out after 20 sign-ins. So:
+//   - limit per account (index number / username / phone), 20 per 10 min;
+//   - plus a wide per-IP ceiling (TRUST_PROXY makes req.ip the real client).
+const accountKey = (req) => {
+    const b = req.body || {};
+    const who = b.indexNumber ?? b.username ?? b.email ?? b.phone ?? b.contact ?? b.staffId ?? "";
+    return `${req.ip}|${String(who).trim().toLowerCase()}`;
+};
 const authLimiter = rateLimit({
     windowMs: 10 * 60 * 1000, // 10 minutes
     max: 20,
+    keyGenerator: accountKey,
     standardHeaders: true,
     legacyHeaders: false,
-    message: { message: "Too many requests from this IP, please try again later." },
+    message: { message: "Too many attempts for this account. Please wait a few minutes and try again." },
+});
+const authIpCeiling = rateLimit({
+    windowMs: 10 * 60 * 1000,
+    max: Number(process.env.AUTH_IP_LIMIT) || 300,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { message: "Too many sign-in attempts from this network, please try again later." },
 });
 
 // BE-13: CORS allowlist driven by env (CORS_ORIGINS, comma-separated). Defaults
@@ -101,10 +129,13 @@ const AUTH_LIMITED_PATHS = [
     "/update-pin",
     "/verify-pin",
 ];
-app.use(AUTH_LIMITED_PATHS, authLimiter);
+app.use(AUTH_LIMITED_PATHS, authIpCeiling, authLimiter); // body already parsed (express.json above)
 app.use("/", authRouter);
 app.use("/", studentRouter);
 app.use("/", fileRouter);
+// Portal (STU/STAFF) reads on paths shared with generalRouter. Must be mounted
+// BEFORE the management router; management tokens fall through untouched.
+app.use("/", portalRouter);
 
 // --- Management (admin portal) routers: token required at mount time ---
 // NOTE: the standalone unauthenticated `app.get("/staff", fetchAllStaff)` route
@@ -140,6 +171,9 @@ const start = async () => {
   }
 };
 
-start();
+// Tests import the app without opening a DB connection or a port.
+if (process.env.NODE_ENV !== "test") {
+  start();
+}
 
 export default app;

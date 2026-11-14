@@ -8,7 +8,7 @@ import { getTerm } from "./term.js";
 // original per-student promotion threw a (swallowed) ReferenceError and likely
 // never promoted anyone. Import it properly now that errors propagate.
 import { getClassIdByName } from "./classes.js";
-import { recomputeStudentOwing } from "./fee.js";
+import { recomputeStudentOwing, startFeePeriod } from "./fee.js";
 
 // BE-20: optional, backward-compatible pagination + lazy-loading.
 // Calling `getStudents()` with no options returns EXACTLY what it returned
@@ -34,6 +34,7 @@ export const getStudents = async (options = {}) => {
         minAge,
         maxAge,
         requester,
+        excludeClassIds,
     } = options;
     let { classId, className } = options;
 
@@ -43,15 +44,19 @@ export const getStudents = async (options = {}) => {
     // classId/className. If they have no class assigned, return empty (no throw).
     let scopedToEmpty = false;
     if (requester?.role === "Class Teacher") {
-        const teacher = await Teacher.findOne({
-            where: { teacherId: requester.teacherId },
-            attributes: ["classId"],
-            raw: true,
-        });
-        if (teacher?.classId == null) {
+        // The class record names its teacher (Class.teacher_id); live keeps the
+        // link there, Teacher.class_id is empty for most staff. Fall back to it.
+        const klass = requester.teacherId
+            ? await Class.findOne({ where: { teacherId: requester.teacherId, isDeleted: { [Op.not]: true } }, attributes: ["classId"], raw: true })
+            : null;
+        const teacher = klass
+            ? null
+            : await Teacher.findOne({ where: { teacherId: requester.teacherId }, attributes: ["classId"], raw: true });
+        const ownClassId = klass?.classId ?? teacher?.classId;
+        if (ownClassId == null) {
             scopedToEmpty = true;
         } else {
-            classId = teacher.classId;
+            classId = ownClassId;
             className = undefined; // classId takes precedence
         }
     }
@@ -86,7 +91,8 @@ export const getStudents = async (options = {}) => {
 
     // gender: case-insensitive exact (MySQL ci collation handles this).
     if (typeof gender === "string" && gender.trim().length > 0) {
-        where.gender = gender.trim();
+        // Live stores "male", "MALE", "Male": match any case.
+        where.gender = { [Op.iLike]: gender.trim() };
     }
 
     // class filter (overridden / forced by scoping above when Class Teacher).
@@ -94,6 +100,19 @@ export const getStudents = async (options = {}) => {
         where.classId = classId;
     } else if (typeof className === "string" && className.trim().length > 0) {
         where.class = className.trim();
+    }
+
+    // Hide chosen classes (the Students page hides graduated / left classes
+    // unless ticked). A picked class always shows; pupils with no class stay.
+    const excluded = String(excludeClassIds ?? "")
+        .split(",")
+        .map((x) => Number.parseInt(x, 10))
+        .filter(Number.isInteger);
+    if (excluded.length && where.classId == null && where.class == null) {
+        where[Op.and] = [
+            ...(where[Op.and] || []),
+            { [Op.or]: [{ classId: null }, { classId: { [Op.notIn]: excluded } }] },
+        ];
     }
 
     // age -> dob window (pushed into SQL WHERE; never post-fetch).
@@ -155,12 +174,19 @@ export const getStudents = async (options = {}) => {
             }
         ];
 
+    // NOT raw: with raw rows every hasMany include (class fee items, the
+    // pupil's own fees) repeated the pupil once per fee row — live has several
+    // fee items per class, so page 1 of 50 rows held 2 pupils and the roster
+    // had 5,819 rows for 451 pupils. Nested objects are also the shape the
+    // office app reads (student.parent.fName, student.class_.classFee).
+    const order = [["fName", "ASC"], ["lName", "ASC"], ["studentId", "ASC"]];
     const queryOptions = {
         attributes: { exclude: ['password'] },
         where,
         include,
-        raw: true,
+        order,
     };
+    const plain = (rows) => rows.map((r) => (typeof r?.get === "function" ? r.get({ plain: true }) : r));
 
     // Pagination is opt-in: only when page OR limit is supplied.
     const parsedLimit = parseInt(limit, 10);
@@ -172,13 +198,6 @@ export const getStudents = async (options = {}) => {
     const effectiveLimit = hasLimit ? parsedLimit : 20; // default page size
     const effectivePage = hasPage ? parsedPage : 1;
 
-    if (paginate) {
-        queryOptions.limit = effectiveLimit;
-        queryOptions.offset = (effectivePage - 1) * effectiveLimit;
-        // `subQuery: false` keeps limit/offset on the top-level Student query
-        // when hasMany associations are included, so the count is correct.
-        queryOptions.subQuery = false;
-    }
 
     const addAge = (rows) => {
         // calculate age for each student (real date diff — BE-25)
@@ -203,24 +222,44 @@ export const getStudents = async (options = {}) => {
     }
 
     if (paginate) {
-        // findAndCountAll with distinct student_id so hasMany includes don't
-        // inflate the total. subQuery:false keeps LIMIT on the parent query.
-        const { rows, count } = await Student.findAndCountAll({
-            ...queryOptions,
-            distinct: true,
-            col: "student_id",
+        // Page the pupils on their own (no joins), then load that page's
+        // details. One query at a time (shared connection rules elsewhere).
+        const total = await Student.count({ where });
+        const pageIds = await Student.findAll({
+            where,
+            attributes: ["studentId"],
+            order,
+            limit: effectiveLimit,
+            offset: (effectivePage - 1) * effectiveLimit,
+            raw: true,
         });
-        const total = typeof count === "number" ? count : (Array.isArray(count) ? count.length : 0);
+        const ids = pageIds.map((r) => r.studentId);
+        const rows = ids.length
+            ? plain(await Student.findAll({ ...queryOptions, where: { studentId: { [Op.in]: ids } } }))
+            : [];
+        // Gender tally over the WHOLE filtered list (not this page), any case.
+        const byGender = await Student.findAll({
+            where,
+            attributes: [[sequelize.fn("lower", sequelize.fn("trim", sequelize.col("gender"))), "g"], [sequelize.fn("COUNT", sequelize.col("student_id")), "n"]],
+            group: [sequelize.fn("lower", sequelize.fn("trim", sequelize.col("gender")))],
+            raw: true,
+        });
+        const genderCounts = { male: 0, female: 0, other: 0 };
+        for (const { g, n } of byGender) {
+            const key = g === "male" || g === "female" ? g : "other";
+            genderCounts[key] += Number(n) || 0;
+        }
         return {
             students: addAge(rows),
             total,
             page: effectivePage,
             limit: effectiveLimit,
             totalPages: Math.ceil(total / effectiveLimit),
+            genderCounts,
         };
     }
 
-    const students = await Student.findAll(queryOptions);
+    const students = plain(await Student.findAll(queryOptions));
     return addAge(students);
 };
 
@@ -278,42 +317,22 @@ export const getParentContact = async (id, forAttendance=false, status="") => {
 // when nothing (or only some students) were promoted, leaving inconsistent
 // state. We now let any failure propagate so the surrounding transaction aborts
 // and the controller's next(error) fires.
-export const promoteStudents = async (transaction = null) => {
-    const term = await getTerm()
+export const promoteStudents = async (transaction = null, term = null) => {
+    term = term ?? (await getTerm());
     if (!term) {
         throw new Error("No active term found; cannot promote students");
     }
 
-    // --- Basic class students (StudentResult) ---
-    const allPromotedStudents = await StudentResult.findAll({
-        attributes: ["studentId", "promotedTo"],
-        where: {
-            termId: term.termId,
-            term: "3"
-        },
+    // Every "promoted to" decision of the term: basic classes (StudentResult)
+    // and KG (KgAssessment, one category carries it).
+    const basic = await StudentResult.findAll({
+        attributes: ["studentId", "promotedTo", "class"],
+        where: { termId: term.termId, term: "3" },
         raw: true,
         transaction
-    })
-
-    let basicPromoted = 0;
-    for (const student of allPromotedStudents) {
-        if (!student.promotedTo) continue; // skip students without a promotedTo value
-        const newClassId = await getClassIdByName(student.promotedTo, transaction);
-        if (newClassId == null) {
-            console.warn(`⚠️ Class "${student.promotedTo}" not found for student ${student.studentId}, skipping`);
-            continue;
-        }
-        await Student.update(
-            { classId: newClassId, class: student.promotedTo },
-            { where: { studentId: student.studentId }, transaction }
-        );
-        basicPromoted += 1;
-    }
-    console.log(`🥳 Promoted ${basicPromoted} basic-class students`)
-
-    // --- KG / Nursery students (KgAssessment) ---
-    const allPromotedKgStudents = await KgAssessment.findAll({
-        attributes: ["studentId", "promoted"],
+    });
+    const kg = await KgAssessment.findAll({
+        attributes: ["studentId", "promoted", "class"],
         where: {
             termId: term.termId,
             term: "3",
@@ -321,23 +340,50 @@ export const promoteStudents = async (transaction = null) => {
         },
         raw: true,
         transaction
-    })
+    });
+    const byPupil = new Map();
+    const add = (studentId, to, fromClass, kind) => {
+        if (studentId == null || !to || !String(to).trim()) return;
+        if (!byPupil.has(studentId)) byPupil.set(studentId, []);
+        byPupil.get(studentId).push({ to: String(to).trim(), fromClass, kind });
+    };
+    basic.forEach((r) => add(r.studentId, r.promotedTo, r.class, "basic"));
+    kg.forEach((r) => add(r.studentId, r.promoted, r.class, "kg"));
 
-    let kgPromoted = 0;
-    for (const student of allPromotedKgStudents) {
-        if (!student.promoted) continue; // skip students without a promoted value
-        const newClassId = await getClassIdByName(student.promoted, transaction);
+    const same = (a, b) => String(a ?? "").trim().toLowerCase() === String(b ?? "").trim().toLowerCase();
+    const counts = { basic: 0, kg: 0 };
+    // Each pupil ONCE, in id order (the same lock order as everywhere else).
+    for (const studentId of [...byPupil.keys()].sort((a, b) => Number(a) - Number(b))) {
+        const pupil = await Student.findOne({
+            where: { studentId },
+            attributes: ["studentId", "class", "isDeleted"],
+            raw: true,
+            transaction,
+            ...(transaction?.LOCK ? { lock: transaction.LOCK.UPDATE } : {}),
+        });
+        if (!pupil || pupil.isDeleted) continue;
+        // Only the decision made in the class the pupil is still in: a pupil
+        // already moved (closing again, or a second results row from a class
+        // correction) is not moved, or billed, a second time.
+        const decision = byPupil.get(studentId).find((d) => same(d.fromClass, pupil.class));
+        if (!decision || same(decision.to, pupil.class)) continue;
+        const newClassId = await getClassIdByName(decision.to, transaction);
         if (newClassId == null) {
-            console.warn(`⚠️ Class "${student.promoted}" not found for KG student ${student.studentId}, skipping`);
+            console.warn(`⚠️ Class "${decision.to}" not found for student ${studentId}, skipping`);
             continue;
         }
+        // Fee periods (migration 008): what is still owed carries over as
+        // arrears and the new class's bill is added in full.
+        await startFeePeriod(studentId, { transaction });
         await Student.update(
-            { classId: newClassId, class: student.promoted },
-            { where: { studentId: student.studentId }, transaction }
+            { classId: newClassId, class: decision.to },
+            { where: { studentId }, transaction }
         );
-        kgPromoted += 1;
+        await recomputeStudentOwing(studentId, { transaction });
+        counts[decision.kind] += 1;
     }
-    console.log(`🥳 Promoted ${kgPromoted} KG students`)
+    console.log(`🥳 Promoted ${counts.basic} basic-class and ${counts.kg} KG students`);
+    return counts;
 }
 
 export const createStudent = async (data) => {
@@ -368,9 +414,10 @@ export const createStudent = async (data) => {
         if (!data?.class || `${data.class}`.trim().length === 0) {
             throw new AppError("Class is required", 400);
         }
+        // Never an archived class (an archived class can share the name).
         const _class = await Class.findOne({
             attributes: ["classId"],
-            where: { name: data.class },
+            where: { name: data.class, isDeleted: { [Op.not]: true } },
             raw: true,
             transaction: t,
         });
@@ -454,7 +501,8 @@ export const editStudent = async (data, id) => {
         const _class = await Class.findAll({
             attributes: ["class_id", "fees"],
             where: {
-                name: data.class
+                name: data.class,
+                isDeleted: { [Op.not]: true }, // never re-attach a pupil to an archived class
             }
         });
 
@@ -490,6 +538,7 @@ export const editStudent = async (data, id) => {
         // reconcile) in ONE transaction instead of Promise.allSettled, which
         // silently ignored a failed half. The Student row (incl. new classId)
         // must be persisted BEFORE recomputeStudentOwing reads it.
+
         const response = await sequelize.transaction(async (t) => {
             const studentRes = await Student.update(studentUpdate, {
                 where: { studentId: id },

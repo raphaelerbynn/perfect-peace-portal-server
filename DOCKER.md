@@ -35,6 +35,32 @@ docker compose exec db psql -U "$DB_USERNAME" -d "$DB_NAME" -f /path/in/containe
 `db/init/01-create-schema.sql` runs ONCE on first volume init and only does
 `CREATE SCHEMA IF NOT EXISTS dbo;`. Everything else (tables + data) is your script.
 
+## Moving the live MySQL data (use the tool)
+
+`npm run move-data` does everything in the checklist below for you. It is tested by `./scripts/rehearse-data-move.sh`.
+
+```bash
+# 1. Rehearse with throwaway Docker databases. With no argument it uses fake data;
+#    pass a real mysqldump to rehearse with live data:
+./scripts/rehearse-data-move.sh /path/to/live-dump.sql
+
+# 2. For real, into an EMPTY Postgres (DB_* env vars), reading live MySQL:
+SOURCE_MYSQL_URL=mysql://user:pass@host:3306/dbo npm run move-data -- --dry-run
+SOURCE_MYSQL_URL=mysql://user:pass@host:3306/dbo npm run move-data
+npm run migrate          # unique indexes etc. Fix any duplicates the move reported first.
+```
+
+The tool:
+- creates the tables from the models
+- copies every table in one transaction
+- converts booleans and zero dates
+- **bcrypt-hashes plaintext passwords** (Student, Teacher, User_account)
+- fills new NOT NULL columns with their defaults
+- resets id sequences
+- reports orphan rows, duplicates and row-count mismatches, and writes a JSON report to `db/move-reports/`
+
+Use Node 20 (`.nvmrc`). On Node ≥ 25, `jsonwebtoken` fails to load.
+
 ## ⚠️ What your data-move script MUST produce (so the ORM + raw queries work)
 
 The Sequelize models are pinned to **`schema: 'dbo'`**, and Postgres is

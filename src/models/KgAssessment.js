@@ -52,7 +52,7 @@ const _ = sequelize.define('kgAssessment', {
     // BE-W14: termId was declared twice (field 'termId' then 'term_id'); the
     // second silently won. Keep the single correct mapping to `term_id` (below).
     class: {
-      type: DataTypes.STRING(10),
+      type: DataTypes.STRING(50),
       allowNull: true
     },
     date: {
@@ -65,27 +65,28 @@ const _ = sequelize.define('kgAssessment', {
       field: 'student_id'
     },
     classScore: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.DECIMAL(18, 2),
       allowNull: true,
       field: 'class_score'
     },
     examScore: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.DECIMAL(18, 2),
       allowNull: true,
       field: 'exam_score'
     },
     classScorePercentage: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.DECIMAL(18, 2),
       allowNull: true,
       field: 'class_score_percentage'
     },
     examScorePercentage: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.DECIMAL(18, 2),
       allowNull: true,
       field: 'exam_score_percentage'
     },
     totalScore: {
-      type: DataTypes.INTEGER,
+      // Average of class + exam, so half marks happen (52.50). Migration 009.
+      type: DataTypes.DECIMAL(5, 2),
       allowNull: true,
       field: 'total_score'
     },
@@ -99,7 +100,7 @@ const _ = sequelize.define('kgAssessment', {
       field: 'term_id'
     },
     promoted: {
-      type: DataTypes.STRING(20),
+      type: DataTypes.STRING(50),
       allowNull: true
     }
   }, {

@@ -17,11 +17,13 @@ const parseIndexNumber = (indexNumber) => {
   if (!indexNumber || typeof indexNumber !== "string") {
     throw new AppError("Index number is required.", 400);
   }
-  const parts = indexNumber.split("/");
+  // Forgiving like the live MySQL login was: " stu/12 " works as "STU/12".
+  const parts = indexNumber.trim().split("/");
   if (parts.length !== 2) {
     throw new AppError("Invalid index number format. Expected ROLE/ID.", 400);
   }
-  const [role, id] = parts;
+  const role = parts[0].trim().toUpperCase();
+  const id = parts[1].trim();
   if (!PORTAL_ROLES.includes(role)) {
     throw new AppError("Invalid index number role.", 400);
   }

@@ -1,22 +1,49 @@
 import { Op } from "sequelize";
+import sequelize from "../config/database.js";
 import { Class, Student, Teacher } from "../models/index.js";
-import { GRADUATED_CLASS_IDS } from "../config/school.js";
 
-// BE-D2: dashboard stat cards. All four numbers are computed with COUNT in SQL
-// (no whole-table reads). `activeStudents` excludes graduated/alumni classes.
-// Contract: { totalStudents, activeStudents, totalStaff, totalClasses }.
-export const getDashboardSummary = async () => {
-  const [totalStudents, activeStudents, totalStaff, totalClasses] =
-    await Promise.all([
-      Student.count({ where: { isDeleted: false } }),
-      Student.count({
-        where: { classId: { [Op.notIn]: GRADUATED_CLASS_IDS }, isDeleted: false },
-      }),
-      Teacher.count({ where: { isDeleted: false } }),
-      Class.count({ where: { isDeleted: false } }),
-    ]);
+// The old system's graduated / left classes ("Guaduants", "Students Left").
+export const ALUMNI_CLASS_IDS = [39, 40];
 
-  return { totalStudents, activeStudents, totalStaff, totalClasses };
+const idList = (v) =>
+  String(v ?? "")
+    .split(",")
+    .map((x) => Number.parseInt(x, 10))
+    .filter(Number.isInteger);
+
+// Pupils "on the books": not archived, and not in a graduated / left class
+// (ALUMNI_CLASS_IDS) unless that class is ticked (`include`). A pupil with no
+// class counts.
+const countedWhere = (alumniIds, include) => {
+  const hidden = alumniIds.filter((id) => !include.includes(id));
+  return {
+    isDeleted: false,
+    ...(hidden.length && { [Op.or]: [{ classId: null }, { classId: { [Op.notIn]: hidden } }] }),
+  };
+};
+
+// BE-D2: dashboard stat cards, all COUNTs in SQL.
+// { totalStudents, activeStudents, students, boys, girls, alumniClasses, totalStaff, totalClasses }
+//   students / boys / girls = active + the ticked graduated / left classes.
+export const getDashboardSummary = async ({ include } = {}) => {
+  const alumni = await Class.findAll({ where: { classId: ALUMNI_CLASS_IDS, isDeleted: { [Op.not]: true } }, attributes: ["classId", "name"], raw: true });
+  const alumniIds = alumni.map((c) => c.classId);
+  const ticked = idList(include).filter((id) => alumniIds.includes(id));
+  const where = countedWhere(alumniIds, ticked);
+  // One query at a time (they share the pool; keeps it predictable).
+  const totalStudents = await Student.count({ where: { isDeleted: false } });
+  const activeStudents = await Student.count({ where: countedWhere(alumniIds, []) });
+  const students = await Student.count({ where });
+  const genderOf = (g) => Student.count({ where: { ...where, [Op.and]: [sequelize.where(sequelize.fn("lower", sequelize.fn("trim", sequelize.col("gender"))), g)] } });
+  const boys = await genderOf("male");
+  const girls = await genderOf("female");
+  const alumniClasses = [];
+  for (const c of alumni) {
+    alumniClasses.push({ classId: c.classId, name: c.name, pupils: await Student.count({ where: { isDeleted: false, classId: c.classId } }), included: ticked.includes(c.classId) });
+  }
+  const totalStaff = await Teacher.count({ where: { isDeleted: false } });
+  const totalClasses = await Class.count({ where: { isDeleted: false } });
+  return { totalStudents, activeStudents, students, boys, girls, alumniClasses, totalStaff, totalClasses };
 };
 
 // BE-D9: students with an outstanding balance only. Filter (feesOwing > 0),
@@ -25,10 +52,16 @@ export const getDashboardSummary = async () => {
 // `Student.feesOwing` column as-is; reconciling that column's accuracy is owned
 // by another agent and intentionally not touched here.
 // Contract: [{ studentId, fName, mName, lName, class, feesOwing }] ordered desc.
-export const getStudentsOwing = async () => {
+export const getStudentsOwing = async ({ include } = {}) => {
+  // Graduated / left classes are hidden unless ticked (`include`); with no
+  // argument at all (other callers) everyone who owes is listed, as before.
+  let where = { feesOwing: { [Op.gt]: 0 }, isDeleted: false };
+  if (include !== undefined) {
+    where = { ...countedWhere(ALUMNI_CLASS_IDS, idList(include)), feesOwing: { [Op.gt]: 0 } };
+  }
   const rows = await Student.findAll({
     attributes: ["studentId", "fName", "mName", "lName", "feesOwing"],
-    where: { feesOwing: { [Op.gt]: 0 }, isDeleted: false },
+    where,
     include: [
       {
         model: Class,
