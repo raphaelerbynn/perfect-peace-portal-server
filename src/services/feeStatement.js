@@ -1,5 +1,5 @@
 import { Op } from "sequelize";
-import { AcademicYear, Class, ClassFee, Fee, Student, StudentFee, StudentTermBill, Term } from "../models/index.js";
+import { AcademicYear, Class, ClassFee, CreditNote, Fee, Student, StudentFee, StudentTermBill, Term } from "../models/index.js";
 import { AppError } from "../utils/errorHandling.js";
 import { round2, sumMoney, toNum } from "../utils/money.js";
 import { computeDiscounts, discountsForTerm } from "./feeBill.js";
@@ -11,6 +11,7 @@ import { computeDiscounts, discountsForTerm } from "./feeBill.js";
 // period uses the live figures, so its balance is exactly Student.feesOwing.
 // Payments are placed in the period they were made in (by fee_id, the same rule
 // as the balance). Reversed payments are listed but never counted (B13).
+// B14: credit notes come off like payments (void ones listed, not counted).
 // ---------------------------------------------------------------------------
 
 const fullName = (s) => [s.fName, s.mName, s.lName].filter(Boolean).join(" ");
@@ -42,6 +43,18 @@ export const getStatement = async (studentId) => {
     order: [["feeId", "ASC"]],
     raw: true,
   });
+  // B14: credit notes, placed in the period they were made in (term + period start).
+  const creditRows = await CreditNote.findAll({
+    where: { studentId: id },
+    attributes: ["creditNoteId", "creditNoteNo", "invoiceId", "termId", "periodAfterFeeId", "amount", "createdAt", "voidedAt"],
+    order: [["creditNoteId", "ASC"]],
+    raw: true,
+  });
+  const creditsIn = (termId, after) =>
+    creditRows.filter((c) => Number(c.termId) === Number(termId) && Number(c.periodAfterFeeId) === Number(after || 0));
+  const shapeCredits = (list) =>
+    list.map((c) => ({ creditNoteNo: c.creditNoteNo, amount: round2(c.amount), createdAt: c.createdAt, void: Boolean(c.voidedAt) }));
+  const countedCredits = (list) => sumMoney(list.filter((c) => !c.voidedAt), "amount");
   const termIds = [...new Set([...bills.map((b) => b.termId), pupil.feesPeriodTermId].filter((x) => x != null))];
   const terms = termIds.length ? await Term.findAll({ where: { termId: termIds }, raw: true }) : [];
   const yearIds = [...new Set(terms.map((t) => t.academicYearId).filter((x) => x != null))];
@@ -83,6 +96,7 @@ export const getStatement = async (studentId) => {
     const arrears = round2(b.arrears);
     const due = round2(arrears + toNum(b.bill) - toNum(b.discount));
     const carried = i + 1 < past.length ? round2(past[i + 1].b.arrears) : currentArrears;
+    const cns = creditsIn(b.termId, b.afterFeeId);
     return {
       termId: b.termId,
       label: label(b.termId),
@@ -92,9 +106,11 @@ export const getStatement = async (studentId) => {
       discounts: b.discounts || [],
       bill: round2(b.bill),
       discount: round2(b.discount),
-      adjustment: round2(carried - (due - counted(paid))),
+      adjustment: round2(carried - (due - counted(paid) - countedCredits(cns))),
       payments: shape(paid),
       paid: counted(paid),
+      creditNotes: shapeCredits(cns),
+      credited: countedCredits(cns),
       balance: carried,
       current: false,
     };
@@ -113,6 +129,7 @@ export const getStatement = async (studentId) => {
       : [];
   const d = computeDiscounts(items, disc);
   const paidNow = paymentsBetween(payments, currentAfter, null);
+  const cnsNow = pupil.feesPeriodTermId != null ? creditsIn(pupil.feesPeriodTermId, currentAfter) : [];
   periods.push({
     termId: pupil.feesPeriodTermId ?? null,
     label: label(pupil.feesPeriodTermId) || "Current (next term not billed yet)",
@@ -127,6 +144,8 @@ export const getStatement = async (studentId) => {
     adjustment: 0,
     payments: shape(paidNow),
     paid: counted(paidNow),
+    creditNotes: shapeCredits(cnsNow),
+    credited: countedCredits(cnsNow),
     balance: round2(pupil.feesOwing),
     current: true,
   });

@@ -50,3 +50,7 @@ Comments inside the SQL files still use the old numbers. A database that applied
 ## B16 (2026-11-14)
 
 040 (B16 notifications: `User_notification`, `Email_log`, `Notification_setting`) was built on `feature/part-b` alongside B11 / B14 (041 / 042 reserved for them). **040 must ship together with 036 / 037 / 039 on part-b**: merge it before migrating any database from part-b, so no database applies a higher number first and then refuses 040.
+
+## B14 (2026-11-14)
+
+042 (B14 invoices and credit notes) was built alongside 040 (B16) and 041 (reserved for B11, if it needs one). **It ships with 036 / 037 / 039 on `feature/part-b`: merge 040 (and 041, if it exists) together with 042 into `feature/part-b` before migrating any database from it**, for the same reason as above (a database that got 042 first would refuse 040 and 041). 042 creates empty tables and changes no balance. **Apply 042 before starting the B14 code:** every balance change now reads `Invoice` / `Credit_note`, so the API's payments, reversals and billing fail until the tables exist.

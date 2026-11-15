@@ -55,6 +55,10 @@ import AdmissionCounter from "./AdmissionCounter.js";
 import GradingScale from "./GradingScale.js";
 import GradeBand from "./GradeBand.js";
 import GradingScaleSection from "./GradingScaleSection.js";
+// B14: invoices and credit notes (migration 042).
+import Invoice from "./Invoice.js";
+import InvoiceLine from "./InvoiceLine.js";
+import CreditNote from "./CreditNote.js";
 
 Allowance.belongsTo(Salary, { as: "salary", foreignKey: "salaryId" });
 Salary.hasMany(Allowance, { as: "allowances", foreignKey: "salaryId" });
@@ -236,4 +240,8 @@ export {
   UserNotification,
   EmailLog,
   NotificationSetting,
+  // B14
+  Invoice,
+  InvoiceLine,
+  CreditNote,
 };

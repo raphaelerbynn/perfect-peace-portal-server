@@ -138,6 +138,8 @@ export const NEW_SYSTEM_ACTIVITY = [
     sql: `SELECT ((SELECT COUNT(*) FROM "dbo"."Event" WHERE created_by IS NOT NULL OR post_type <> 'NEWS' OR status <> 'PUBLISHED')
       + (SELECT COUNT(*) FROM "dbo"."Post_like") + (SELECT COUNT(*) FROM "dbo"."Post_comment") + (SELECT COUNT(*) FROM "dbo"."Poll_vote"))::int AS n`,
   },
+  // B14 (042): invoices / credit notes exist only in the new system.
+  { what: "invoices or credit notes made in the new system", table: "Invoice", sql: `SELECT ((SELECT COUNT(*) FROM "dbo"."Invoice") + (SELECT COUNT(*) FROM "dbo"."Credit_note"))::int AS n` },
 ];
 
 // 037: published_at for news rows the sync adds (live stores Date.now() as

@@ -9,6 +9,9 @@ jest.mock("../models/index.js", () => ({
   Fee: { findAll: jest.fn(), findOne: jest.fn(), update: jest.fn(), create: jest.fn() },
   FeeCheck: { findAll: jest.fn() },
   Student: { findOne: jest.fn(), update: jest.fn() },
+  // B14: no invoices or credit notes in these tests.
+  Invoice: { findAll: jest.fn(async () => []) },
+  CreditNote: { findAll: jest.fn(async () => []) },
 }));
 
 import sequelize from "../config/database.js";
