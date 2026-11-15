@@ -5,6 +5,7 @@ jest.mock("../config/database.js", () => ({
   __esModule: true,
   default: { transaction: jest.fn(), query: jest.fn(), literal: (sql) => ({ __literal: sql }), fn: jest.fn(), col: jest.fn() },
 }));
+jest.mock("../services/notify.js", () => ({ __esModule: true, notifyInvoiceIssued: jest.fn(async () => null) }));
 jest.mock("../models/index.js", () => {
   const m = () => ({ findAll: jest.fn(), findOne: jest.fn(), create: jest.fn(), update: jest.fn(), destroy: jest.fn(), count: jest.fn(), findAndCountAll: jest.fn() });
   return {
@@ -213,10 +214,15 @@ describe("generate and issue", () => {
   });
 
   it("issuing numbers it from the sequence; a non-draft can't be issued again", async () => {
+    const { notifyInvoiceIssued } = require("../services/notify.js");
+    notifyInvoiceIssued.mockClear();
     const draft = await generateInvoice({ studentId: 1, termId: 2 }, { by: "bursar" });
+    expect(notifyInvoiceIssued).not.toHaveBeenCalled(); // a draft is not announced
     const inv = await issueInvoice(draft.invoiceId, { dueDate: "2026-09-21" }, { by: "admin" });
+    expect(notifyInvoiceIssued).toHaveBeenCalledWith(draft.invoiceId);
     expect(inv).toMatchObject({ status: "ISSUED", invoiceNo: "INV-2026-00001", issuedBy: "admin", dueDate: "2026-09-21", displayStatus: "OVERDUE" });
     await expect(issueInvoice(draft.invoiceId, {}, { by: "admin" })).rejects.toMatchObject({ statusCode: 409 });
+    expect(notifyInvoiceIssued).toHaveBeenCalledTimes(1); // a refused re-issue is not announced
   });
 
   it("issuing refreshes a draft from the live bill first", async () => {

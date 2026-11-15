@@ -15,6 +15,7 @@ import { Op } from "sequelize";
 import {
   Class,
   EmailLog,
+  Invoice,
   NotificationSetting,
   Parent,
   Student,
@@ -48,6 +49,7 @@ export const TYPES = Object.freeze({
   ATTENDANCE_ABSENT: { label: "Pupil marked absent", who: "The pupil's login / parent", inApp: true, email: false, inAppLocked: true },
   PASSWORD_CHANGED: { label: "Password changed", who: "The person whose password changed", inApp: true, email: true, priority: true },
   SCORES_MISSING: { label: "Scores missing reminder", who: "Teachers with missing scores", inApp: true, email: false, inAppLocked: true },
+  INVOICE_ISSUED: { label: "Invoice issued", who: "The pupil's login / parent", inApp: true, email: false },
 });
 export const RECIPIENT_TYPES = ["STUDENT", "STAFF", "OFFICE"];
 const CHUNK = 500;
@@ -457,6 +459,30 @@ export const notifyPaymentRecorded = async ({ studentId, paid, owing, receiptNo,
     });
   } catch (e) {
     log("payment", e);
+    return null;
+  }
+};
+
+// An invoice was issued (B14; after commit). Reads the issued row, so only
+// real, numbered invoices are announced.
+export const notifyInvoiceIssued = async (invoiceId) => {
+  try {
+    if (!invoiceId) return null;
+    const inv = await Invoice.findByPk(invoiceId, { attributes: ["invoiceId", "invoiceNo", "studentId", "status", "total", "balance", "dueDate"], raw: true });
+    if (!inv || !inv.invoiceNo || inv.status === "DRAFT" || inv.status === "VOID") return null;
+    const s = await Student.findByPk(inv.studentId, { attributes: ["studentId", "fName", "mName", "lName"], raw: true });
+    if (!s) return null;
+    const due = inv.dueDate ? ` Due ${String(inv.dueDate).slice(0, 10)}.` : "";
+    return await notify({
+      type: "INVOICE_ISSUED",
+      recipients: [{ type: "STUDENT", id: s.studentId }],
+      title: `Invoice ${inv.invoiceNo}`,
+      body: `Invoice ${inv.invoiceNo} for ${fullName(s)}: ${formatGhs(inv.total)}. Balance: ${formatGhs(inv.balance)}.${due}`,
+      link: "/fees",
+      entity: { type: "invoice", id: inv.invoiceId },
+    });
+  } catch (e) {
+    log("invoice issued", e);
     return null;
   }
 };

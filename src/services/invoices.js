@@ -18,6 +18,7 @@ import { isPesewaAmount, round2, toNum } from "../utils/money.js";
 import { paginatedResponse, parsePagination } from "../utils/pagination.js";
 import { recomputeStudentOwing } from "./fee.js";
 import { computeDiscounts, discountsForTerm } from "./feeBill.js";
+import { notifyInvoiceIssued } from "./notify.js";
 import { displayStatus, isCurrentPeriod, periodEnd, recalcStudentInvoices } from "./invoiceLedger.js";
 
 // ---------------------------------------------------------------------------
@@ -315,6 +316,7 @@ export const generateInvoice = async (body = {}, { by = null } = {}) => {
     const { invoiceId } = await sequelize.transaction((t) =>
       generateInTx({ studentId, term, dueDate: body.dueDate, notes: body.notes, issue: Boolean(body.issue), createdBy: by }, t)
     );
+    if (body.issue) await notifyInvoiceIssued(invoiceId); // B16, after commit; never throws
     return getInvoice(invoiceId);
   } catch (e) {
     throw asConflict(e);
@@ -349,7 +351,10 @@ export const bulkGenerate = async (body = {}, { by = null } = {}) => {
         );
         if (r.action === "CREATED") out.created += 1;
         else out.refreshed += 1;
-        if (body.issue) out.issued += 1;
+        if (body.issue) {
+          out.issued += 1;
+          await notifyInvoiceIssued(r.invoiceId); // B16, after this pupil's commit; never throws
+        }
       } catch (e) {
         const err = asConflict(e);
         const entry = { studentId: p.studentId, name: fullName(p), className: c.name, reason: err.message };
@@ -374,6 +379,7 @@ export const issueInvoice = async (id, body = {}, { by = null } = {}) => {
     await lockPupil(inv.studentId, t); // pupil first, then the invoice (same order everywhere)
     await issueInTx(invoiceId, { dueDate: body.dueDate, notes: body.notes, issuedBy: by }, t);
   });
+  await notifyInvoiceIssued(invoiceId); // B16, after commit; never throws
   return getInvoice(invoiceId);
 };
 

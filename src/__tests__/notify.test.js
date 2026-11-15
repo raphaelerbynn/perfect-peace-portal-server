@@ -30,6 +30,7 @@ jest.mock("../models/index.js", () => {
     __esModule: true,
     Class: model(),
     EmailLog: model(),
+    Invoice: model(),
     NotificationSetting: model(),
     Parent: model(),
     Student: model(),
@@ -363,6 +364,23 @@ describe("triggers", () => {
     expect(rows).toMatchObject([{ recipientType: "OFFICE", recipientId: "kofi", type: "PASSWORD_CHANGED" }]);
     await N.notifyPasswordChanged({ type: "STUDENT", id: 7 });
     expect(rows[1]).toMatchObject({ recipientType: "STUDENT", recipientId: "7" });
+  });
+
+  it("invoice issued: only a numbered, live invoice, to the pupil's login", async () => {
+    const { Invoice } = require("../models/index.js");
+    Student.findByPk.mockResolvedValue({ studentId: 7, fName: "Ama", lName: "Owusu" });
+    Invoice.findByPk.mockResolvedValueOnce({ invoiceId: 5, invoiceNo: null, status: "DRAFT", studentId: 7 });
+    await N.notifyInvoiceIssued(5);
+    Invoice.findByPk.mockResolvedValueOnce({ invoiceId: 6, invoiceNo: "INV-2026-00006", status: "VOID", studentId: 7 });
+    await N.notifyInvoiceIssued(6);
+    expect(rows).toHaveLength(0);
+    Invoice.findByPk.mockResolvedValueOnce({ invoiceId: 9, invoiceNo: "INV-2026-00009", status: "ISSUED", studentId: 7, total: "1250.00", balance: "1000.00", dueDate: "2026-12-01" });
+    await N.notifyInvoiceIssued(9);
+    expect(rows).toMatchObject([{ recipientType: "STUDENT", recipientId: "7", type: "INVOICE_ISSUED", linkUrl: "/fees", entityId: "9" }]);
+    expect(rows[0].body).toContain("GH₵ 1,250.00");
+    expect(rows[0].body).toContain("Due 2026-12-01");
+    Invoice.findByPk.mockRejectedValueOnce(new Error("x"));
+    await expect(N.notifyInvoiceIssued(10)).resolves.toBeNull();
   });
 
   it("triggers never throw", async () => {
