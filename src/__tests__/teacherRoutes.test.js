@@ -13,6 +13,8 @@ jest.mock("../services/teacherTools.js", () => ({
   saveRegister: jest.fn(async () => ({ studentAttendance: [], register: { handler: "saveRegister" } })),
   getScores: jest.fn(async () => ({ handler: "getScores" })),
   saveScores: jest.fn(async () => ({ handler: "saveScores" })),
+  getKgRatings: jest.fn(async () => ({ handler: "getKgRatings" })),
+  saveKgRatings: jest.fn(async () => ({ handler: "saveKgRatings" })),
 }));
 jest.mock("../services/teachingAssignment.js", () => ({
   __esModule: true,
@@ -23,7 +25,7 @@ jest.mock("../services/teachingAssignment.js", () => ({
 }));
 
 const app = require("../index.js").default;
-const { saveRegister } = require("../services/teacherTools.js");
+const { getKgRatings, saveKgRatings, saveRegister } = require("../services/teacherTools.js");
 const { setTeachingAssignment } = require("../services/teachingAssignment.js");
 
 const sign = (p) => jwt.sign(p, "test-secret", { algorithm: "HS256", expiresIn: "1h" });
@@ -59,6 +61,30 @@ describe("/teacher/*", () => {
 
   it("no token = 401", async () => {
     expect((await request(app).get("/teacher/my-classes")).status).toBe(401);
+  });
+
+  it("KG ratings: a STAFF token reads and saves with its own id", async () => {
+    const got = await auth(request(app).get("/teacher/kg-ratings?classId=3&studentId=1"), teacher);
+    expect(got.status).toBe(200);
+    expect(getKgRatings).toHaveBeenCalledWith(3, { classId: "3", studentId: "1" });
+    const body = { classId: 3, studentId: 1, ratings: { "Physical Development": { "Shows balance while moving": "improved" } } };
+    const saved = await auth(request(app).post("/teacher/kg-ratings"), teacher).send(body);
+    expect(saved.status).toBe(200);
+    expect(saved.body).toEqual({ handler: "saveKgRatings" });
+    expect(saveKgRatings).toHaveBeenCalledWith(3, body);
+  });
+
+  it.each([
+    ["a student token", student],
+    ["an office token", admin],
+    ["a Class Teacher office token", classTeacher],
+  ])("KG ratings refuse %s (403)", async (_l, token) => {
+    getKgRatings.mockClear();
+    saveKgRatings.mockClear();
+    expect((await auth(request(app).get("/teacher/kg-ratings?classId=3"), token)).status).toBe(403);
+    expect((await auth(request(app).post("/teacher/kg-ratings"), token).send({ classId: 3 })).status).toBe(403);
+    expect(getKgRatings).not.toHaveBeenCalled();
+    expect(saveKgRatings).not.toHaveBeenCalled();
   });
 });
 
