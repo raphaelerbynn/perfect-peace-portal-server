@@ -2,3 +2,4 @@
 // A new feature adds its file (e.g. ./announcement.js) and one import line.
 export * from "./registry.js";
 export { schoolPreamble, toneLines, GENERAL_PROMPT } from "./base.js";
+import "./announcement.js"; // AI-8
