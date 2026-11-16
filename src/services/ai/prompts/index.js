@@ -3,3 +3,6 @@
 export * from "./registry.js";
 export { schoolPreamble, toneLines, GENERAL_PROMPT } from "./base.js";
 import "./announcement.js"; // AI-8
+
+// AI-1
+import "./ask.js";

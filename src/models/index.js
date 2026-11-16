@@ -62,6 +62,9 @@ import InvoiceLine from "./InvoiceLine.js";
 import AiUsageLog from "./AiUsageLog.js";
 import AiSuggestion from "./AiSuggestion.js";
 import AiSettings from "./AiSettings.js";
+// AI-1: Ask the school conversations (migration 044).
+import AiConversation from "./AiConversation.js";
+import AiMessage from "./AiMessage.js";
 import CreditNote from "./CreditNote.js";
 
 Allowance.belongsTo(Salary, { as: "salary", foreignKey: "salaryId" });
@@ -252,4 +255,7 @@ export {
   AiUsageLog,
   AiSuggestion,
   AiSettings,
+  // AI-1
+  AiConversation,
+  AiMessage,
 };

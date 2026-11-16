@@ -6,6 +6,9 @@ import { actorOf, usageSummary } from "../services/ai/usage.js";
 import { requireAiFeature } from "../services/ai/gate.js";
 import { draftAnnouncement } from "../services/aiAnnouncements.js";
 import { authenticateManagementUser, authenticateUser, authorizeRoles } from "../utils/middlewares.js";
+// AI-1
+import { deleteMyConversation, getMyConversation, getMyConversations, postAsk } from "../controllers/askController.js";
+import { AI_FEATURE_INFO } from "../services/ai/constants.js";
 
 // AI-0: the shared AI endpoints (/ai/*). Mounted with the routers that
 // authenticate per route (before teacherRouter), because GET /ai/status serves
@@ -50,5 +53,16 @@ router.post(
   requireAiFeature("ANNOUNCEMENTS"),
   send((req) => draftAnnouncement(req.body || {}, req.user))
 );
+
+// AI-1: Ask the school (Administrator + Accountant; the Accountant gets the
+// finance tools only). Streams SSE. The budget is checked inside, after the
+// free fast path, so "how many pupils" still answers over the cap. History is
+// role-checked only: past answers stay readable while AI is switched off, and
+// each user sees only their own conversations.
+const ASK_ROLES = [authenticateManagementUser, authorizeRoles(...AI_FEATURE_INFO.ASK.office)];
+router.post("/ai/chat", requireAiFeature("ASK", { budget: false }), postAsk);
+router.get("/ai/conversations", ...ASK_ROLES, getMyConversations);
+router.get("/ai/conversations/:id", ...ASK_ROLES, getMyConversation);
+router.delete("/ai/conversations/:id", ...ASK_ROLES, deleteMyConversation);
 
 export { router as aiRouter };
