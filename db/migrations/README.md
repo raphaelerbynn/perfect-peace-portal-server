@@ -54,3 +54,7 @@ Comments inside the SQL files still use the old numbers. A database that applied
 ## B14 (2026-11-14)
 
 042 (B14 invoices and credit notes) was built alongside 040 (B16) and 041 (reserved for B11, if it needs one). **It ships with 036 / 037 / 039 on `feature/part-b`: merge 040 (and 041, if it exists) together with 042 into `feature/part-b` before migrating any database from it**, for the same reason as above (a database that got 042 first would refuse 040 and 041). 042 creates empty tables and changes no balance. **Apply 042 before starting the B14 code:** every balance change now reads `Invoice` / `Credit_note`, so the API's payments, reversals and billing fail until the tables exist.
+
+## AI-0 (2026-11-16)
+
+043 (AI-0 shared AI infrastructure: `Ai_usage_log`, `Ai_suggestion`, `Ai_settings` with its one row, switched off) was built on `feature/ai-work` from `feature/part-b`. 044–046 are reserved for the AI features built on it (AI-1, AI-3, AI-5 / AI-8). It creates new tables only and changes no existing data. **Merge 043 into `feature/part-b` before 044–046, and before migrating any database from it**, for the same reason as above. Until 043 is applied the API still starts: AI reads as switched off.

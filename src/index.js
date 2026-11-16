@@ -25,6 +25,8 @@ import { academicReportRouter } from "./routes/academicReportRoutes.js"; // B11
 import { notificationRouter } from "./routes/notificationRoutes.js";
 // B14
 import { invoicePortalRouter, invoiceRouter } from "./routes/invoiceRoutes.js";
+// AI-0
+import { aiRouter } from "./routes/aiRoutes.js";
 
 dotenv.config();
 const app = express();
@@ -156,6 +158,9 @@ app.use("/", newsRouter);
 // B16: notifications (/notifications*, /notification-settings) for portal AND
 // office tokens; each caller sees only their own. Office actions role-checked per route.
 app.use("/", notificationRouter);
+// AI-0: shared AI endpoints (/ai/status for every login; /ai/settings, /ai/usage,
+// /ai/suggestions* for the Administrator). Auth per route.
+app.use("/", aiRouter);
 // B2: teacher portal tools (/teacher/*, STAFF tokens only).
 app.use("/", teacherRouter);
 // B14: a pupil's own invoices (STU tokens only; parents use the pupil login).

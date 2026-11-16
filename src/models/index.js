@@ -58,6 +58,10 @@ import GradingScaleSection from "./GradingScaleSection.js";
 // B14: invoices and credit notes (migration 042).
 import Invoice from "./Invoice.js";
 import InvoiceLine from "./InvoiceLine.js";
+// AI-0: shared AI infrastructure (migration 043).
+import AiUsageLog from "./AiUsageLog.js";
+import AiSuggestion from "./AiSuggestion.js";
+import AiSettings from "./AiSettings.js";
 import CreditNote from "./CreditNote.js";
 
 Allowance.belongsTo(Salary, { as: "salary", foreignKey: "salaryId" });
@@ -244,4 +248,8 @@ export {
   Invoice,
   InvoiceLine,
   CreditNote,
+  // AI-0
+  AiUsageLog,
+  AiSuggestion,
+  AiSettings,
 };

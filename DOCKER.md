@@ -22,6 +22,13 @@ container's env. Compose overrides `DB_HOST=db`, `DB_PORT=5432`, `SERVER_PORT=50
 for the backend container regardless of what `.env` says, so the app always reaches
 the `db` service.
 
+## AI assistant (AI-0)
+Off by default. To use it, add to the env file the container reads (`.env` / `.env.production`):
+`AI_ENABLED=true`, `GEMINI_API_KEY=<key>`, and optionally `AI_MODEL_DEFAULT` (default `gemini-3.1-flash-lite`),
+`AI_MONTHLY_BUDGET_GHS` (default cap, GH₵ 200) and `AI_USD_TO_GHS` (default 15.5). Then an Administrator
+switches AI on in the admin app (Settings → AI). Apply migration 043 first. Full list in `.env.example`;
+how the code fits together in `src/services/ai/README.md`.
+
 ## Connecting pgAdmin to the database
 Add a server in pgAdmin → Host `db`, Port `5432`, Maintenance DB / user / password =
 your `DB_NAME` / `DB_USERNAME` / `DB_PASSWORD`.
