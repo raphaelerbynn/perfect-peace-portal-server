@@ -27,6 +27,7 @@ import { notificationRouter } from "./routes/notificationRoutes.js";
 import { invoicePortalRouter, invoiceRouter } from "./routes/invoiceRoutes.js";
 // AI-0
 import { aiRouter } from "./routes/aiRoutes.js";
+import { paperOfficeRouter } from "./routes/paperRoutes.js"; // AI-3
 
 dotenv.config();
 const app = express();
@@ -161,6 +162,8 @@ app.use("/", notificationRouter);
 // AI-0: shared AI endpoints (/ai/status for every login; /ai/settings, /ai/usage,
 // /ai/suggestions* for the Administrator). Auth per route.
 app.use("/", aiRouter);
+// AI-3: the head teacher's read-only view of question papers (/question-papers*, Administrator). Auth per route.
+app.use("/", paperOfficeRouter);
 // B2: teacher portal tools (/teacher/*, STAFF tokens only).
 app.use("/", teacherRouter);
 // B14: a pupil's own invoices (STU tokens only; parents use the pupil login).

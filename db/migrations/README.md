@@ -58,3 +58,7 @@ Comments inside the SQL files still use the old numbers. A database that applied
 ## AI-0 (2026-11-16)
 
 043 (AI-0 shared AI infrastructure: `Ai_usage_log`, `Ai_suggestion`, `Ai_settings` with its one row, switched off) was built on `feature/ai-work` from `feature/part-b`. 044–046 are reserved for the AI features built on it (AI-1, AI-3, AI-5 / AI-8). It creates new tables only and changes no existing data. **Merge 043 into `feature/part-b` before 044–046, and before migrating any database from it**, for the same reason as above. Until 043 is applied the API still starts: AI reads as switched off.
+
+## AI-3 (2026-11-16)
+
+045 (AI-3 question papers: `Question_paper`, `Question`) was built on `feature/ai-3-work` from `feature/ai-work`, alongside 044 / 046 (reserved for AI-1 / AI-5 / AI-8). It creates new tables only (foreign keys to `Teacher`, `Subject`, `Class`, `Term`; questions are deleted with their paper) and changes no existing data. AI drafts of a section live in `Ai_suggestion` (043), so **043 must be applied first**. Merge 044–046 into `feature/part-b` together before migrating any database from it, for the same reason as above.

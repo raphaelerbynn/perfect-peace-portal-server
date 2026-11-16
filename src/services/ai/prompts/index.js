@@ -2,3 +2,5 @@
 // A new feature adds its file (e.g. ./announcement.js) and one import line.
 export * from "./registry.js";
 export { schoolPreamble, toneLines, GENERAL_PROMPT } from "./base.js";
+// AI-3 question papers (section + blind answer check)
+import "./questionPaper.js";

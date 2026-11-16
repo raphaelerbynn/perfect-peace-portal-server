@@ -63,6 +63,9 @@ import AiUsageLog from "./AiUsageLog.js";
 import AiSuggestion from "./AiSuggestion.js";
 import AiSettings from "./AiSettings.js";
 import CreditNote from "./CreditNote.js";
+// AI-3
+import QuestionPaper from "./QuestionPaper.js";
+import Question from "./Question.js";
 
 Allowance.belongsTo(Salary, { as: "salary", foreignKey: "salaryId" });
 Salary.hasMany(Allowance, { as: "allowances", foreignKey: "salaryId" });
@@ -188,6 +191,10 @@ Student.hasMany(Fee, {
   as: "fee",
 });
 
+// AI-3: question papers
+QuestionPaper.hasMany(Question, { as: "questions", foreignKey: "paperId" });
+Question.belongsTo(QuestionPaper, { as: "paper", foreignKey: "paperId" });
+
 export {
   Allowance,
   Assignment,
@@ -252,4 +259,7 @@ export {
   AiUsageLog,
   AiSuggestion,
   AiSettings,
+  // AI-3
+  QuestionPaper,
+  Question,
 };
