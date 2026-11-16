@@ -62,3 +62,7 @@ Comments inside the SQL files still use the old numbers. A database that applied
 ## AI-1 (2026-11-16)
 
 044 (AI-1 Ask the school: `Ai_conversation`, `Ai_message`) was built on `feature/ai-1-work` from `feature/ai-work`, alongside AI-3 / AI-5 / AI-8 (045–046). It creates new tables only and changes no existing data. It needs 043 first. **Merge 044 together with 045–046 into `feature/part-b` before migrating any database from it**, for the same reason as above (a database that got 045 or 046 first would refuse 044).
+
+## AI-3 (2026-11-16)
+
+045 (AI-3 question papers: `Question_paper`, `Question`) was built on `feature/ai-3-work` from `feature/ai-work`, alongside 044 / 046 (reserved for AI-1 / AI-5 / AI-8). It creates new tables only (foreign keys to `Teacher`, `Subject`, `Class`, `Term`; questions are deleted with their paper) and changes no existing data. AI drafts of a section live in `Ai_suggestion` (043), so **043 must be applied first**. Merge 044–046 into `feature/part-b` together before migrating any database from it, for the same reason as above.

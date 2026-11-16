@@ -6,3 +6,5 @@ import "./announcement.js"; // AI-8
 
 // AI-1
 import "./ask.js";
+// AI-3 question papers (section + blind answer check)
+import "./questionPaper.js";
