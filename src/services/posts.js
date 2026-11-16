@@ -430,6 +430,21 @@ export const createPost = async (body, v) => {
   return getPost(id, v);
 };
 
+// AI-8: an accepted AI draft becomes a DRAFT post, inside the caller's
+// transaction (the one that marks the draft accepted). Never published here,
+// so no B16 notification. Returns the new post id.
+export const createDraftPostInTransaction = async (body, v, transaction) => {
+  if (!isAdmin(v) && !isClassTeacher(v)) throw new AppError("You do not have permission to perform this action", 403);
+  const { postType, values, options } = await validatePost({ ...body, postType: "NEWS" }, v, null);
+  const now = new Date();
+  const post = await Event.create(
+    { ...values, postType, status: "DRAFT", isPinned: false, createdBy: v.username, created_at: now.toISOString(), publishedAt: null, updatedAt: now },
+    { transaction }
+  );
+  if (options) await saveOptions(post.eventId, options, transaction);
+  return post.eventId;
+};
+
 export const updatePost = async (postId, body, v) => {
   const post = await loadManaged(postId, v);
   const { values, options } = await validatePost(body, v, plain(post));

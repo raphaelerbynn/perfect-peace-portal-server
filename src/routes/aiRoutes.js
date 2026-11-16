@@ -3,6 +3,8 @@ import { aiStatusFor } from "../services/ai/gate.js";
 import { getAiSettingsForAdmin, updateAiSettings } from "../services/ai/settings.js";
 import { acceptSuggestion, editSuggestion, getSuggestion, listSuggestions, rejectSuggestion } from "../services/ai/suggestions.js";
 import { actorOf, usageSummary } from "../services/ai/usage.js";
+import { requireAiFeature } from "../services/ai/gate.js";
+import { draftAnnouncement } from "../services/aiAnnouncements.js";
 import { authenticateManagementUser, authenticateUser, authorizeRoles } from "../utils/middlewares.js";
 
 // AI-0: the shared AI endpoints (/ai/*). Mounted with the routers that
@@ -38,5 +40,15 @@ router.get("/ai/suggestions/:id", ...ADMIN, send((req) => getSuggestion(req.para
 router.patch("/ai/suggestions/:id", ...ADMIN, send((req) => editSuggestion(req.params.id, req.body?.content, { actor: actorOf(req.user) })));
 router.post("/ai/suggestions/:id/accept", ...ADMIN, send((req) => acceptSuggestion(req.params.id, { actor: actorOf(req.user) })));
 router.post("/ai/suggestions/:id/reject", ...ADMIN, send((req) => rejectSuggestion(req.params.id, { actor: actorOf(req.user) })));
+
+// AI-8: draft a news post or an SMS (Administrator: the roles that may both
+// post news and send bulk SMS). Accept / edit / reject: the /ai/suggestions
+// endpoints above (accept makes a DRAFT post, or returns the SMS text).
+router.post(
+  "/ai/announcements/draft",
+  authenticateManagementUser,
+  requireAiFeature("ANNOUNCEMENTS"),
+  send((req) => draftAnnouncement(req.body || {}, req.user))
+);
 
 export { router as aiRouter };
