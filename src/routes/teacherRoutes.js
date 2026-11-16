@@ -1,8 +1,10 @@
 import { Router } from "express";
 import {
+  fetchKgRatings,
   fetchMyClasses,
   fetchRegister,
   fetchScores,
+  updateKgRatings,
   updateRegister,
   updateScores,
 } from "../controllers/teacherController.js";
@@ -29,5 +31,8 @@ router.get("/teacher/register", fetchRegister);
 router.post("/teacher/register", updateRegister);
 router.get("/teacher/scores", fetchScores);
 router.post("/teacher/scores", updateScores);
+// KG / nursery: the report card's development ratings, one pupil at a time.
+router.get("/teacher/kg-ratings", fetchKgRatings);
+router.post("/teacher/kg-ratings", updateKgRatings);
 
 export { router as teacherRouter, staffToken };

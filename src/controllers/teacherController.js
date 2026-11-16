@@ -1,5 +1,13 @@
 import { notifyAttendanceParents } from "./generalController.js";
-import { getMyClasses, getRegister, getScores, saveRegister, saveScores } from "../services/teacherTools.js";
+import {
+  getKgRatings,
+  getMyClasses,
+  getRegister,
+  getScores,
+  saveKgRatings,
+  saveRegister,
+  saveScores,
+} from "../services/teacherTools.js";
 import {
   copyTeachingAssignments,
   listTeachingAssignments,
@@ -23,6 +31,8 @@ const fetchMyClasses = handle((req) => getMyClasses(teacherId(req)));
 const fetchRegister = handle((req) => getRegister(teacherId(req), req.query));
 const fetchScores = handle((req) => getScores(teacherId(req), req.query));
 const updateScores = handle((req) => saveScores(teacherId(req), req.body));
+const fetchKgRatings = handle((req) => getKgRatings(teacherId(req), req.query));
+const updateKgRatings = handle((req) => saveKgRatings(teacherId(req), req.body));
 
 const updateRegister = async (req, res, next) => {
   try {
@@ -52,6 +62,8 @@ export {
   updateRegister,
   fetchScores,
   updateScores,
+  fetchKgRatings,
+  updateKgRatings,
   fetchTeachingAssignments,
   upsertTeachingAssignment,
   deleteTeachingAssignment,

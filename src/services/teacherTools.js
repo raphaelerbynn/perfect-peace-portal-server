@@ -8,6 +8,16 @@ import { saveClassSubjectScores } from "./results.js";
 import { bandsForSection } from "./grading.js";
 import { requireActiveTerm } from "./term.js";
 import {
+  KG_RATINGS,
+  KG_RATING_ITEM_COUNT,
+  KG_RATING_SECTIONS,
+  KG_RATING_STORED_CATEGORIES,
+  findRatingSection,
+  ratingFlags,
+  ratingOfRow,
+  storedCategory,
+} from "../utils/kgRatings.js";
+import {
   assertCanScore,
   assertCanTakeRegister,
   canTakeRegister,
@@ -124,8 +134,19 @@ const getMyClasses = async (teacherId) => {
           : [],
       ]);
       const ids = new Set(roster.map((s) => s.studentId));
+      // KG: how many pupils have every development item rated.
+      const kgRatings =
+        c.isKg && c.isClassTeacher
+          ? {
+              complete: [...ratedCounts(await kgRatingRows(c, term.termId)).entries()].filter(
+                ([id, n]) => ids.has(id) && n >= KG_RATING_ITEM_COUNT
+              ).length,
+              pupils: roster.length,
+            }
+          : undefined;
       return {
         ...c,
+        ...(kgRatings && { kgRatings }),
         pupils: roster.length,
         registerTakenToday: registerRows > 0,
         subjects: c.subjects.map((s) => {
@@ -369,12 +390,161 @@ const saveScores = async (teacherId, { classId, subjectId, scores }) => {
   return { ...result, sheet: await getScores(teacherId, { classId, subjectId }) };
 };
 
+// ---- KG / nursery developmental ratings ---------------------------------------
+// The four rating sections of the KG report card (utils/kgRatings.js). Same
+// rows the office's "Enter nursery result" writes (POST /add-kg-result):
+// one per (student, term, class, category, assessment), category upper-cased,
+// one 0/1 flag per rating. Academic Progress rows are never read or written here.
+
+const RATING_FIELDS = KG_RATINGS.map((r) => r.field);
+const RATING_VALUES = KG_RATINGS.map((r) => r.value);
+const itemKey = (category, item) => `${storedCategory(category)}\u0000${item}`;
+const KNOWN_ITEMS = new Set(KG_RATING_SECTIONS.flatMap((s) => s.items.map((i) => itemKey(s.category, i))));
+
+const kgRatingRows = async (klass, termId, studentId) =>
+  (await KgAssessment.findAll({
+    where: {
+      class: klass.name,
+      termId,
+      category: { [Op.in]: KG_RATING_STORED_CATEGORIES },
+      ...(studentId != null && { studentId }),
+    },
+    attributes: ["studentId", "category", "assessment", ...RATING_FIELDS],
+    raw: true,
+  })) || [];
+
+// studentId -> number of list items that carry a rating.
+const ratedCounts = (rows) => {
+  const seen = new Map();
+  for (const r of rows) {
+    if (!ratingOfRow(r) || !KNOWN_ITEMS.has(itemKey(r.category, r.assessment))) continue;
+    const id = Number(r.studentId);
+    if (!seen.has(id)) seen.set(id, new Set());
+    seen.get(id).add(itemKey(r.category, r.assessment));
+  }
+  return new Map([...seen].map(([id, keys]) => [id, keys.size]));
+};
+
+const kgRatingsContext = async (teacherId, { classId }) => {
+  const teacher = await loadTeacher(teacherId);
+  const term = await requireActiveTerm();
+  const klass = await loadClass(classId);
+  if (!isKgSection(klass.section)) {
+    throw new AppError("Development ratings are for KG / nursery classes only.", 400);
+  }
+  if (!(await canTakeRegister(teacher.teacherId, klass.classId, { termId: term.termId }))) {
+    throw new AppError("Only the class teacher enters this class's development ratings.", 403);
+  }
+  return { teacher, term, klass };
+};
+
+const pupilInClass = (roster, studentId) => {
+  const pupil = roster.find((s) => s.studentId === Number(studentId));
+  if (!pupil) throw new AppError("This pupil is not in this class. Reload and try again.", 400);
+  return pupil;
+};
+
+const progressOf = (rated) => ({ rated, total: KG_RATING_ITEM_COUNT, complete: rated >= KG_RATING_ITEM_COUNT });
+
+/**
+ * The class's pupils with their rating progress, the sections and items, and
+ * (with studentId) that pupil's current ratings: { [category]: { [item]: value | null } }.
+ */
+const getKgRatings = async (teacherId, { classId, studentId } = {}) => {
+  const { term, klass } = await kgRatingsContext(teacherId, { classId });
+  const [roster, rows] = await Promise.all([classRoster(klass), kgRatingRows(klass, term.termId)]);
+  const counts = ratedCounts(rows);
+  const view = {
+    class: { classId: Number(klass.classId), name: klass.name },
+    term: termView(term),
+    sections: KG_RATING_SECTIONS.map(({ key, category, items }) => ({ key, category, items: [...items] })),
+    ratings: KG_RATINGS.map(({ value, label }) => ({ value, label })),
+    students: roster.map((s) => ({ ...s, ...progressOf(counts.get(s.studentId) || 0) })),
+    pupil: null,
+  };
+  if (studentId == null || studentId === "") return view;
+
+  const pupil = pupilInClass(roster, studentId);
+  const mine = rows.filter((r) => Number(r.studentId) === pupil.studentId);
+  const valueOf = new Map(mine.map((r) => [itemKey(r.category, r.assessment), ratingOfRow(r)]));
+  view.pupil = {
+    ...pupil,
+    ...progressOf(counts.get(pupil.studentId) || 0),
+    ratings: Object.fromEntries(
+      KG_RATING_SECTIONS.map((s) => [
+        s.category,
+        Object.fromEntries(s.items.map((i) => [i, valueOf.get(itemKey(s.category, i)) ?? null])),
+      ])
+    ),
+  };
+  return view;
+};
+
+// Checks the body against the list; returns the changes in report-card order.
+// A blank / missing item is skipped (never cleared or deleted).
+const ratingChanges = (ratings) => {
+  if (!ratings || typeof ratings !== "object" || Array.isArray(ratings)) {
+    throw new AppError("ratings must be an object: { [section]: { [item]: rating } }", 400);
+  }
+  const wanted = new Map(); // itemKey -> value
+  for (const [name, items] of Object.entries(ratings)) {
+    const section = findRatingSection(name);
+    if (!section) throw new AppError(`"${name}" is not a development section on the KG report card.`, 400);
+    if (!items || typeof items !== "object" || Array.isArray(items)) {
+      throw new AppError(`Ratings for ${section.category} must be an object of item: rating.`, 400);
+    }
+    for (const [item, value] of Object.entries(items)) {
+      if (!section.items.includes(item)) {
+        throw new AppError(`"${item}" is not on the ${section.category} list. Reload and try again.`, 400);
+      }
+      if (value === null || value === undefined || value === "") continue;
+      if (!RATING_VALUES.includes(value)) {
+        throw new AppError(`Invalid rating "${value}" for "${item}". Allowed: ${RATING_VALUES.join(", ")}`, 400);
+      }
+      wanted.set(itemKey(section.category, item), value);
+    }
+  }
+  const changes = [];
+  for (const s of KG_RATING_SECTIONS) {
+    for (const item of s.items) {
+      const value = wanted.get(itemKey(s.category, item));
+      if (value) changes.push({ category: storedCategory(s.category), assessment: item, value });
+    }
+  }
+  if (!changes.length) throw new AppError("Nothing to save. Rate at least one item.", 400);
+  return changes;
+};
+
+/** Upserts one pupil's ratings in ONE transaction, same key as createKGResult. */
+const saveKgRatings = async (teacherId, { classId, studentId, ratings } = {}) => {
+  const changes = ratingChanges(ratings);
+  const { term, klass } = await kgRatingsContext(teacherId, { classId });
+  const pupil = pupilInClass(await classRoster(klass), studentId);
+
+  const saved = await sequelize.transaction(async (t) => {
+    let n = 0;
+    // One query at a time: inside a transaction they share one connection.
+    for (const c of changes) {
+      const where = { studentId: pupil.studentId, class: klass.name, termId: term.termId, category: c.category, assessment: c.assessment };
+      const values = { ...ratingFlags(c.value), term: term.term, date: new Date() };
+      const existing = await KgAssessment.findOne({ where, transaction: t });
+      if (existing) await KgAssessment.update(values, { where: { kgAssessmentId: existing.kgAssessmentId }, transaction: t });
+      else await KgAssessment.create({ ...where, ...values }, { transaction: t });
+      n += 1;
+    }
+    return n;
+  });
+  return { saved, sheet: await getKgRatings(teacherId, { classId: klass.classId, studentId: pupil.studentId }) };
+};
+
 export {
   getMyClasses,
   getRegister,
   saveRegister,
   getScores,
   saveScores,
+  getKgRatings,
+  saveKgRatings,
   classRoster,
   assertMatchesRoster,
   // B6: the office's class score sheet (services/scoreSheet.js) uses the same checks.
