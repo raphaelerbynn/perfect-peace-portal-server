@@ -1,4 +1,4 @@
-import { Attendance, Term } from "../models/index.js";
+import { AcademicYear, Attendance, Term } from "../models/index.js";
 import { AppError } from "../utils/errorHandling.js";
 
 // Portal Attendance page: a pupil's own daily register per term. Parents see
@@ -11,11 +11,28 @@ const dateOnly = (d) => {
   return Number.isNaN(x.getTime()) ? null : x.toISOString().slice(0, 10);
 };
 
-// Terms for the picker: newest first, undated old terms last.
+// B7: academicYearId -> "2026/2027" for the given terms (old terms have none).
+const yearNames = async (terms) => {
+  const ids = [...new Set(terms.map((t) => t.academicYearId).filter((id) => id != null))];
+  if (!ids.length) return new Map();
+  const years = await AcademicYear.findAll({ where: { academicYearId: ids }, attributes: ["academicYearId", "name"], raw: true });
+  return new Map(years.map((y) => [y.academicYearId, y.name]));
+};
+
+// Terms for the picker: newest first, undated old terms last. Each carries its
+// academic year's name ("Term 1 · 2026/2027"), or null.
 export const portalTerms = async () => {
-  const terms = await Term.findAll({ attributes: ["termId", "term", "startDate", "endDate", "active"], raw: true });
+  const terms = await Term.findAll({ attributes: ["termId", "term", "startDate", "endDate", "active", "academicYearId"], raw: true });
+  const names = await yearNames(terms);
   return terms
-    .map((t) => ({ termId: t.termId, term: t.term, startDate: dateOnly(t.startDate), endDate: dateOnly(t.endDate), active: Boolean(t.active) }))
+    .map((t) => ({
+      termId: t.termId,
+      term: t.term,
+      startDate: dateOnly(t.startDate),
+      endDate: dateOnly(t.endDate),
+      active: Boolean(t.active),
+      academicYear: names.get(t.academicYearId) ?? null,
+    }))
     .sort((a, b) => String(b.startDate ?? "").localeCompare(String(a.startDate ?? "")) || b.termId - a.termId);
 };
 
@@ -40,12 +57,13 @@ export const pupilAttendance = async (studentId, termId) => {
     raw: true,
   });
   const days = rows.map((r) => ({ date: dateOnly(r.dateMarked), status: String(r.status ?? "").trim() }));
+  const academicYear = (await yearNames([term])).get(term.academicYearId) ?? null;
   const count = (s) => days.filter((d) => d.status.toLowerCase() === s).length;
   const present = count("present");
   const absent = count("absent");
   const sick = count("sick");
   return {
-    term: { termId: term.termId, term: term.term, startDate: dateOnly(term.startDate), endDate: dateOnly(term.endDate) },
+    term: { termId: term.termId, term: term.term, startDate: dateOnly(term.startDate), endDate: dateOnly(term.endDate), academicYear },
     present,
     absent,
     sick,
