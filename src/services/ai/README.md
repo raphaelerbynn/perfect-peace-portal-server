@@ -232,3 +232,30 @@ budget only for the Administrator), `GET/PUT /ai/settings` and `GET /ai/usage` (
 `AI_MONTHLY_BUDGET_GHS` (200), `AI_USD_TO_GHS` (15.5); optional `AI_REQUEST_TIMEOUT_MS`,
 `AI_MAX_RETRIES`, `AI_RETRY_BASE_DELAY_MS`, `AI_MAX_TOOL_ITERATIONS`, `AI_PRICES_JSON`,
 `AI_FAKE_PROVIDER` (dev only). Documented in `.env.example`.
+
+## AI-1 Ask the school (built on the above)
+
+Files: `ask/tools.js` (the catalogue), `ask/fastPath.js`, `ask/chat.js` (conversations, the hourly
+limit, the streamed tool loop), `prompts/ask.js`, `controllers/askController.js` (SSE). Migration
+044 (`Ai_conversation`, `Ai_message`). Tests: `aiAskTools`, `aiAskReadOnly`, `aiAsk`.
+
+- **Tools** are read-only (raw `SELECT`s or existing read services; a test records every statement
+  they send and fails on anything but SELECT / WITH), return aggregates or capped top-N lists with
+  the full count, and never select contact columns. Each has `roles`: the Administrator gets all
+  15; the Accountant gets `current_term`, `students_count(_by_class)`, `fees_*`,
+  `income_expense_summary`. `toolsFor(user)` filters what the model is offered and `invokeTool`
+  refuses at call time too. A new tool: add it to `TOOLS` with its roles; the read-only test picks it up.
+- **Fast path**: whole-school pupil / staff counts and the current term are answered with no model
+  call and no usage row (also over the cap). Anything with a class, date, ranking or second
+  question goes to the model.
+- **`POST /ai/chat`** `{ question, conversationId? }`: refusals come before the stream as JSON
+  (400, 404, 429 `AI_ASK_LIMIT` = `AI_ASK_PER_HOUR` (20) questions per user per hour, 429
+  `AI_QUOTA`), then SSE events `conversation`, `tool` (`started|finished|failed` + a "Checking
+  fees" label), `text`, `error`, `done`. Each model turn is a `streamText` call (switches and cap
+  re-checked, one usage row per turn); at most `AI_MAX_TOOL_ITERATIONS` turns. A closed response
+  aborts the turn and stops further tools; the answer so far is saved as `STOPPED`.
+- **History**: `GET /ai/conversations`, `GET /ai/conversations/:id`, `DELETE /ai/conversations/:id`,
+  own conversations only (someone else's is a 404); readable while AI is switched off.
+- Chat answers are shown only to the asker, so they are not stored as `Ai_suggestion` drafts.
+- Admin: `components/ai/AskPanel.jsx` (navbar button + slide-over), `components/ai/Markdown.jsx`
+  (safe renderer, React elements only), `utils/ask.js` (SSE reader), `utils/markdown.js`.
