@@ -18,6 +18,7 @@ import {
 } from "../services/papers.js";
 // Importing paperAi registers the PAPERS accept handler.
 import { acceptSection, discardDraft, generateSection, regenerateItem, saveDraft } from "../services/paperAi.js";
+import { loadTeacher } from "../services/teacherScope.js";
 import { authenticateManagementUser, authorizeRoles } from "../utils/middlewares.js";
 
 // AI-3: question papers.
@@ -43,6 +44,18 @@ const actor = (req) => actorOf(req.user);
 
 const teacher = Router();
 const P = "/teacher/papers";
+
+// Every /teacher/papers* request: the staff record must still be active (a
+// teacher removed by the office loses their papers and AI at once, not when
+// the token expires). 403 otherwise.
+teacher.use(P, async (req, res, next) => {
+  try {
+    await loadTeacher(me(req));
+    return next();
+  } catch (error) {
+    return next(error);
+  }
+});
 
 teacher.get(P, send((req) => listMyPapers(me(req), req.query)));
 teacher.post(P, send((req) => createPaper(me(req), req.body || {})));

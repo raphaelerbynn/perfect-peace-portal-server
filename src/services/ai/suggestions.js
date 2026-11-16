@@ -17,27 +17,39 @@
 // The handler runs INSIDE the transaction that marks the row ACCEPTED (row
 // locked FOR UPDATE), so a handler that throws leaves the draft as it was and
 // two clicks can't apply it twice. Use the given transaction for its writes.
+//
+// { officeReviewable: false } keeps a feature's drafts out of the office
+// /ai/suggestions endpoints: they belong to the person who asked for them
+// (AI-3 paper drafts belong to the teacher) and are reviewed only through the
+// feature's own routes, which call these functions with { includePrivate: true }
+// and a scope. validateContent(content, { previous, entityId, field }) gets the
+// row's current content on an edit (undefined on create), so a feature can pin
+// fields that must never change.
+import { Op } from "sequelize";
 import sequelize from "../../config/database.js";
 import { AiSuggestion } from "../../models/index.js";
 import { AppError } from "../../utils/errorHandling.js";
 import { paginatedResponse, parsePagination } from "../../utils/pagination.js";
 import { AI_FEATURE_KEYS, AI_OPEN_SUGGESTION_STATUSES, AI_SUGGESTION_STATUSES } from "./constants.js";
 
-const handlers = new Map(); // feature -> { accept, validateContent }
+const handlers = new Map(); // feature -> { accept, validateContent, officeReviewable }
 
-export const registerAcceptHandler = (feature, accept, { validateContent } = {}) => {
+export const registerAcceptHandler = (feature, accept, { validateContent, officeReviewable = true } = {}) => {
   if (!AI_FEATURE_KEYS.includes(feature)) throw new Error(`Unknown AI feature "${feature}"`);
   if (typeof accept !== "function") throw new Error(`The accept handler for ${feature} must be a function`);
   if (handlers.has(feature)) throw new Error(`An accept handler is already registered for ${feature}`);
-  handlers.set(feature, { accept, validateContent });
+  handlers.set(feature, { accept, validateContent, officeReviewable: officeReviewable !== false });
 };
 export const hasAcceptHandler = (feature) => handlers.has(feature);
+/** Features whose drafts the office endpoints never list or touch. */
+export const privateFeatures = () => [...handlers].filter(([, h]) => !h.officeReviewable).map(([f]) => f);
+const isPrivate = (feature) => handlers.get(feature)?.officeReviewable === false;
 /** Tests only. */
 export const resetAcceptHandlers = () => handlers.clear();
 
 const MAX_CONTENT_CHARS = 100_000;
 
-const checkContent = (feature, content) => {
+const checkContent = (feature, content, context = {}) => {
   if (!content || typeof content !== "object" || Array.isArray(content)) {
     throw new AppError("The draft content must be an object.", 400);
   }
@@ -48,7 +60,7 @@ const checkContent = (feature, content) => {
     throw new AppError("The draft content can't be saved.", 400);
   }
   if (size > MAX_CONTENT_CHARS) throw new AppError("The draft is too long to save.", 400);
-  const problem = handlers.get(feature)?.validateContent?.(content);
+  const problem = handlers.get(feature)?.validateContent?.(content, context);
   if (problem) throw new AppError(typeof problem === "string" ? problem : "The draft is not valid.", 400);
 };
 
@@ -64,7 +76,7 @@ export const createSuggestion = async (
 ) => {
   if (!AI_FEATURE_KEYS.includes(feature)) throw new Error(`Unknown AI feature "${feature}"`);
   if (!entityType) throw new Error("A suggestion needs an entityType");
-  checkContent(feature, content);
+  checkContent(feature, content, { previous: undefined, entityId: str(entityId, 60), field: str(field, 60) });
   const now = new Date();
   const row = await AiSuggestion.create(
     {
@@ -94,13 +106,18 @@ const parseId = (id) => {
 /**
  * List drafts, newest first. Filters: feature, status (one or comma list),
  * entityType, entityId, createdBy (e.g. a teacher's own: "STAFF:3"), page/limit.
- * Without ?limit the newest 200 are returned.
+ * Without ?limit the newest 200 are returned. Drafts of features registered
+ * { officeReviewable: false } are never listed here.
  */
 export const listSuggestions = async (query = {}) => {
   const where = {};
+  const hidden = privateFeatures();
   if (query.feature) {
     if (!AI_FEATURE_KEYS.includes(query.feature)) throw new AppError("Unknown AI feature.", 400);
-    where.feature = query.feature;
+    // A private feature asked for by name: an empty list, like any feature with no drafts.
+    where.feature = hidden.includes(query.feature) ? { [Op.in]: [] } : query.feature;
+  } else if (hidden.length) {
+    where.feature = { [Op.notIn]: hidden };
   }
   if (query.status) {
     const statuses = String(query.status).split(",").map((s) => s.trim().toUpperCase());
@@ -120,15 +137,19 @@ export const listSuggestions = async (query = {}) => {
   return { suggestions: await AiSuggestion.findAll({ ...options, limit: 200 }) };
 };
 
-/** One draft. `scope` (optional where) narrows who may see it, e.g. { createdBy: "STAFF:3" }. */
-export const getSuggestion = async (id, { scope, transaction, lock = false } = {}) => {
+/**
+ * One draft. `scope` (optional where) narrows who may see it, e.g. { createdBy: "STAFF:3" }.
+ * A draft of a feature that is not office-reviewable is 404 unless the
+ * caller is that feature's own code ({ includePrivate: true }).
+ */
+export const getSuggestion = async (id, { scope, transaction, lock = false, includePrivate = false } = {}) => {
   const row = await AiSuggestion.findOne({
     where: { suggestionId: parseId(id), ...(scope || {}) },
     raw: true,
     ...(transaction ? { transaction } : {}),
     ...(lock && transaction?.LOCK ? { lock: transaction.LOCK.UPDATE } : {}),
   });
-  if (!row) throw new AppError("Suggestion not found.", 404);
+  if (!row || (!includePrivate && isPrivate(row.feature))) throw new AppError("Suggestion not found.", 404);
   return row;
 };
 
@@ -139,11 +160,11 @@ const assertOpen = (row, verb) => {
 };
 
 /** A person rewrote the draft. Stays a draft (EDITED); nothing is applied. */
-export const editSuggestion = async (id, content, { actor, scope } = {}) =>
+export const editSuggestion = async (id, content, { actor, scope, includePrivate = false } = {}) =>
   sequelize.transaction(async (transaction) => {
-    const row = await getSuggestion(id, { scope, transaction, lock: true });
+    const row = await getSuggestion(id, { scope, transaction, lock: true, includePrivate });
     assertOpen(row, "edited");
-    checkContent(row.feature, content);
+    checkContent(row.feature, content, { previous: row.content, entityId: row.entityId, field: row.field });
     const now = new Date();
     await AiSuggestion.update(
       { content, status: "EDITED", reviewedBy: str(actor, 110), reviewedAt: now, updatedAt: now },
@@ -153,9 +174,9 @@ export const editSuggestion = async (id, content, { actor, scope } = {}) =>
   });
 
 /** Apply the draft through the feature's handler, exactly once. */
-export const acceptSuggestion = async (id, { actor, scope } = {}) =>
+export const acceptSuggestion = async (id, { actor, scope, includePrivate = false } = {}) =>
   sequelize.transaction(async (transaction) => {
-    const row = await getSuggestion(id, { scope, transaction, lock: true });
+    const row = await getSuggestion(id, { scope, transaction, lock: true, includePrivate });
     if (row.status === "ACCEPTED") return row; // double click: same answer
     assertOpen(row, "accepted");
     const handler = handlers.get(row.feature);
@@ -171,9 +192,9 @@ export const acceptSuggestion = async (id, { actor, scope } = {}) =>
   });
 
 /** Close the draft. Nothing is written anywhere else. */
-export const rejectSuggestion = async (id, { actor, scope } = {}) =>
+export const rejectSuggestion = async (id, { actor, scope, includePrivate = false } = {}) =>
   sequelize.transaction(async (transaction) => {
-    const row = await getSuggestion(id, { scope, transaction, lock: true });
+    const row = await getSuggestion(id, { scope, transaction, lock: true, includePrivate });
     if (row.status === "REJECTED") return row;
     assertOpen(row, "rejected");
     const now = new Date();

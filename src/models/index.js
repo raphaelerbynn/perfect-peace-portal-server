@@ -197,9 +197,12 @@ Student.hasMany(Fee, {
   as: "fee",
 });
 
-// AI-3: question papers
-QuestionPaper.hasMany(Question, { as: "questions", foreignKey: "paperId" });
-Question.belongsTo(QuestionPaper, { as: "paper", foreignKey: "paperId" });
+// AI-3: question papers. constraints: false: migration 045 owns the foreign
+// key (question_paper_fk, ON DELETE CASCADE); without it a database built with
+// sync() (move-data) would get a second, Sequelize-named one as well.
+// (Ai_message -> Ai_conversation, migration 044, has no association.)
+QuestionPaper.hasMany(Question, { as: "questions", foreignKey: "paperId", constraints: false });
+Question.belongsTo(QuestionPaper, { as: "paper", foreignKey: "paperId", constraints: false });
 
 export {
   Allowance,

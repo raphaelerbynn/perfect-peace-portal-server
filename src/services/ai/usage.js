@@ -90,14 +90,17 @@ export const budgetState = async (now = new Date()) => {
   };
 };
 
-/** The guard run before every call. Logs a BLOCKED row when it refuses. */
+/**
+ * The guard run before every call. Logs a BLOCKED row when it refuses. The
+ * error shows the spend and cap only when `user` is an Administrator.
+ */
 export const assertWithinBudget = async ({ feature, user, model } = {}) => {
   const state = await budgetState();
   if (state.overCap) {
     if (feature) {
       await recordUsage({ feature, user, model: model || aiConfig().defaultModel, status: "BLOCKED", errorClass: "QUOTA", errorMessage: `Monthly cap reached (GH₵ ${state.spentGhs} of ${state.capGhs})` });
     }
-    throw new AiQuotaError(state);
+    throw new AiQuotaError({ ...state, showAmounts: user?.category === "Administrator" });
   }
   return state;
 };

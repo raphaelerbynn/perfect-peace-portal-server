@@ -53,14 +53,19 @@ export class AiUnavailableError extends AiAppError {
   }
 }
 
+// Only an Administrator is told the amounts: teachers (papers) and the
+// Accountant (Ask) get the plain message, with no figures in message or
+// details. `showAmounts` is decided per caller by assertWithinBudget({ user }).
 export class AiQuotaError extends AiAppError {
-  constructor({ spentGhs, capGhs, period }) {
+  constructor({ spentGhs, capGhs, period, showAmounts = false }) {
     super(
-      `This month's AI budget is used up (GH₵ ${Number(spentGhs).toFixed(2)} of GH₵ ${Number(capGhs).toFixed(2)}). ` +
-        "It starts again next month, or an Administrator can raise the cap in Settings → AI. You can still do this by hand.",
+      showAmounts
+        ? `This month's AI budget is used up (GH₵ ${Number(spentGhs).toFixed(2)} of GH₵ ${Number(capGhs).toFixed(2)}). ` +
+            "It starts again next month, or an Administrator can raise the cap in Settings → AI. You can still do this by hand."
+        : "This month's AI budget is used up; carry on by hand.",
       429,
       "AI_QUOTA",
-      { spentGhs, capGhs, period }
+      showAmounts ? { spentGhs, capGhs, period } : {}
     );
     this.name = "AiQuotaError";
     this.errorClass = "QUOTA";

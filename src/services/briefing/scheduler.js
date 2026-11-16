@@ -21,7 +21,7 @@ let timer = null;
 let busy = false;
 let doneDay = null; // today's briefing is known to exist: skip the lookups
 
-/** One check. -> NOT_DUE | OFF | DONE | BUSY | RAN | SKIPPED (another instance) */
+/** One check. -> NOT_DUE | OFF | DONE | BUSY | RUNNING (a fresh run exists) | RAN | SKIPPED (another instance) */
 export const briefingTick = async (now = new Date()) => {
   if (busy) return "BUSY";
   busy = true;
@@ -33,16 +33,21 @@ export const briefingTick = async (now = new Date()) => {
     if (await featureBlockReason("BRIEFING")) return "OFF";
     const existing = await AiBriefing.findOne({
       where: { runKey: date, [Op.or]: [{ status: { [Op.ne]: "RUNNING" } }, { updatedAt: { [Op.gte]: new Date(now.getTime() - STALE_RUN_MS) } }] },
-      attributes: ["briefingId"],
+      attributes: ["briefingId", "status"],
       raw: true,
     });
     if (existing) {
+      // A run that is still going (here or elsewhere) is not done: keep
+      // checking, so a run that dies (API restart) is reclaimed by claimDay
+      // once it is STALE_RUN_MS old.
+      if (existing.status === "RUNNING") return "RUNNING";
       doneDay = date;
       return "DONE";
     }
     const res = await runBriefing({ now, trigger: "SCHEDULE" });
+    if (res?.skipped) return "SKIPPED"; // another instance has it; look again next tick
     doneDay = date;
-    return res?.skipped ? "SKIPPED" : "RAN";
+    return "RAN";
   } finally {
     busy = false;
   }

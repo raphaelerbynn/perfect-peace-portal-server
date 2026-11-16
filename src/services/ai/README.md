@@ -62,7 +62,8 @@ cap (`Ai_settings.monthly_cap_ghs`, or `AI_MONTHLY_BUDGET_GHS` when empty). At o
 by a few pesewas.
 
 Error bodies the frontends read: `{ message, code: "AI_DISABLED", reason, feature }`,
-`{ message, code: "AI_QUOTA", spentGhs, capGhs, period }`, `{ message, code: "AI_FAILED", errorClass }`.
+`{ message, code: "AI_QUOTA", spentGhs, capGhs, period }` (amounts for an Administrator only; anyone else
+gets `{ message, code: "AI_QUOTA" }` with no figures), `{ message, code: "AI_FAILED", errorClass }`.
 Messages are written for staff and say the task can still be done by hand.
 
 ## Adding a feature (checklist)
@@ -73,6 +74,8 @@ Messages are written for staff and say the task can still be done by hand.
 3. Service: build the facts (only the fields you need, through `redactForAi`), call
    `runJson`/`runText`/`runToolLoop`, store the result with `createSuggestion`.
 4. Accept handler: `registerAcceptHandler("<FEATURE>", handler)` at import of the feature's service.
+   Pass `{ officeReviewable: false }` when the drafts belong to the person who asked (AI-3 papers):
+   the office `/ai/suggestions` endpoints then never list them and answer 404 for them.
 5. Route: `requireAiFeature("<FEATURE>")` in the right router (mount order in `src/index.js`).
 6. Migration if the feature needs its own tables: **044–046 are reserved** for AI-1/3/5/8.
 7. Tests with the fake provider; add the page using the shared UI pieces below.

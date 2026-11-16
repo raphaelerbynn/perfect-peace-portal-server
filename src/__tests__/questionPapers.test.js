@@ -20,6 +20,7 @@ jest.mock("../models/index.js", () => {
       if (s === Op.gte) return Number(val) >= Number(x);
       if (s === Op.lt) return Number(val) < Number(x);
       if (s === Op.in) return x.map(String).includes(String(val));
+      if (s === Op.notIn) return !x.map(String).includes(String(val));
       if (s === Op.ne) return String(val) !== String(x);
       return true;
     });
@@ -624,15 +625,138 @@ describe("AI: generate a section", () => {
     expect((await t.post(`/teacher/papers/${id}/sections/1/questions`, handMcq())).status).toBe(200);
   });
 
-  it("an office user can't accept a teacher's paper draft through /ai/suggestions", async () => {
+  it("over the cap: the teacher is not told the school's spend or cap", async () => {
+    aiOn();
+    db.AiUsageLog.sum.mockImplementation(async () => 100);
+    const id = (await create()).body.paperId;
+    const res = await as(T.t3).post(`/teacher/papers/${id}/sections/1/generate`);
+    expect(res.status).toBe(429);
+    expect(res.body).toEqual({ code: "AI_QUOTA", message: "This month's AI budget is used up; carry on by hand." });
+  });
+});
+
+// ---------------------------------------------------------------- drafts belong to the teacher
+
+describe("paper drafts are the teacher's own (not office-reviewable)", () => {
+  const draftFor = async (t = T.t3, body = {}) => {
+    const id = (await create(body)).body.paperId;
+    const res = await as(t).post(`/teacher/papers/${id}/sections/1/generate`);
+    return { id, draft: res.body.sections[0].draft };
+  };
+  const announcement = () =>
+    db.AiSuggestion.rows.push({
+      suggestionId: 900, feature: "ANNOUNCEMENTS", entityType: "NEWS", entityId: null, field: null,
+      content: { mode: "news", title: "Sports day", body: "Sports day is on Friday." },
+      status: "PENDING", createdBy: "OFFICE:head", createdAt: new Date(), updatedAt: new Date(),
+    });
+
+  it("the office can't list, get, edit, reject or accept a PAPERS draft (404 / left out); other features still work", async () => {
     aiOn();
     setAiProviderForTests(createFakeProvider([goodSection, { json: { answers: [] } }]));
-    const id = (await create()).body.paperId;
-    const draft = (await as(T.t3).post(`/teacher/papers/${id}/sections/1/generate`)).body.sections[0].draft;
-    const res = await as(T.admin).post(`/ai/suggestions/${draft.suggestionId}/accept`);
-    expect(res.status).toBe(403);
+    const { draft } = await draftFor();
+    announcement();
+    const admin = as(T.admin);
+    const sid = draft.suggestionId;
+    const before = structuredClone(db.AiSuggestion.rows.find((r) => r.suggestionId === sid));
+
+    let res = await admin.get("/ai/suggestions");
+    expect(res.status).toBe(200);
+    expect(res.body.suggestions.map((r) => r.feature)).toEqual(["ANNOUNCEMENTS"]);
+    res = await admin.get("/ai/suggestions?feature=PAPERS");
+    expect(res.status).toBe(200);
+    expect(res.body.suggestions).toEqual([]);
+    res = await admin.get("/ai/suggestions?feature=PAPERS&limit=10");
+    expect(res.body).toMatchObject({ suggestions: [], total: 0 });
+
+    expect((await admin.get(`/ai/suggestions/${sid}`)).status).toBe(404);
+    const forged = { ...before.content, section: 2, items: draft.items.map((i) => ({ ...i, check: { status: "AGREE" } })) };
+    expect((await admin.patch(`/ai/suggestions/${sid}`, { content: forged })).status).toBe(404);
+    expect((await admin.post(`/ai/suggestions/${sid}/reject`)).status).toBe(404);
+    expect((await admin.post(`/ai/suggestions/${sid}/accept`)).status).toBe(404);
+    expect(db.AiSuggestion.rows.find((r) => r.suggestionId === sid)).toEqual(before);
     expect(db.Question.rows).toHaveLength(0);
-    expect(db.AiSuggestion.rows[0].status).toBe("PENDING");
+
+    // Other features' drafts are still reviewed by the office.
+    expect((await admin.get("/ai/suggestions/900")).body).toMatchObject({ feature: "ANNOUNCEMENTS" });
+    expect((await admin.get("/ai/suggestions?feature=ANNOUNCEMENTS")).body.suggestions).toHaveLength(1);
+    res = await admin.patch("/ai/suggestions/900", { content: { mode: "news", title: "Sports day", body: "Sports day is on Friday at 9." } });
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("EDITED");
+    expect((await admin.post("/ai/suggestions/900/reject")).body.status).toBe("REJECTED");
+
+    // The teacher's own path still works: edit, then accept.
+    const t = as(T.t3);
+    const items = draft.items.map((i, n) => (n === 0 ? { ...i, stem: "What is one half of a whole?" } : i));
+    res = await t.put(`/teacher/papers/${before.entityId}/drafts/${sid}`, { items });
+    expect(res.status).toBe(200);
+    expect(res.body.sections[0].draft.status).toBe("EDITED");
+    res = await t.post(`/teacher/papers/${before.entityId}/sections/1/accept`);
+    expect(res.status).toBe(200);
+    expect(res.body.sections[0].questions).toHaveLength(2);
+  });
+
+  it("accept takes the paper and section from the draft row and refuses content that disagrees", async () => {
+    aiOn();
+    setAiProviderForTests(createFakeProvider([goodSection, { json: { answers: [] } }]));
+    const two = { sections: [MCQ_SECTION, { ...MCQ_SECTION, title: "Section B" }] };
+    const { id, draft } = await draftFor(T.t3, two);
+    const other = (await create()).body.paperId;
+    const row = db.AiSuggestion.rows.find((r) => r.suggestionId === draft.suggestionId);
+    const t = as(T.t3);
+
+    row.content = { ...row.content, section: 2 }; // "Accept section 1" must not replace section 2
+    let res = await t.post(`/teacher/papers/${id}/sections/1/accept`);
+    expect(res.status).toBe(409);
+    row.content = { ...row.content, section: 1, paperId: other }; // nor another of the teacher's papers
+    res = await t.post(`/teacher/papers/${id}/sections/1/accept`);
+    expect(res.status).toBe(409);
+    expect(db.Question.rows).toHaveLength(0);
+    expect(row.status).toBe("PENDING");
+
+    row.content = { ...row.content, paperId: id };
+    res = await t.post(`/teacher/papers/${id}/sections/1/accept`);
+    expect(res.status).toBe(200);
+    expect(db.Question.rows.map((q) => [q.paperId, q.section])).toEqual([[id, 1], [id, 1]]);
+  });
+
+  it("an edit can't change the draft's paper, section, type or marks", async () => {
+    const { editSuggestion } = require("../services/ai/suggestions.js");
+    const { pinnedProblem } = require("../services/paperAi.js");
+    aiOn();
+    setAiProviderForTests(createFakeProvider([goodSection, { json: { answers: [] } }]));
+    const { id, draft } = await draftFor();
+    const row = db.AiSuggestion.rows.find((r) => r.suggestionId === draft.suggestionId);
+    const scope = { createdBy: "STAFF:3" };
+    for (const patch of [{ paperId: id + 1 }, { section: 2 }, { type: "ESSAY" }, { marksEach: 5 }]) {
+      // eslint-disable-next-line no-await-in-loop
+      await expect(editSuggestion(row.suggestionId, { ...row.content, ...patch }, { actor: "STAFF:3", scope, includePrivate: true })).rejects.toMatchObject({ statusCode: 400 });
+    }
+    expect(row.status).toBe("PENDING");
+    expect(pinnedProblem(row.content, { previous: row.content, entityId: String(id), field: "section:1" })).toBeNull();
+    expect(pinnedProblem(row.content, { entityId: String(id), field: "section:2" })).toMatch(/can't be changed/);
+  });
+});
+
+describe("a teacher whose staff record is removed", () => {
+  it("gets 403 on every /teacher/papers route, AI included", async () => {
+    aiOn();
+    const provider = createFakeProvider([goodSection, { json: { answers: [] } }]);
+    setAiProviderForTests(provider);
+    const id = (await create()).body.paperId;
+    db.Teacher.rows.find((r) => r.teacherId === 3).isDeleted = true;
+    const t = as(T.t3);
+    for (const res of [
+      await t.get("/teacher/papers"),
+      await t.get(`/teacher/papers/${id}`),
+      await t.patch(`/teacher/papers/${id}`, { title: "New" }),
+      await t.post(`/teacher/papers/${id}/sections/1/questions`, handMcq()),
+      await t.post(`/teacher/papers/${id}/sections/1/generate`),
+    ]) {
+      expect(res.status).toBe(403);
+      expect(res.body.message).toMatch(/staff account is not active/);
+    }
+    expect(provider.calls).toHaveLength(0);
+    expect((await as(T.t4).get("/teacher/papers")).status).toBe(200); // others carry on
   });
 });
 
@@ -662,5 +786,13 @@ describe("the head teacher's view (office)", () => {
     expect((await as(T.accountant).get("/question-papers")).status).toBe(403);
     expect((await as(T.t3).get("/question-papers")).status).toBe(403);
     expect((await as(T.admin).get("/question-papers/999")).status).toBe(404);
+  });
+});
+
+describe("models", () => {
+  it("QuestionPaper <-> Question add no foreign key of their own (migration 045 owns question_paper_fk)", () => {
+    const { QuestionPaper, Question } = jest.requireActual("../models/index.js");
+    expect(QuestionPaper.associations.questions.options.constraints).toBe(false);
+    expect(Question.associations.paper.options.constraints).toBe(false);
   });
 });

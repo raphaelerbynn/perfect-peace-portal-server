@@ -159,7 +159,15 @@ describe("requireAiFeature: switches and budget", () => {
     const res = await call();
     expect(res.status).toBe(429);
     expect(res.body).toMatchObject({ code: "AI_QUOTA", spentGhs: 100, capGhs: 100 });
+    expect(res.body.message).toMatch(/GH₵ 100\.00 of GH₵ 100\.00/);
     expect((await auth(request(fa).get("/f/PAPERS-list"), T.teacher)).status).toBe(200);
+    // Anyone but an Administrator: the plain message, no amounts anywhere.
+    for (const [path, t] of [["/f/PAPERS", T.teacher], ["/f/ASK", T.accountant], ["/teacher/papers", T.teacher]]) {
+      // eslint-disable-next-line no-await-in-loop
+      const r = await call(path, t);
+      expect(r.status).toBe(429);
+      expect(r.body).toEqual({ code: "AI_QUOTA", message: "This month's AI budget is used up; carry on by hand." });
+    }
   });
 });
 

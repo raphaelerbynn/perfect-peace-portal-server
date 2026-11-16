@@ -220,6 +220,33 @@ describe("the budget and the switches", () => {
     expect(mockDb.msgs.at(-1)).toMatchObject({ role: "ASSISTANT", status: "ERROR" });
   });
 
+  it("over the cap, the Accountant is told the budget is used up but never the amounts (JSON)", async () => {
+    turnOn();
+    mockDb.usage.push({ costGhs: 100, createdAt: new Date(), status: "OK" });
+    setAiProviderForTests(createFakeProvider([{ text: "x" }]));
+    const res = await request(app).post("/ai/chat").set("Authorization", `Bearer ${T.accountant}`).send({ question: "Which class owes the most?" });
+    expect(res.status).toBe(429);
+    expect(res.body).toEqual({ code: "AI_QUOTA", message: "This month's AI budget is used up; carry on by hand." });
+  });
+
+  it("the cap reached between turns: the Accountant's SSE error event has no amounts; the Administrator's does", async () => {
+    turnOn();
+    mockDb.settings.monthlyCapGhs = 0.01;
+    clearAiSettingsCache();
+    const script = () => [{ toolCalls: [{ name: "fees_owing_total" }], usage: { inputTokens: 1_000_000 } }, { text: "never" }];
+    setAiProviderForTests(createFakeProvider(script()));
+    let events = await collect(runAsk(await prepareAsk({ question: "Fees owing please" }, ACC), ACC));
+    let err = events.find((e) => e.type === "error");
+    expect(err).toEqual({ type: "error", code: "AI_QUOTA", message: "This month's AI budget is used up; carry on by hand." });
+    expect(JSON.stringify(events)).not.toMatch(/GH₵|capGhs|spentGhs/);
+
+    mockDb.usage = [];
+    setAiProviderForTests(createFakeProvider(script()));
+    events = await collect(runAsk(await prepareAsk({ question: "Fees owing please" }, ADMIN), ADMIN));
+    err = events.find((e) => e.type === "error");
+    expect(err).toMatchObject({ code: "AI_QUOTA", capGhs: 0.01, message: expect.stringMatching(/GH₵/) });
+  });
+
   it("AI off: 403 AI_DISABLED; roles: Class Teacher and portal tokens 403", async () => {
     let res = await request(app).post("/ai/chat").set("Authorization", `Bearer ${T.admin}`).send({ question: "hi" });
     expect(res.status).toBe(403);

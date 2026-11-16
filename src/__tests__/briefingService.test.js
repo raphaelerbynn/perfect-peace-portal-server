@@ -377,6 +377,21 @@ describe("scheduler tick", () => {
     expect(await briefingTick(new Date("2026-11-16T10:00:00Z"))).toBe("DONE");
     expect(mockDb.briefings).toHaveLength(1);
   });
+  it("a run that died (API restart) is left alone while fresh, then reclaimed after 15 minutes", async () => {
+    const t0 = new Date("2026-11-16T08:00:00Z");
+    mockDb.briefings.push({
+      briefingId: mockDb.nextId++, runKey: "2026-11-16", briefingDate: "2026-11-16", status: "RUNNING", source: null,
+      fallbackReason: null, signals: [], content: null, delivered: {}, costGhs: 0, error: null,
+      runTrigger: "SCHEDULE", runBy: null, createdAt: new Date(t0.getTime() - 60_000), updatedAt: new Date(t0.getTime() - 60_000),
+    });
+    __resetBriefingScheduler(); // the new process after the restart
+    expect(await briefingTick(t0)).toBe("RUNNING"); // updated 1 minute ago: does nothing
+    expect(mockDb.briefings[0].status).toBe("RUNNING");
+    expect(await briefingTick(new Date(t0.getTime() + 16 * 60_000))).toBe("RAN"); // stale: reclaimed and finished
+    expect(mockDb.briefings).toHaveLength(1);
+    expect(mockDb.briefings[0].status).not.toBe("RUNNING");
+    expect(await briefingTick(new Date(t0.getTime() + 17 * 60_000))).toBe("DONE");
+  });
   it("catches up after downtime the same day", async () => {
     expect(await briefingTick(new Date("2026-11-16T11:00:00Z"))).toBe("RAN");
   });

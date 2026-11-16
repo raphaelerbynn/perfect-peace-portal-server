@@ -64,7 +64,7 @@ export const requireAiFeature = (feature, { budget = true } = {}) => {
           throw new Error("You do not have permission to use this AI feature.");
         }
         await assertAiFeatureOn(feature);
-        if (budget) await assertWithinBudget(); // cheap pre-check; run.js logs refusals per call
+        if (budget) await assertWithinBudget({ user: req.user }); // cheap pre-check (amounts for Administrators only); run.js logs refusals per call
         req.aiFeature = feature;
         req.aiActor = actorOf(req.user);
         return next();

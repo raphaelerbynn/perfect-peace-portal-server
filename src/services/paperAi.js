@@ -188,7 +188,7 @@ export const generateSection = async (user, paperId, n, { note } = {}) => {
 };
 
 const loadOpenDraft = async (user, paperId, suggestionId, opts = {}) => {
-  const d = await getSuggestion(suggestionId, { scope: scopeFor(user, paperId), ...opts });
+  const d = await getSuggestion(suggestionId, { scope: scopeFor(user, paperId), includePrivate: true, ...opts });
   if (!OPEN_DRAFT.includes(d.status)) throw new AppError(`This draft is already ${String(d.status).toLowerCase()}.`, 409);
   return d;
 };
@@ -281,14 +281,14 @@ export const saveDraft = async (user, paperId, suggestionId, items) => {
   assertDraft(paper);
   const draft = await loadOpenDraft(user, paper.paperId, suggestionId);
   const next = ruled(() => reviseDraftItems(draft.content, items));
-  await editSuggestion(draft.suggestionId, { ...draft.content, items: next }, { actor: actorOf(user), scope: scopeFor(user, paper.paperId) });
+  await editSuggestion(draft.suggestionId, { ...draft.content, items: next }, { actor: actorOf(user), scope: scopeFor(user, paper.paperId), includePrivate: true });
   return getMyPaper(teacherId, paper.paperId);
 };
 
 export const discardDraft = async (user, paperId, suggestionId) => {
   const teacherId = teacherIdOf(user);
   const paper = await loadOwnPaper(teacherId, paperId);
-  await rejectSuggestion(suggestionId, { actor: actorOf(user), scope: scopeFor(user, paper.paperId) });
+  await rejectSuggestion(suggestionId, { actor: actorOf(user), scope: scopeFor(user, paper.paperId), includePrivate: true });
   return getMyPaper(teacherId, paper.paperId);
 };
 
@@ -304,7 +304,7 @@ export const acceptSection = async (user, paperId, n) => {
     raw: true,
   });
   if (!drafts?.length) return markSectionAccepted(teacherId, paper.paperId, num);
-  await acceptSuggestion(drafts[0].suggestionId, { actor: actorOf(user), scope: scopeFor(user, paper.paperId) });
+  await acceptSuggestion(drafts[0].suggestionId, { actor: actorOf(user), scope: scopeFor(user, paper.paperId), includePrivate: true });
   return getMyPaper(teacherId, paper.paperId);
 };
 
@@ -323,8 +323,18 @@ const validateContentItems = (content) =>
  */
 export const acceptPaperDraft = async (suggestion, { transaction, actor }) => {
   const c = suggestion.content || {};
+  // The row's entityId / field say which paper and section the draft is for;
+  // the content's copies must agree (they are pinned on edit as well).
+  const paperId = /^\d{1,9}$/.test(String(suggestion.entityId ?? "")) ? Number(suggestion.entityId) : 0;
+  const section = sectionOfField(suggestion.field);
+  if (suggestion.entityType !== PAPER_ENTITY || !paperId || !section) {
+    throw new AppError("This draft is not for a section of a question paper.", 400);
+  }
+  if (Number(c.paperId) !== paperId || Number(c.section) !== section) {
+    throw new AppError("This draft doesn't match its paper and section. Discard it and generate again.", 409);
+  }
   const paper = await QuestionPaper.findOne({
-    where: { paperId: Number(c.paperId) || 0 },
+    where: { paperId },
     raw: true,
     transaction,
     ...(transaction?.LOCK ? { lock: transaction.LOCK.UPDATE } : {}),
@@ -333,17 +343,17 @@ export const acceptPaperDraft = async (suggestion, { transaction, actor }) => {
   if (actor !== `STAFF:${paper.teacherId}`) throw new AppError("Only the teacher who owns this paper can accept its questions.", 403);
   if (paper.status !== "DRAFT") throw new AppError("This paper is final, so it can't be changed. Reopen it first.", 409);
   const spec = { ...specOf(paper), sections: [...specOf(paper).sections] };
-  const s = spec.sections[Number(c.section) - 1];
+  const s = spec.sections[section - 1];
   if (!s || s.type !== c.type) throw new AppError("This section has changed since the draft was written. Discard the draft and generate again.", 409);
   const items = ruled(() => validateContentItems(c));
   if (!items.length) throw new AppError("The draft has no questions.", 400);
 
   const now = new Date();
-  await Question.destroy({ where: { paperId: paper.paperId, section: Number(c.section) }, transaction });
+  await Question.destroy({ where: { paperId: paper.paperId, section }, transaction });
   await Question.bulkCreate(
     items.map((q, i) => ({
       paperId: paper.paperId,
-      section: Number(c.section),
+      section,
       position: i + 1,
       type: c.type,
       stem: q.stem,
@@ -362,14 +372,36 @@ export const acceptPaperDraft = async (suggestion, { transaction, actor }) => {
     })),
     { transaction }
   );
-  spec.sections[Number(c.section) - 1] = { ...s, accepted: true };
+  spec.sections[section - 1] = { ...s, accepted: true };
   await QuestionPaper.update({ spec, updatedAt: now }, { where: { paperId: paper.paperId }, transaction });
   return { entityId: String(paper.paperId) };
 };
 
+/**
+ * The draft's paper, section and question type are fixed when it is written:
+ * the content must name the row's own paper (entityId) and section (field),
+ * and an edit can't change the paper, section, type or marks each.
+ */
+export const pinnedProblem = (content, { previous, entityId, field } = {}) => {
+  if (Number(content?.paperId) !== Number(entityId) || Number(content?.section) !== sectionOfField(field)) {
+    return "The draft's paper and section can't be changed.";
+  }
+  if (previous) {
+    for (const k of ["paperId", "section", "type", "marksEach"]) {
+      if (String(content[k] ?? "") !== String(previous[k] ?? "")) return "The draft's paper, section and question type can't be changed.";
+    }
+  }
+  return null;
+};
+
+// Paper drafts belong to the teacher: the office /ai/suggestions endpoints
+// never list or touch them (the head teacher reads papers via /question-papers).
 registerAcceptHandler("PAPERS", acceptPaperDraft, {
-  validateContent: (content) => {
+  officeReviewable: false,
+  validateContent: (content, context) => {
     if (!Array.isArray(content?.items) || !content.items.length) return "The draft needs at least one question.";
+    const pinned = pinnedProblem(content, context);
+    if (pinned) return pinned;
     try {
       validateContentItems(content);
       return null;
