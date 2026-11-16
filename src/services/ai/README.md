@@ -259,3 +259,13 @@ limit, the streamed tool loop), `prompts/ask.js`, `controllers/askController.js`
 - Chat answers are shown only to the asker, so they are not stored as `Ai_suggestion` drafts.
 - Admin: `components/ai/AskPanel.jsx` (navbar button + slide-over), `components/ai/Markdown.jsx`
   (safe renderer, React elements only), `utils/ask.js` (SSE reader), `utils/markdown.js`.
+
+## AI-5 Monday briefing (built on this)
+
+`src/services/briefing/`: `signals.js` (the 7 signals' maths, `unsupportedFigures`), `data.js` (the SQL),
+`schedule.js` (Africa/Accra day/time), `settings.js` (`Ai_briefing_settings`), `service.js` (claim the day →
+measure → QUIET / AI write-up via `runJson` + figure check → plain fallback → deliver), `scheduler.js` (the
+one-minute timer, started in `src/index.js`, not in tests or with AI off). Prompt `prompts/briefing.js`.
+WhatsApp driver `src/services/whatsapp.js`. Routes `src/routes/briefingRoutes.js` (`/ai/briefings*`,
+Administrator). Migration 046. A briefing is not a draft (`Ai_briefing`, not `Ai_suggestion`): nothing is sent
+to parents, it is read by the head teacher, and every figure is computed, not written by the model.

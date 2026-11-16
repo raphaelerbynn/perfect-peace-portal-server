@@ -8,3 +8,5 @@ import "./announcement.js"; // AI-8
 import "./ask.js";
 // AI-3 question papers (section + blind answer check)
 import "./questionPaper.js";
+// AI-5
+export { BRIEFING_PROMPT, BRIEFING_LENGTHS, briefingOutputSchema } from "./briefing.js";

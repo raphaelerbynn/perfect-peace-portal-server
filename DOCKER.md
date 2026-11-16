@@ -29,6 +29,11 @@ Off by default. To use it, add to the env file the container reads (`.env` / `.e
 switches AI on in the admin app (Settings → AI). Apply migration 043 first. Full list in `.env.example`;
 how the code fits together in `src/services/ai/README.md`.
 
+**Monday briefing (AI-5).** Apply migration 046. The briefing timer starts with the API when AI is on
+(`AI_ENABLED` + key); `BRIEFING_SCHEDULER=off` keeps it off on an extra instance. The head teacher's
+WhatsApp copy uses `WHATSAPP_DRIVER` (`log` default, `cloud` with `WHATSAPP_TOKEN` and
+`WHATSAPP_PHONE_NUMBER_ID`, or `off`); the email copy uses the B16 `EMAIL_DRIVER` settings.
+
 ## Connecting pgAdmin to the database
 Add a server in pgAdmin → Host `db`, Port `5432`, Maintenance DB / user / password =
 your `DB_NAME` / `DB_USERNAME` / `DB_PASSWORD`.
