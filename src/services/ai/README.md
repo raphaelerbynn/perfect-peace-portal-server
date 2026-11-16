@@ -232,3 +232,13 @@ budget only for the Administrator), `GET/PUT /ai/settings` and `GET /ai/usage` (
 `AI_MONTHLY_BUDGET_GHS` (200), `AI_USD_TO_GHS` (15.5); optional `AI_REQUEST_TIMEOUT_MS`,
 `AI_MAX_RETRIES`, `AI_RETRY_BASE_DELAY_MS`, `AI_MAX_TOOL_ITERATIONS`, `AI_PRICES_JSON`,
 `AI_FAKE_PROVIDER` (dev only). Documented in `.env.example`.
+
+## AI-5 Monday briefing (built on this)
+
+`src/services/briefing/`: `signals.js` (the 7 signals' maths, `unsupportedFigures`), `data.js` (the SQL),
+`schedule.js` (Africa/Accra day/time), `settings.js` (`Ai_briefing_settings`), `service.js` (claim the day →
+measure → QUIET / AI write-up via `runJson` + figure check → plain fallback → deliver), `scheduler.js` (the
+one-minute timer, started in `src/index.js`, not in tests or with AI off). Prompt `prompts/briefing.js`.
+WhatsApp driver `src/services/whatsapp.js`. Routes `src/routes/briefingRoutes.js` (`/ai/briefings*`,
+Administrator). Migration 046. A briefing is not a draft (`Ai_briefing`, not `Ai_suggestion`): nothing is sent
+to parents, it is read by the head teacher, and every figure is computed, not written by the model.

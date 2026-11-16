@@ -27,6 +27,9 @@ import { notificationRouter } from "./routes/notificationRoutes.js";
 import { invoicePortalRouter, invoiceRouter } from "./routes/invoiceRoutes.js";
 // AI-0
 import { aiRouter } from "./routes/aiRoutes.js";
+// AI-5
+import { briefingRouter } from "./routes/briefingRoutes.js";
+import { startBriefingScheduler } from "./services/briefing/scheduler.js";
 
 dotenv.config();
 const app = express();
@@ -161,6 +164,8 @@ app.use("/", notificationRouter);
 // AI-0: shared AI endpoints (/ai/status for every login; /ai/settings, /ai/usage,
 // /ai/suggestions* for the Administrator). Auth per route.
 app.use("/", aiRouter);
+// AI-5: Monday briefing (/ai/briefings*, Administrator). Auth per route.
+app.use("/", briefingRouter);
 // B2: teacher portal tools (/teacher/*, STAFF tokens only).
 app.use("/", teacherRouter);
 // B14: a pupil's own invoices (STU tokens only; parents use the pupil login).
@@ -209,6 +214,8 @@ const start = async () => {
     app.listen(PORT, () =>
       console.log(`📡 server running on port ${PORT}`)
     );
+    // AI-5: the briefing timer (not when AI is off on the server).
+    startBriefingScheduler();
   } catch (err) {
     console.error("Unable to start (database or storage setting). Refusing to start:", err);
     process.exit(1);

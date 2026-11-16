@@ -2,3 +2,5 @@
 // A new feature adds its file (e.g. ./announcement.js) and one import line.
 export * from "./registry.js";
 export { schoolPreamble, toneLines, GENERAL_PROMPT } from "./base.js";
+// AI-5
+export { BRIEFING_PROMPT, BRIEFING_LENGTHS, briefingOutputSchema } from "./briefing.js";

@@ -58,3 +58,7 @@ Comments inside the SQL files still use the old numbers. A database that applied
 ## AI-0 (2026-11-16)
 
 043 (AI-0 shared AI infrastructure: `Ai_usage_log`, `Ai_suggestion`, `Ai_settings` with its one row, switched off) was built on `feature/ai-work` from `feature/part-b`. 044–046 are reserved for the AI features built on it (AI-1, AI-3, AI-5 / AI-8). It creates new tables only and changes no existing data. **Merge 043 into `feature/part-b` before 044–046, and before migrating any database from it**, for the same reason as above. Until 043 is applied the API still starts: AI reads as switched off.
+
+## AI-5 (2026-11-16)
+
+046 (AI-5 Monday briefing: `Ai_briefing`, one row per day with `run_key` UNIQUE, and `Ai_briefing_settings` with its one row, Mondays 06:00, email and WhatsApp off) was built on `feature/ai-5-work` from `feature/ai-work`. New tables only; no existing data changes. It needs 043 first and ships with 044 / 045 (AI-1, AI-3): **merge all of 043–046 into `feature/part-b` before migrating any database from it**, for the same reason as above. Until 046 is applied the API still starts: the briefing settings read as their defaults, and the briefing endpoints fail (the timer logs it and tries again the next minute).

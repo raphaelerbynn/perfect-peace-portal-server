@@ -50,6 +50,8 @@ export const TYPES = Object.freeze({
   PASSWORD_CHANGED: { label: "Password changed", who: "The person whose password changed", inApp: true, email: true, priority: true },
   SCORES_MISSING: { label: "Scores missing reminder", who: "Teachers with missing scores", inApp: true, email: false, inAppLocked: true },
   INVOICE_ISSUED: { label: "Invoice issued", who: "The pupil's login / parent", inApp: true, email: false },
+  // AI-5: the head teacher's own email / WhatsApp copy is sent by the briefing itself (its settings).
+  AI_BRIEFING: { label: "Monday briefing ready", who: "Administrators", inApp: true, email: false },
 });
 export const RECIPIENT_TYPES = ["STUDENT", "STAFF", "OFFICE"];
 const CHUNK = 500;

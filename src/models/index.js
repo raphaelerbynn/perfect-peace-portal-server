@@ -63,6 +63,9 @@ import AiUsageLog from "./AiUsageLog.js";
 import AiSuggestion from "./AiSuggestion.js";
 import AiSettings from "./AiSettings.js";
 import CreditNote from "./CreditNote.js";
+// AI-5: Monday briefing (migration 046).
+import AiBriefing from "./AiBriefing.js";
+import AiBriefingSettings from "./AiBriefingSettings.js";
 
 Allowance.belongsTo(Salary, { as: "salary", foreignKey: "salaryId" });
 Salary.hasMany(Allowance, { as: "allowances", foreignKey: "salaryId" });
@@ -252,4 +255,7 @@ export {
   AiUsageLog,
   AiSuggestion,
   AiSettings,
+  // AI-5
+  AiBriefing,
+  AiBriefingSettings,
 };
