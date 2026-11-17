@@ -133,12 +133,14 @@ const run = async () => {
       name: "Kwame Boateng",
       email: "kwame.admin@perfectpeace.test",
       category: "Administrator",
+      roleId: 1, // B10 system role
       password: adminHash,
       teacherId: adminTeacher.teacherId,
     });
   } else {
     adminUser.password = adminHash;
     adminUser.category = "Administrator";
+    adminUser.roleId = 1;
     adminUser.teacherId = adminTeacher.teacherId;
     adminUser.isDeleted = false;
     await adminUser.save();
@@ -150,6 +152,7 @@ const run = async () => {
       name: "Yaw Asante",
       email: "yaw.accounts@perfectpeace.test",
       category: "Accountant",
+      roleId: 3, // B10 system role
       password: adminHash,
       teacherId: accountant.teacherId,
     });

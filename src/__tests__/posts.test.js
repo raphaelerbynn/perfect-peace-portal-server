@@ -38,10 +38,12 @@ import { Op, UniqueConstraintError } from "sequelize";
 import { Class, Event, PollOption, PollVote, PostComment, PostLike, Student } from "../models/index.js";
 import * as P from "../services/posts.js";
 import { getNews } from "../services/news.js";
+import { officeUser } from "../testSupport/officeUser.js";
 
-const admin = { type: "OFFICE", category: "Administrator", username: "admin", teacherId: null };
-const classTeacher = { type: "OFFICE", category: "Class Teacher", username: "ct", teacherId: 3 };
-const accountant = { type: "OFFICE", category: "Accountant", username: "acc", teacherId: null };
+// B10: office viewers carry their role's permissions (posts.viewerFromUser).
+const admin = { type: "OFFICE", ...officeUser("Administrator", { username: "admin", teacherId: null }) };
+const classTeacher = { type: "OFFICE", ...officeUser("Class Teacher", { username: "ct", teacherId: 3 }) };
+const accountant = { type: "OFFICE", ...officeUser("Accountant", { username: "acc", teacherId: null }) };
 const teacher = { type: "STAFF", id: 3, name: "Kofi Mensah" };
 const pupil = (classId = 5) => ({ type: "STUDENT", id: 7, classId, name: "Ama Owusu" });
 

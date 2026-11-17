@@ -1,5 +1,5 @@
 import { Op, fn, col, where } from "sequelize";
-import { isClassTeacher } from "../utils/roles.js";
+import { hasPermission, P } from "../utils/permissions.js";
 import sequelize from "../config/database.js";
 import { Class, ClassFee, Student, TeachingAssignment, Teacher, Term } from "../models/index.js";
 import { AppError } from "../utils/errorHandling.js";
@@ -42,7 +42,9 @@ const assignedClassIds = async (teacherId) => {
 const classes = async (user = null) => {
   const classFeeList = await ClassFee.findAll({ raw: true });
 
-  const scoped = isClassTeacher(user);
+  // B10: an office login without academics.all_classes (a Class Teacher) sees
+  // only its classes; portal callers (no category) and the rest see every class.
+  const scoped = !!user?.category && !hasPermission(user, P.ALL_CLASSES);
   const onlyIds = scoped ? await assignedClassIds(user.teacherId) : null;
   if (scoped && onlyIds.length === 0) return [];
 

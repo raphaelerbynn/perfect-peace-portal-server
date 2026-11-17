@@ -5,21 +5,21 @@ import {
   fetchStaffSummary,
   saveStaffAttendance,
 } from "../controllers/staffAttendanceController.js";
-import { authorizeRoles } from "../utils/middlewares.js";
-import { ADMINISTRATOR, HEAD_TEACHER } from "../utils/roles.js";
+import { requirePermission } from "../utils/middlewares.js";
 
 // B9: staff attendance. Mounted in src/index.js behind
-// authenticateManagementUser (office tokens only). Marking and reading are
-// Administrator only (default until the client says who else takes it).
-// B10: the Head Teacher keeps the staff register too.
-const STAFF_REGISTER = authorizeRoles(ADMINISTRATOR, HEAD_TEACHER);
+// authenticateManagementUser (office tokens only). Reading:
+// staff_attendance.view, marking: staff_attendance.mark (both Administrator by
+// default; a custom role can take the register).
+const READ = requirePermission("staff_attendance.view");
+const MARK = requirePermission("staff_attendance.mark");
 
 const router = Router();
 
-router.get("/staff-attendance", STAFF_REGISTER, fetchStaffDay);
-router.post("/staff-attendance", STAFF_REGISTER, saveStaffAttendance);
+router.get("/staff-attendance", READ, fetchStaffDay);
+router.post("/staff-attendance", MARK, saveStaffAttendance);
 // /summary before /:teacherId/summary (it is not a teacher id).
-router.get("/staff-attendance/summary", STAFF_REGISTER, fetchStaffSummary);
-router.get("/staff-attendance/:teacherId/summary", STAFF_REGISTER, fetchOneStaffSummary);
+router.get("/staff-attendance/summary", READ, fetchStaffSummary);
+router.get("/staff-attendance/:teacherId/summary", READ, fetchOneStaffSummary);
 
 export { router as staffAttendanceRouter };

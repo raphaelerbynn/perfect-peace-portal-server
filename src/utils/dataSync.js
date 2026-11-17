@@ -245,6 +245,18 @@ UPDATE "dbo"."Term"
    AND end_date < CURRENT_DATE AND promoted_by_old_system = FALSE
 RETURNING term_id`;
 
+// 050 (B10): an office login on a system role follows live's category (a
+// login live added, or one whose category live changed); a login given a
+// custom role in the new system keeps it. Only the three system names.
+export const LOGIN_ROLE_SQL = `
+UPDATE "dbo"."User_account" u
+   SET role_id = r.role_id
+  FROM "dbo"."Role" r
+ WHERE r.is_system AND r.role_id IN (1, 2, 3) AND r.name = u.category
+   AND (u.role_id IS NULL OR u.role_id IN (1, 2, 3))
+   AND u.role_id IS DISTINCT FROM r.role_id
+RETURNING u.username`;
+
 // 014: new terms go into their school year (Aug-Jul), created if needed; years
 // stretch to cover their terms; the active term's year is the current one.
 export const TERM_YEAR_SQLS = [

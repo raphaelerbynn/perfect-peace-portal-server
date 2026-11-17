@@ -54,3 +54,7 @@ Comments inside the SQL files still use the old numbers. A database that applied
 ## B14 (2026-11-14)
 
 042 (B14 invoices and credit notes) was built alongside 040 (B16) and 041 (reserved for B11, if it needs one). **It ships with 036 / 037 / 039 on `feature/part-b`: merge 040 (and 041, if it exists) together with 042 into `feature/part-b` before migrating any database from it**, for the same reason as above (a database that got 042 first would refuse 040 and 041). 042 creates empty tables and changes no balance. **Apply 042 before starting the B14 code:** every balance change now reads `Invoice` / `Credit_note`, so the API's payments, reversals and billing fail until the tables exist.
+
+## B10 (2026-11-17)
+
+050 (B10 roles and permissions: `Role`, `Role_permission`, `User_account.role_id`) was numbered after the AI branch's 043–046 and 049 (047 and 048 are unused). It seeds the three system roles with fixed ids 1–3 and backfills `role_id` from `category` (exact names only); their permissions live in code (`src/utils/permissions.js`), custom roles' in `Role_permission`. **Apply 050 before starting the B10 code:** sign-in and every office request read `User_account.role_id`. The runner refuses a pending file numbered below one already applied, so **a database that applies 050 before the AI branch's 043–046 / 049 would refuse them**: merge the AI branch first, or keep any database that applied 050 off the AI migrations until it is rebuilt. `npm run sync-data` re-points logins on a system role at live's category (`LOGIN_ROLE_SQL`).

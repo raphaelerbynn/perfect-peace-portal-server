@@ -3,7 +3,9 @@ import sequelize from "../config/database.js";
 import { Class, Salary, Teacher, UserAccount } from "../models/index.js";
 import { AppError } from "../utils/errorHandling.js";
 import { isValidPhoneNumber } from "../utils/func.js";
-import { isAdministrator } from "../utils/roles.js";
+import { hasPermission, P } from "../utils/permissions.js";
+import { assertManagersRemainWithout, lockRoles } from "./roles.js";
+import { clearAccessCache } from "./officeAccess.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -34,15 +36,16 @@ const validateStaffInput = (data, { partial = false } = {}) => {
 // BE-20: optional, backward-compatible pagination. No options => identical
 // behaviour and shape as before (full array). limit/offset only applied when
 // pagination params are supplied.
-// B10 review: payroll and bank details on a staff record. Only the
-// Administrator sees them; the Head Teacher gets the list without them.
+// B10 review: payroll and bank details on a staff record. Only a role with
+// staff.view_sensitive (the Administrator) sees them; anyone else who may see
+// the staff list gets it without them.
 export const STAFF_PAYROLL_FIELDS = ["ssnitNumber", "tinNumber", "bank", "accountNumber", "salaryId"];
 
 export const getStaff = async (options = {}) => {
   // BE-D6: do NOT swallow DB errors — let them propagate to the central
   // errorHandler. Success-path shape is unchanged.
   const { page, limit, user = null } = options;
-  const withPayroll = isAdministrator(user);
+  const withPayroll = hasPermission(user, P.STAFF_VIEW_SENSITIVE);
 
   const queryOptions = {
     attributes: { exclude: ["password", "photoKey", "photoThumbKey", ...(withPayroll ? [] : STAFF_PAYROLL_FIELDS)] }, // B17: no storage keys
@@ -108,7 +111,7 @@ export const getStaffForSignup = async () => {
 // We now archive the teacher in a transaction, release the class back-link, and
 // disable (not destroy) the linked management login. Errors propagate (BE-T2).
 export const removeStaff = async (id) => {
-  return await sequelize.transaction(async (t) => {
+  const out = await sequelize.transaction(async (t) => {
     const teacher = await Teacher.findOne({
       attributes: ["teacherId"],
       where: { teacherId: id },
@@ -130,6 +133,17 @@ export const removeStaff = async (id) => {
       { where: { teacherId: id }, transaction: t }
     );
 
+    // B10: not the last login that can manage roles (the school would be locked
+    // out); under the roles lock, so two archives at once can't both pass.
+    await lockRoles(t);
+    const accounts = await UserAccount.findAll({
+      where: { teacherId: id },
+      attributes: ["username", "roleId", "category", "isDeleted"],
+      raw: true,
+      transaction: t,
+    });
+    await assertManagersRemainWithout(accounts || [], { transaction: t });
+
     // Disable the linked management login (if any) without destroying it.
     await UserAccount.update(
       { isDeleted: true },
@@ -138,6 +152,9 @@ export const removeStaff = async (id) => {
 
     return { archived: true, teacherId: Number(id) };
   });
+  // B10: an archived login loses its access at once (officeAccess cache).
+  clearAccessCache();
+  return out;
 };
 
 // BE-T1/BE-T5/BE-T2: createStaff now accepts the same keys the edit path uses

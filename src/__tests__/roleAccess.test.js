@@ -1,25 +1,39 @@
-// B10: which office roles get past the role gates of EVERY route, found by
-// walking the Express router stack (src/testSupport/routeAccess.js). No DB.
+// B10: who gets past the permission gates of EVERY route, found by walking the
+// Express router stack (src/testSupport/routeAccess.js). No database.
 //
-// BEFORE is the access of the three original roles, captured from the code as
-// it was before the Head Teacher was added (feature/part-b, 2026-11-17). The
-// test proves Administrator, Class Teacher and Accountant are unchanged, and
-// HEAD_TEACHER lists exactly what the new role reaches. A new route fails
-// here until it is added to both on purpose.
+// BEFORE is what the three original roles reached before B10 (snapshot taken
+// from feature/part-b on 2026-11-17, before any role work), plus the B10
+// review fixes (PUT /promotion/class-order Administrator only) and the new
+// B10 routes. The system roles' permission sets (utils/permissions.js) must
+// reproduce it route by route. A new route fails here until it is added on
+// purpose.
 //   A = Administrator, CT = Class Teacher, Acc = Accountant,
-//   "*" = no role gate on the route (public, portal-only, or scoped in the
-//   service), "" = nobody.
+//   "*" = no permission gate (public, portal-only, or the caller's own
+//   access), "" = nobody.
 process.env.JWT_KEY = "test-secret";
 process.env.NODE_ENV = "test";
 
 import jwt from "jsonwebtoken";
 import request from "supertest";
-import { accessTable } from "../testSupport/routeAccess.js";
-import { ACCOUNTANT, ADMINISTRATOR, CLASS_TEACHER, HEAD_TEACHER } from "../utils/roles.js";
+import { accessTable, collectRoutes, passes, reachableRoutes } from "../testSupport/routeAccess.js";
+import { P, PERMISSION_KEYS, SYSTEM_ROLES, systemRoleByName } from "../utils/permissions.js";
+
+// Handlers answer 200 at once: the live requests below test the gates only.
+const stubAll = (path) => {
+  const actual = jest.requireActual(path);
+  const ok = (req, res) => res.json({ ok: true });
+  return { __esModule: true, ...Object.fromEntries(Object.keys(actual).map((k) => [k, typeof actual[k] === "function" ? ok : actual[k]])) };
+};
+jest.mock("../controllers/generalController.js", () => stubAll("../controllers/generalController.js"));
+jest.mock("../controllers/accountController.js", () => stubAll("../controllers/accountController.js"));
+jest.mock("../controllers/communicationController.js", () => stubAll("../controllers/communicationController.js"));
 
 const app = require("../index.js").default;
+const store = require("../services/accessStore.js"); // the in-memory fake (testSupport/jestSetup.js)
+const { clearAccessCache } = require("../services/officeAccess.js");
 
-const SHORT = { A: ADMINISTRATOR, CT: CLASS_TEACHER, Acc: ACCOUNTANT };
+const permsOf = (name) => new Set(systemRoleByName(name).permissions);
+const SYSTEM = { A: permsOf("Administrator"), CT: permsOf("Class Teacher"), Acc: permsOf("Accountant") };
 
 const BEFORE = {
   "GET /?$/": "*",
@@ -271,175 +285,173 @@ const BEFORE = {
   "POST /add-account-category": "A Acc",
   "DELETE /delete-account-category/:account_category_id": "A Acc",
   "POST /communication/send-sms": "A",
+  // B10 (new): roles and office logins' roles; the caller's own access.
+  "GET /my-access": "*",
+  "GET /permissions": "A",
+  "GET /roles": "A",
+  "GET /roles/:id": "A",
+  "POST /roles": "A",
+  "PUT /roles/:id": "A",
+  "DELETE /roles/:id": "A",
+  "GET /office-logins": "A",
+  "PUT /office-logins/:username/role": "A",
 };
 
-// Everything the Head Teacher reaches (academic work for every class, staff
-// list + register, news, read-only money overview). Nothing else.
-const HEAD_TEACHER_ROUTES = [
-  "POST /posts",
-  "PUT /posts/:id",
-  "DELETE /posts/:id",
-  "POST /posts/:id/publish",
-  "POST /posts/:id/draft",
-  "POST /posts/:id/archive",
-  "POST /posts/:id/pin",
-  "POST /posts/:id/image",
-  "DELETE /posts/:id/image",
-  "POST /notifications/results-ready",
-  "POST /notifications/scores-reminder",
-  "GET /dashboard-summary",
-  "GET /students-owing",
-  "GET /news #2",
-  "GET /class #2",
-  "GET /subject #2",
-  "GET /events #2",
-  "GET /active-term",
-  "GET /terms",
-  "GET /promotion/rules",
-  "PUT /promotion/rules",
-  "GET /promotion/class-order",
-  "GET /promotion/preview",
-  "POST /promotion/accept",
-  "GET /promotion/status",
-  "GET /promotion/history/:studentId",
-  "GET /staff",
-  "GET /students",
-  "GET /student-results",
-  "GET /student-marks",
-  "GET /kg-assessment",
-  "GET /student-kg-results",
-  "GET /report-cards/completeness",
-  "GET /report-cards/class",
-  "GET /class-results/year",
-  "GET /student-attendance",
-  "GET /student-attendance-count",
-  "GET /student-total-attendance",
-  "GET /attendance-summary",
-  "POST /add-result",
-  "POST /add-single-subject-result",
-  "POST /upsert-single-subject-result",
-  "POST /add-kg-result",
-  "POST /add-news",
-  "GET /teaching-assignments",
-  "POST /teaching-assignments",
-  "POST /teaching-assignments/copy",
-  "DELETE /teaching-assignments/:id",
-  "GET /grading-scales",
-  "GET /grading-scales/for-class",
-  "POST /grading-scales",
-  "PUT /grading-scales/:id",
-  "DELETE /grading-scales/:id",
-  "GET /class-subject-scores",
-  "POST /class-subject-scores",
-  "GET /timetable/periods",
-  "PUT /timetable/periods",
-  "POST /timetable/bulk",
-  "POST /timetable/copy",
-  "POST /timetable/sync-assignments",
-  "GET /timetable",
-  "POST /timetable",
-  "PUT /timetable/:id",
-  "DELETE /timetable/:id",
-  "POST /mark-attendance",
-  "POST /delete-attendance",
-  "PUT /update-news/:news_id",
-  "DELETE /delete-result",
-  "DELETE /delete-news/:news_id",
-  "GET /academic-years",
-  "GET /academic-years/:id",
-  "GET /students/:id/photo",
-  "GET /students/:id/documents",
-  "GET /students/:id/documents/:docId/file",
-  "GET /staff/:id/photo",
-  "GET /staff-attendance",
-  "POST /staff-attendance",
-  "GET /staff-attendance/summary",
-  "GET /staff-attendance/:teacherId/summary",
-  "GET /reports/academic/terms-overview",
-  "GET /reports/academic/term/:termId",
-  "GET /reports/academic/term/:termId/class/:classId",
-];
+const now = accessTable(app, SYSTEM);
+const routes = collectRoutes(app);
+const OPEN = Object.keys(BEFORE).filter((k) => BEFORE[k] === "*");
 
-const now = accessTable(app);
-const expand = (v) => (v === "*" ? "*" : v.split(" ").filter(Boolean).map((s) => SHORT[s]));
-
-describe("router walk: role access per route", () => {
-  it("covers the same routes as the snapshot (add new routes to BEFORE and, if academic, HEAD_TEACHER_ROUTES)", () => {
+describe("router walk: the system roles reach exactly what they did before B10", () => {
+  it("covers the same routes as the snapshot (add a new route to BEFORE on purpose)", () => {
     expect(Object.keys(now).sort()).toEqual(Object.keys(BEFORE).sort());
   });
 
-  it.each(Object.keys(BEFORE))("%s: Administrator, Class Teacher and Accountant unchanged", (key) => {
-    const before = expand(BEFORE[key]);
-    if (before === "*") return expect(now[key]).toBe("*");
-    const three = now[key].split(",").filter((r) => r && r !== HEAD_TEACHER);
-    return expect(three).toEqual(before);
+  it.each(Object.keys(BEFORE))("%s: Administrator, Class Teacher and Accountant as before", (key) => {
+    expect(now[key]).toBe(BEFORE[key]);
+  });
+});
+
+describe("router walk: every route has a permission", () => {
+  it("only public, portal and caller's-own routes have no permission gate", () => {
+    const ungated = routes.filter((r) => !r.gates.length).map((r) => r.key);
+    expect(ungated.sort()).toEqual([...OPEN].sort());
+    // and none of those is an office route but the caller's own access
+    const office = OPEN.filter((k) => !/^(GET|POST) \/(signin|signup|send-otp|reset-password|get-pin|update-pin|verify-pin|school|result|nursery-result|feecheck|last-fee-paid|auth|oauth|download|files|get-assignment|upload|delete-file|user-details|news|class|subject|portal|events|posts|notifications|teacher|\?\$)/.test(k) && !/^(PUT|PATCH|DELETE) \/(posts|notifications|delete-file)/.test(k));
+    expect(office).toEqual(["GET /my-access"]);
   });
 
-  it("Head Teacher reaches exactly HEAD_TEACHER_ROUTES among the gated routes", () => {
-    const reached = Object.keys(now).filter((k) => now[k] !== "*" && now[k].split(",").includes(HEAD_TEACHER));
-    expect(reached.sort()).toEqual([...HEAD_TEACHER_ROUTES].sort());
+  it("every gate names catalogue keys only", () => {
+    for (const { gates } of routes) for (const keys of gates) for (const k of keys) expect(PERMISSION_KEYS).toContain(k);
   });
 
-  it("the Head Teacher never reaches money, payroll, settings, logins, terms or record changes", () => {
-    const banned = [
-      /fee|salary|payroll|invoice|credit-note|discount|billing|feeding|bus-fee|extra-classes|expense|income|account-category|graph|profit-loss/,
-      /^(POST|PUT|PATCH|DELETE) \/school|notification-settings|email-log|signup|communication/,
-      /close-term|add-term|update-term|^POST \/academic-years|^PATCH \/academic-years|^DELETE \/academic-years|\/terms\/:id/,
-      /add-student|update-student|delete-student|add-staff|update-staff|delete-staff|add-class|update-class|delete-class|add-subject|delete-subject/,
-      /calculate-term-attendance/,
-    ];
-    for (const k of HEAD_TEACHER_ROUTES) {
-      for (const re of banned) expect([k, re.test(k)]).toEqual([k, false]);
+  it("every catalogue key guards a route, or is a reach permission checked in the services", () => {
+    const used = new Set(routes.flatMap((r) => r.gates.flat()));
+    const reach = [P.ALL_CLASSES, P.EDIT_CLOSED_TERMS, P.STAFF_VIEW_SENSITIVE];
+    expect(PERMISSION_KEYS.filter((k) => !used.has(k) && !reach.includes(k))).toEqual([]);
+  });
+
+  it("the Administrator role holds every permission; the system roles hold catalogue keys only", () => {
+    expect([...SYSTEM.A].sort()).toEqual([...PERMISSION_KEYS].sort());
+    for (const r of SYSTEM_ROLES) for (const k of r.permissions) expect(PERMISSION_KEYS).toContain(k);
+  });
+});
+
+describe("router walk: custom roles", () => {
+  it("a role with no permissions reaches nothing", () => {
+    expect(reachableRoutes(app, [])).toEqual([]);
+  });
+
+  it("a role with a few permissions reaches exactly those routes", () => {
+    expect(reachableRoutes(app, ["fees.view", "overview.lookups"]).sort()).toEqual(
+      ["GET /students", "GET /timetable", "GET /timetable/periods", "GET /fees", "GET /fees/:fee_id", "GET /fee-statement/:studentId"].sort()
+    );
+    expect(reachableRoutes(app, ["staff_attendance.view"]).sort()).toEqual(
+      ["GET /staff-attendance", "GET /staff-attendance/summary", "GET /staff-attendance/:teacherId/summary"].sort()
+    );
+    expect(reachableRoutes(app, ["billing.discount_types"]).sort()).toEqual(
+      ["GET /discount-types", "POST /discount-types", "PATCH /discount-types/:id", "DELETE /discount-types/:id"].sort()
+    );
+  });
+
+  it("each permission alone opens only the routes that name it", () => {
+    for (const key of PERMISSION_KEYS) {
+      const expected = routes.filter((r) => r.gates.length && r.gates.every((g) => g.includes(key))).map((r) => r.key);
+      expect([key, reachableRoutes(app, [key]).sort()]).toEqual([key, expected.sort()]);
+    }  });
+
+  it("an Accountant cannot reach any results write", () => {
+    for (const k of ["POST /add-result", "POST /add-single-subject-result", "POST /upsert-single-subject-result", "POST /add-kg-result", "POST /class-subject-scores", "DELETE /delete-result"]) {
+      const r = routes.find((x) => x.key === k);
+      expect([k, passes(r.gates, SYSTEM.Acc)]).toEqual([k, false]);
     }
   });
 });
 
-// The walk reads the gates; check the real middleware agrees on a few routes.
-describe("live requests (gates only: 403 before any handler runs)", () => {
+// The walk reads the gates; the real middleware must agree, with permissions
+// loaded on the server (never from the token).
+describe("live requests (gates only; handlers stubbed)", () => {
   const sign = (p) => jwt.sign(p, "test-secret", { algorithm: "HS256", expiresIn: "1h" });
-  const ht = sign({ category: HEAD_TEACHER, username: "head", teacherId: 9 });
-  it.each([
-    ["get", "/fees"],
-    ["post", "/add-fee"],
-    ["post", "/fees/1/reverse"],
-    ["delete", "/delete-fee/1"],
-    ["get", "/salary"],
-    ["post", "/add-salary-payment"],
-    ["post", "/assign-salary"],
-    ["get", "/profit-loss"],
-    ["get", "/income"],
-    ["post", "/add-expense"],
-    ["get", "/invoices"],
-    ["post", "/credit-notes"],
-    ["post", "/term-billing/3/bill"],
-    ["get", "/discount-types"],
-    ["post", "/add-feeding"],
-    ["post", "/add-bus-fee"],
-    ["get", "/school/settings"],
-    ["put", "/school"],
-    ["put", "/notification-settings"],
-    ["post", "/signup-management"],
-    ["post", "/communication/send-sms"],
-    ["post", "/close-term"],
-    ["post", "/add-term"],
-    ["put", "/update-term/3"],
-    ["post", "/academic-years/1/terms"],
-    ["post", "/terms/3/activate"],
-    ["post", "/add-student"],
-    ["put", "/update-student/7"],
-    ["delete", "/delete-student/7"],
-    ["post", "/add-staff"],
-    ["delete", "/delete-staff/2"],
-    ["post", "/add-class"],
-    ["delete", "/delete-class/2"],
-    ["post", "/add-subject"],
-    ["delete", "/delete-subject/2"],
-    ["post", "/students/7/photo"],
-    ["delete", "/students/7/documents/1"],
-    ["get", "/staff/2/documents"],
-    ["put", "/promotion/class-order"], // edits class records (B10 review)
-  ])("Head Teacher: %s %s -> 403", async (method, path) => {
-    const res = await request(app)[method](path).set("Authorization", `Bearer ${ht}`).send({});
-    expect(res.status).toBe(403);
+  const call = (method, path, token) => request(app)[method](path).set("Authorization", `Bearer ${token}`).send({});
+
+  beforeEach(() => {
+    store.reset();
+    clearAccessCache();
+    store.addRole({ roleId: 9, name: "Bursar's clerk", permissions: ["fees.view", "students.view"] });
+    store.addRole({ roleId: 10, name: "Nobody", permissions: [] });
+  });
+
+  it("a token from before B10 (category only, no roleId) works as its system role", async () => {
+    const acc = sign({ category: "Accountant", username: "bursar" });
+    expect((await call("get", "/fees", acc)).status).toBe(200);
+    expect((await call("post", "/add-expense", acc)).status).toBe(200);
+    expect((await call("post", "/fees/1/reverse", acc)).status).toBe(403);
+    expect((await call("post", "/add-result", acc)).status).toBe(403);
+    const ct = sign({ category: "Class Teacher", username: "ct", teacherId: 3 });
+    expect((await call("get", "/fees", ct)).status).toBe(403);
+    expect((await call("get", "/expense", ct)).status).toBe(403);
+    expect((await call("post", "/communication/send-sms", ct)).status).toBe(403);
+    const admin = sign({ category: "Administrator", username: "admin" });
+    expect((await call("post", "/communication/send-sms", admin)).status).toBe(200);
+  });
+
+  it("a custom role reaches its routes and nothing else", async () => {
+    const t = sign({ category: "Bursar's clerk", username: "clerk", roleId: 9 });
+    expect((await call("get", "/fees", t)).status).toBe(200);
+    expect((await call("get", "/students", t)).status).toBe(200);
+    for (const [m, p] of [["post", "/add-fee"], ["get", "/expense"], ["get", "/dashboard-summary"], ["get", "/roles"], ["post", "/communication/send-sms"], ["get", "/salary"]]) {
+      expect([m, p, (await call(m, p, t)).status]).toEqual([m, p, 403]);
+    }
+  });
+
+  it("a role with no permissions gets 403 everywhere but its own access", async () => {
+    const t = sign({ category: "Nobody", username: "nobody", roleId: 10 });
+    for (const [m, p] of [["get", "/dashboard-summary"], ["get", "/class"], ["get", "/terms"], ["get", "/news"], ["post", "/posts"], ["get", "/posts"], ["get", "/events?month=2026-11"], ["get", "/staff-attendance"]]) {
+      expect([m, p, (await call(m, p, t)).status]).toEqual([m, p, 403]);
+    }
+    const me = await call("get", "/my-access", t);
+    expect(me.status).toBe(200);
+    expect(me.body).toEqual({ username: "nobody", roleId: 10, roleName: "Nobody", permissions: [] });
+  });
+
+  it("the account's role in the database wins over the token's claims", async () => {
+    // Token says Administrator (signed before the role changed); the login is now a clerk.
+    store.addAccount({ username: "former-admin", roleId: 9, category: "Bursar's clerk" });
+    const t = sign({ category: "Administrator", username: "former-admin", roleId: 1 });
+    expect((await call("post", "/add-student", t)).status).toBe(403);
+    expect((await call("get", "/fees", t)).status).toBe(200);
+  });
+
+  it("an account with no role_id maps by its stored category", async () => {
+    store.addAccount({ username: "acc", roleId: null, category: "Accountant" });
+    const t = sign({ category: "Administrator", username: "acc" });
+    expect((await call("get", "/fees", t)).status).toBe(200);
+    expect((await call("post", "/fees/1/reverse", t)).status).toBe(403);
+  });
+
+  it("an archived account reaches nothing, whatever its token says", async () => {
+    store.addAccount({ username: "gone", roleId: 1, category: "Administrator", isDeleted: true });
+    const t = sign({ category: "Administrator", username: "gone", roleId: 1 });
+    expect((await call("get", "/dashboard-summary", t)).status).toBe(403);
+    expect((await call("post", "/add-student", t)).status).toBe(403);
+    expect((await call("get", "/posts", t)).status).toBe(403); // the news feed too
+  });
+
+  it("permissions written into a token are ignored", async () => {
+    const t = sign({ category: "Class Teacher", username: "ct2", teacherId: 3, permissions: [...PERMISSION_KEYS] });
+    expect((await call("get", "/fees", t)).status).toBe(403);
+    expect((await call("post", "/add-student", t)).status).toBe(403);
+  });
+
+  it("an unknown category or role id reaches nothing", async () => {
+    for (const claims of [{ category: "Head Teacher", username: "ht" }, { category: "administrator", username: "lc" }, { category: "X", username: "x", roleId: 999 }]) {
+      const t = sign(claims);
+      expect([claims, (await call("get", "/dashboard-summary", t)).status]).toEqual([claims, 403]);
+    }
+  });
+
+  it("a portal token never reaches an office route", async () => {
+    const stu = sign({ id: 1, userRole: "STU" });
+    expect((await call("get", "/fees", stu)).status).toBe(403);
+    expect((await call("get", "/my-access", stu)).status).toBe(403);
   });
 });
