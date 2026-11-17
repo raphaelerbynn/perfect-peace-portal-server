@@ -428,6 +428,14 @@ describe("live requests (gates only; handlers stubbed)", () => {
     expect((await call("post", "/fees/1/reverse", t)).status).toBe(403);
   });
 
+  it("a removed login (no account row) reaches nothing, even with roleId 1", async () => {
+    store.removeAccount("ghost");
+    const t = sign({ category: "Administrator", username: "ghost", roleId: 1 });
+    expect((await call("get", "/dashboard-summary", t)).status).toBe(403);
+    expect((await call("post", "/add-student", t)).status).toBe(403);
+    expect((await call("get", "/my-access", t)).body).toMatchObject({ roleId: null, permissions: [] });
+  });
+
   it("an archived account reaches nothing, whatever its token says", async () => {
     store.addAccount({ username: "gone", roleId: 1, category: "Administrator", isDeleted: true });
     const t = sign({ category: "Administrator", username: "gone", roleId: 1 });

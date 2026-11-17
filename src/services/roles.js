@@ -80,17 +80,23 @@ const assertWithinCaller = (keys, actor, message) => {
   if (beyond.length) throw new AppError(message, 403);
 };
 
+// Permissions that change which class a login or teacher is linked to.
+export const LINKING_PERMISSIONS = [P.USERS_MANAGE, "classes.manage", "staff.edit", "subjects.assign_teachers"];
+const PERMISSION_LABEL = Object.fromEntries(PERMISSIONS.map((p) => [p.key, p.label]));
+
 const cleanPermissions = (value) => {
   if (value === undefined) return undefined;
   if (!Array.isArray(value)) throw new AppError("Permissions must be a list.", 400);
   const keys = [...new Set(value.map((k) => text(k)))];
   const unknown = keys.filter((k) => !isPermissionKey(k));
   if (unknown.length) throw new AppError(`Unknown permission: ${unknown.join(", ")}`, 400);
-  // Class scope comes from the staff record a login is linked to, so a role
-  // that creates logins without "Every class" could link a login to another
-  // teacher and borrow that class. Creating logins needs every class.
-  if (keys.includes(P.USERS_MANAGE) && !keys.includes(P.ALL_CLASSES)) {
-    throw new AppError("A role that creates office logins must also have “Every class”.", 400);
+  // Class scope comes from the class linked to a login's staff record. A role
+  // that can change that link (create logins for any staff member, edit
+  // classes' teachers, edit staff's classes, set subject teachers) without
+  // "Every class" could link itself to another class and take it over.
+  const linkers = LINKING_PERMISSIONS.filter((k) => keys.includes(k));
+  if (linkers.length && !keys.includes(P.ALL_CLASSES)) {
+    throw new AppError(`A role with ${linkers.map((k) => `“${PERMISSION_LABEL[k]}”`).join(", ")} must also have “Every class”.`, 400);
   }
   return keys.sort();
 };
@@ -354,22 +360,36 @@ export const listOfficeLogins = async () => {
   });
 };
 
+// The permissions of the role a login has (system from code, custom from rows).
+const permissionsOfAccount = async (account, transaction) => {
+  const id = roleIdOfAccount(account);
+  if (id == null) return [];
+  const system = systemRoleById(id);
+  return system ? [...system.permissions] : customPermissions(id, transaction);
+};
+
+/** A login whose role holds something the caller doesn't is not the caller's to change or disable. */
+export const assertMayChangeLogin = async (account, actor, { transaction, message } = {}) => {
+  assertWithinCaller(
+    await permissionsOfAccount(account, transaction),
+    actor,
+    message || "This login's role has permissions you don't have, so you can't change it."
+  );
+};
+
 export const setLoginRole = async (username, body = {}, actor) => {
-  const name = text(username);
-  if (!name) throw new AppError("Choose a login.", 400);
+  // The key exactly as given: live logins can carry stray spaces ("Admin "),
+  // so a trimmed key would miss them or hit another login.
+  const name = username == null ? "" : String(username);
+  if (!name.trim()) throw new AppError("Choose a login.", 400);
   await sequelize.transaction(async (transaction) => {
     await lockRoles(transaction);
     const account = await UserAccount.findByPk(name, { attributes: ["username", "roleId", "category", "isDeleted"], raw: true, transaction });
     if (!account) throw new AppError("Office login not found", 404);
     const next = await roleToGive({ roleId: body.roleId }, actor, { transaction });
 
-    const currentId = roleIdOfAccount(account);
-    let current = [];
-    if (currentId != null) {
-      const system = systemRoleById(currentId);
-      current = system ? [...system.permissions] : await customPermissions(currentId, transaction);
-    }
-    assertWithinCaller(current, actor, "This login's role has permissions you don't have, so you can't change it.");
+    const current = await permissionsOfAccount(account, transaction);
+    await assertMayChangeLogin(account, actor, { transaction });
 
     if (!account.isDeleted && current.includes(P.ROLES_MANAGE) && !next.permissions.includes(P.ROLES_MANAGE)) {
       if ((await managersLeft({ exceptUsername: account.username, transaction })) === 0) throw new AppError(LAST_MANAGER, 409);

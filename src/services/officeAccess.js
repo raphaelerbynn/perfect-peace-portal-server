@@ -1,18 +1,21 @@
 // B10: what an office (management) login may do, worked out on the server for
 // every request. Permissions are never read from the token.
 //
-//   1. The login's account row (by username): its role_id, else the system
-//      role named by its category. An archived account (is_deleted) gets
-//      nothing, so archiving a staff member ends their session too.
-//   2. No account row (only in tests / a login removed by hand): the token's
-//      roleId, else the system role named by its category claim. Tokens
-//      signed before B10 carry only the category, so they keep working.
+//   1. The login's account row (by the token's username): its role_id, else
+//      the system role named by its category (tokens signed before B10 carry
+//      no roleId; that's fine, the row decides). An archived account
+//      (is_deleted) gets nothing, so archiving a staff member ends their
+//      session too.
+//   2. No account row (a login removed): nothing. The token's roleId and
+//      category are never trusted on their own.
 //   3. The role's permissions: a system role's from code (utils/permissions.js),
 //      a custom role's from Role_permission.
 //
 // Both lookups are cached for a short time and dropped when a role or a
-// login's role changes (clearAccessCache), so a change applies within seconds
-// in this process and within ACCOUNT_TTL_MS / ROLE_TTL_MS in any other.
+// login's role changes (clearAccessCache), so a change applies at once in
+// this process and within ACCOUNT_TTL_MS / ROLE_TTL_MS (60 s at most) in any
+// other API process. A lookup that started before a clear is used for its own
+// request but never stored (generation counter), so it can't bring old grants back.
 import * as store from "./accessStore.js";
 import { isPermissionKey, systemRoleById, systemRoleByName } from "../utils/permissions.js";
 
@@ -21,17 +24,20 @@ const ROLE_TTL_MS = 60 * 1000;
 
 const accountCache = new Map(); // username -> { at, value }
 const roleCache = new Map(); // roleId -> { at, value }
+let generation = 0; // bumped by every clearAccessCache
 
 const cached = async (map, key, ttl, load) => {
   const hit = map.get(key);
   if (hit && Date.now() - hit.at < ttl) return hit.value;
+  const started = generation;
   const value = await load();
-  map.set(key, { at: Date.now(), value });
+  if (started === generation) map.set(key, { at: Date.now(), value });
   return value;
 };
 
 /** Drop cached access: one login, one role, or (no argument) everything. */
 export const clearAccessCache = ({ username, roleId } = {}) => {
+  generation += 1;
   if (username === undefined && roleId === undefined) {
     accountCache.clear();
     roleCache.clear();
@@ -60,11 +66,13 @@ const none = (roleName) => ({ roleId: null, roleName: roleName ?? null, isSystem
 /** { roleId, roleName, isSystem, permissions: Set } for a verified management token. */
 export const resolveAccess = async (user) => {
   const username = user?.username == null ? "" : String(user.username);
-  const account = username ? await cached(accountCache, username, ACCOUNT_TTL_MS, () => store.findAccount(username)) : null;
-  if (account?.isDeleted) return none(account.category);
+  // (`user` is passed on only for the test stand-in, testSupport/fakeAccessStore.js;
+  // the database store reads nothing but the username.)
+  const account = username ? await cached(accountCache, username, ACCOUNT_TTL_MS, () => store.findAccount(username, user)) : null;
+  if (!account) return none(user?.category);
+  if (account.isDeleted) return none(account.category);
 
-  const roleId = account ? account.roleId : user?.roleId;
-  const category = account ? account.category : user?.category;
+  const { roleId, category } = account;
   let role = null;
   if (roleId != null && roleId !== "") {
     role = await loadRole(roleId);

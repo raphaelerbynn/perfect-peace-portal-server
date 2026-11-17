@@ -552,7 +552,7 @@ const addStudent = async (req, res, next) => {
 const addStaff = async (req, res, next) => {
   const values = req.body;
   try {
-    const data = await createStaff(values);
+    const data = await createStaff(values, req.user); // B10 review: the caller's permissions
     res.json(data);
   } catch (error) {
     console.log(error);
@@ -563,7 +563,7 @@ const addStaff = async (req, res, next) => {
 const addClass = async (req, res, next) => {
   const values = req.body;
   try {
-    const data = await createClass(values);
+    const data = await createClass(values, req.user);
     res.json(data);
   } catch (error) {
     next(error);
@@ -1003,7 +1003,7 @@ const updateStaff = async (req, res, next) => {
   const teacher_id = req.params.teacher_id;
 
   try {
-    const data = await editStaff(values, teacher_id);
+    const data = await editStaff(values, teacher_id, req.user);
     res.json(data);
   } catch (error) {
     console.log(error);
@@ -1020,7 +1020,7 @@ const updateClass = async (req, res, next) => {
   }
 
   try {
-    const data = await editClass(values, id);
+    const data = await editClass(values, id, req.user);
     res.json(data);
   } catch (error) {
     next(error);
@@ -1111,7 +1111,7 @@ const deleteStaff = async (req, res, next) => {
   const teacher_id = req.params.teacher_id;
 
   try {
-    const data = await removeStaff(teacher_id);
+    const data = await removeStaff(teacher_id, req.user);
     res.json(data);
   } catch (error) {
     console.log(error);

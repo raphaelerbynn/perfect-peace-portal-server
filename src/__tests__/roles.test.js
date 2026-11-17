@@ -128,9 +128,17 @@ describe("create", () => {
     await expect(roles.createRole({ name: "x".repeat(51) }, admin)).rejects.toMatchObject({ statusCode: 400 });
   });
 
-  it("a role that creates logins must also have every class (no borrowing another teacher's class)", async () => {
-    await expect(roles.createRole({ name: "Clerk", permissions: ["users.manage"] }, admin)).rejects.toMatchObject({ statusCode: 400 });
-    await expect(roles.createRole({ name: "Clerk", permissions: ["users.manage", "academics.all_classes"] }, admin)).resolves.toMatchObject({ name: "Clerk" });
+  it.each(["users.manage", "classes.manage", "staff.edit", "subjects.assign_teachers"])(
+    "a role with %s must also have every class (it could relink itself to another class)",
+    async (key) => {
+      await expect(roles.createRole({ name: "Clerk", permissions: [key, "results.view"] }, admin)).rejects.toMatchObject({ statusCode: 400 });
+      await expect(roles.createRole({ name: "Clerk", permissions: [key, "academics.all_classes"] }, admin)).resolves.toMatchObject({ name: "Clerk" });
+    }
+  );
+
+  it("the same rule on edit", async () => {
+    const r = await roles.createRole({ name: "Deputy", permissions: ["results.view"] }, admin);
+    await expect(roles.updateRole(r.roleId, { permissions: ["results.view", "classes.manage"] }, admin)).rejects.toMatchObject({ statusCode: 400 });
   });
 
   it("refuses unknown permission keys", async () => {
@@ -249,6 +257,14 @@ describe("giving a login a role", () => {
     db.accounts.push({ username: "admin2", roleId: 1, category: "Administrator", isDeleted: false });
     await expect(roles.setLoginRole("ct", { roleId: 1 }, admin)).rejects.toMatchObject({ statusCode: 403 });
     expect(db.accounts.find((a) => a.username === "ct").roleId).toBe(2);
+  });
+
+  it("finds a login by its exact key, stray spaces included (live data)", async () => {
+    db.accounts.push({ username: "Admin ", roleId: 2, category: "Class Teacher", isDeleted: false });
+    db.accounts.push({ username: "Admin", roleId: 3, category: "Accountant", isDeleted: false });
+    await roles.setLoginRole("Admin ", { roleId: 3 }, admin);
+    expect(db.accounts.find((a) => a.username === "Admin ")).toMatchObject({ roleId: 3, category: "Accountant" });
+    await expect(roles.setLoginRole("   ", { roleId: 3 }, admin)).rejects.toMatchObject({ statusCode: 400 });
   });
 
   it("refuses an unknown login or role", async () => {

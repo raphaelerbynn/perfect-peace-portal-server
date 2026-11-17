@@ -11,7 +11,7 @@ beforeEach(() => {
 
 const keys = async (user) => [...(await resolveAccess(user)).permissions].sort();
 
-it("an old token (category only, no account row) gets its system role", async () => {
+it("an old token (category only, no roleId) gets the system role its account row names", async () => {
   expect(await keys({ category: "Accountant", username: "b" })).toEqual([...systemRoleByName("Accountant").permissions].sort());
   expect(await keys({ category: "Administrator", username: "a" })).toEqual([...PERMISSION_KEYS].sort());
 });
@@ -20,6 +20,33 @@ it("unknown categories and lowercase names get nothing", async () => {
   expect(await keys({ category: "Head Teacher", username: "h" })).toEqual([]);
   expect(await keys({ category: "administrator", username: "x" })).toEqual([]);
   expect(await keys({ category: undefined, username: "x" })).toEqual([]);
+});
+
+it("no account row = nothing, whatever the token says (a removed login with roleId 1)", async () => {
+  store.removeAccount("ghost");
+  expect(await keys({ category: "Administrator", username: "ghost", roleId: 1 })).toEqual([]);
+  expect((await resolveAccess({ category: "Administrator", username: "ghost", roleId: 1 })).roleId).toBeNull();
+});
+
+it("a lookup that started before a clear is not cached (no stale grants come back)", async () => {
+  store.addRole({ roleId: 6, name: "Tutor", permissions: ["results.view"] });
+  store.addAccount({ username: "t", roleId: 6, category: "Tutor" });
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const real = store.findAccount;
+  const spy = jest.spyOn(store, "findAccount").mockImplementationOnce(async (...a) => {
+    const row = await real(...a);
+    await gate; // still loading the old row...
+    return row;
+  });
+  const slow = resolveAccess({ category: "Tutor", username: "t" });
+  // ...when the Administrator moves the login to Accountant
+  store.addAccount({ username: "t", roleId: 3, category: "Accountant" });
+  clearAccessCache({ username: "t" });
+  release();
+  expect((await slow).roleName).toBe("Tutor"); // that request already started
+  expect((await resolveAccess({ category: "Tutor", username: "t" })).roleName).toBe("Accountant"); // nothing stale cached
+  spy.mockRestore();
 });
 
 it("the account row wins over the token; an archived account gets nothing", async () => {

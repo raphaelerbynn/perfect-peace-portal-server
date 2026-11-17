@@ -244,3 +244,9 @@ export const systemRoleByName = (name) => SYSTEM_ROLES.find((r) => r.name === na
 export const permissionsOf = (user) => (user?.permissions instanceof Set ? user.permissions : null);
 export const hasPermission = (user, key) => !!permissionsOf(user)?.has(key);
 export const hasAnyPermission = (user, keys) => keys.some((k) => hasPermission(user, k));
+
+// B10 review: which teacher a class is linked to is what limits a login
+// without academics.all_classes to "its own class", so only a holder of
+// academics.all_classes may change that link. `actor` undefined = an internal
+// call (no request); every request passes req.user.
+export const mayRelinkClasses = (actor) => actor === undefined || hasPermission(actor, P.ALL_CLASSES);
