@@ -1,8 +1,9 @@
 import { Op } from "sequelize";
-import { AcademicYear, Class, ClassFee, CreditNote, Fee, Student, StudentFee, StudentTermBill, Term } from "../models/index.js";
+import { AcademicYear, Class, CreditNote, Fee, Student, StudentTermBill, Term } from "../models/index.js";
 import { AppError } from "../utils/errorHandling.js";
 import { round2, sumMoney, toNum } from "../utils/money.js";
 import { computeDiscounts, discountsForTerm } from "./feeBill.js";
+import { periodItems } from "./classFeeShare.js";
 
 // ---------------------------------------------------------------------------
 // B12: a pupil's fee statement, term by term:
@@ -117,12 +118,8 @@ export const getStatement = async (studentId) => {
   });
 
   // The current period, live.
-  const classFees = pupil.classId != null ? await ClassFee.findAll({ where: { classId: pupil.classId }, attributes: ["name", "amount"], raw: true }) : [];
-  const studentFees = await StudentFee.findAll({ where: { studentId: id }, attributes: ["name", "amount"], raw: true });
-  const items = [
-    ...classFees.map((f) => ({ name: f.name, amount: round2(f.amount), source: "CLASS" })),
-    ...studentFees.map((f) => ({ name: f.name, amount: round2(f.amount), source: "PUPIL" })),
-  ];
+  // B12 (048): a YEAR class fee is the period's term's share, labelled.
+  const { items } = await periodItems(pupil);
   const disc =
     pupil.feesPeriodTermId != null
       ? (await discountsForTerm([id], pupil.feesPeriodTermId)).get(id) || []

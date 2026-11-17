@@ -1,10 +1,11 @@
-import { Class, ClassFee, Fee, FeeCheck, Student, StudentFee, Term } from "../models/index.js";
+import { Class, Fee, FeeCheck, Student, Term } from "../models/index.js";
 import { Op } from "sequelize";
 import sequelize from "../config/database.js";
 import { AppError } from "../utils/errorHandling.js";
 import { isPesewaAmount, round2, sumMoney } from "../utils/money.js";
 import { computeDiscounts, discountsForTerm } from "./feeBill.js";
 import { periodCredits, recalcStudentInvoices } from "./invoiceLedger.js";
+import { periodItems } from "./classFeeShare.js";
 
 // BE-1: a payment amount must be a finite number > 0. (Mirrors
 // studentFees.validateAmount; defined locally to avoid a circular import.)
@@ -47,6 +48,8 @@ const ensureStudentExists = async (studentId, transaction = null) => {
 //
 // FEE PERIODS (migration 008): balances carry over from the live system.
 //   bill            = sum(ClassFee for the pupil's current class) + sum(StudentFee)
+//                     (B12/048: a YEAR class fee counts as the share of the
+//                     period's term, services/classFeeShare.js)
 //   paidInPeriod    = non-reversed payments with fee_id > feesPeriodAfterFeeId
 //   feesOwing       = feesOpeningBalance + (bill - feesBillAtStart) - paidInPeriod
 //                     (below 0 = the pupil is in credit; live has such pupils,
@@ -78,11 +81,8 @@ export const recomputeStudentOwing = async (studentId, { transaction = null } = 
 
   const after = Number(student.feesPeriodAfterFeeId) || 0;
   // One query at a time: inside a transaction they share one connection.
-  const classFees =
-    student.classId != null
-      ? await ClassFee.findAll({ where: { classId: student.classId }, attributes: ["name", "amount"], raw: true, transaction })
-      : [];
-  const studentFees = await StudentFee.findAll({ where: { studentId }, attributes: ["name", "amount"], raw: true, transaction });
+  // B12 (048): a YEAR class fee counts as the period's term's share.
+  const { items } = await periodItems(student, { transaction });
   // B12: the pupil's discounts for the term this period bills.
   const discounts =
     student.feesPeriodTermId != null
@@ -92,7 +92,7 @@ export const recomputeStudentOwing = async (studentId, { transaction = null } = 
   const fees = await Fee.findAll({ where: { studentId, reversedAt: null, feeId: { [Op.gt]: after } }, attributes: ["paid"], raw: true, transaction });
 
   // Summed to the pesewa (amounts can have decimals since migration 012).
-  const billed = computeDiscounts([...classFees, ...studentFees], discounts).net;
+  const billed = computeDiscounts(items, discounts).net;
   const paidInPeriod = sumMoney(fees, "paid");
   const opening = Number(student.feesOpeningBalance) || 0;
   const billAtStart = Number(student.feesBillAtStart) || 0;

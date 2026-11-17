@@ -4,6 +4,7 @@ import { AppError } from "../utils/errorHandling.js";
 import { round2, sumMoney, toNum } from "../utils/money.js";
 import { recomputeStudentOwing, startFeePeriod } from "./fee.js";
 import { computeDiscounts, discountsForTerm, termKey } from "./feeBill.js";
+import { CLASS_FEE_ATTRS, classFeeItems, freezeYearShares, itemsForTerm } from "./classFeeShare.js";
 
 // ---------------------------------------------------------------------------
 // B12: "Bill this term" = per-term billing + arrears carry-forward, built on
@@ -116,7 +117,7 @@ export const termsSkipped = (periodTerm, term, terms) => {
   return terms.filter((t) => t.startDate && termKey(t) > lo && termKey(t) < hi).sort((a, b) => (termKey(a) < termKey(b) ? -1 : 1));
 };
 
-const TERM_ATTRS = ["termId", "term", "startDate", "active", "promotedByOldSystem"];
+const TERM_ATTRS = ["termId", "term", "startDate", "active", "promotedByOldSystem", "academicYearId"];
 
 /** Everything about the terms a plan needs (loaded once per preview / bill). */
 const loadTermContext = async ({ transaction = null } = {}) => {
@@ -125,6 +126,9 @@ const loadTermContext = async ({ transaction = null } = {}) => {
   const oldSystem = terms.filter((t) => t.promotedByOldSystem).sort((a, b) => (termKey(a) < termKey(b) ? 1 : -1))[0] || null;
   return { terms, byId, oldSystem };
 };
+
+/** The class items an unclaimed period carries now, in the order of `items`' class items. */
+const classFeesOnNow = (untiedItems, items) => [...untiedItems, ...items.filter((i) => i.source !== "CLASS")];
 
 const later = (a, b) => (!a ? b : !b ? a : termKey(a) >= termKey(b) ? a : b);
 
@@ -162,7 +166,11 @@ const planClass = async (term, classId, ctx, { transaction = null, lock = false 
     const t = ctx.byId.get(Number(pr.termId));
     promotedOn.set(Number(pr.studentId), later(promotedOn.get(Number(pr.studentId)), t));
   }
-  const classFees = await ClassFee.findAll({ where: { classId }, attributes: ["name", "amount"], raw: true, transaction });
+  const classFees = await ClassFee.findAll({ where: { classId }, attributes: CLASS_FEE_ATTRS, raw: true, transaction });
+  // B12 (048): the class's items for T (a YEAR item = T's share), and for a
+  // period no term has claimed yet (what an ADOPTED pupil has on now).
+  const classItems = classFeeItems(classFees, term, ctx.terms);
+  const untiedItems = classFeeItems(classFees, null);
   const studentFees = ids.length
     ? await StudentFee.findAll({ where: { studentId: ids }, attributes: ["studentId", "name", "amount"], raw: true, transaction })
     : [];
@@ -174,7 +182,7 @@ const planClass = async (term, classId, ctx, { transaction = null, lock = false 
     const { action, reason } = classifyPupil(p, term, periodTerm, klass, { billedForT: billedForT.has(Number(p.studentId)), anchorTerm });
     const missed = action === "NEW" ? termsSkipped(periodTerm, term, ctx.terms) : [];
     const items = [
-      ...classFees.map((f) => ({ name: f.name, amount: round2(f.amount), source: "CLASS" })),
+      ...classItems,
       ...studentFees.filter((f) => Number(f.studentId) === Number(p.studentId)).map((f) => ({ name: f.name, amount: round2(f.amount), source: "PUPIL" })),
     ];
     const d = computeDiscounts(items, discounts.get(Number(p.studentId)) || []);
@@ -188,7 +196,10 @@ const planClass = async (term, classId, ctx, { transaction = null, lock = false 
       // What was owed before the bill on the period: an old-system period's
       // opening balance already includes its bill (fees_bill_at_start).
       arrears = round2(toNum(p.feesOpeningBalance) - toNum(p.feesBillAtStart));
-      projected = round2(owing - d.discount); // the bill is already on; discounts come off
+      // The bill is already on; discounts come off. A YEAR item's share moves
+      // from the first share (what an unclaimed period carries) to T's share.
+      const onNow = sumMoney(classFeesOnNow(untiedItems, items), "amount");
+      projected = round2(owing - d.discount + (d.gross - onNow));
     }
     return {
       studentId: p.studentId,
@@ -226,6 +237,8 @@ const planClass = async (term, classId, ctx, { transaction = null, lock = false 
     : null;
   return {
     class: klass,
+    classFees,
+    classItems,
     rows,
     summary: {
       classId: klass.classId,
@@ -336,6 +349,12 @@ export const billClassForTerm = async ({ termId, classId, expectedCount, expecte
       throw err;
     }
 
+    // B12 (048): keep each YEAR item's share for T on the item, so a later
+    // change of the yearly amount never re-bills T.
+    if (plan.rows.some((r) => r.action === "NEW" || r.action === "ADOPT")) {
+      await freezeYearShares(plan.classFees, plan.classItems, term, { transaction });
+    }
+
     let billed = 0;
     let adopted = 0;
     let total = 0;
@@ -384,7 +403,7 @@ export const billClassForTerm = async ({ termId, classId, expectedCount, expecte
  * takes it over (ADOPT). Recomputes the balance either way.
  */
 export const tieAdmissionToOpenTerm = async (studentId, { transaction = null, billedBy = null } = {}) => {
-  const open = await Term.findOne({ where: { active: true }, attributes: ["termId"], order: [["startDate", "DESC"]], raw: true, transaction });
+  const open = await Term.findOne({ where: { active: true }, attributes: ["termId", "term", "startDate", "academicYearId"], order: [["startDate", "DESC"]], raw: true, transaction });
   await Student.update(
     { feesPeriodStartedAt: new Date(), feesPeriodTermId: open ? open.termId : null },
     { where: { studentId }, transaction }
@@ -397,10 +416,12 @@ export const tieAdmissionToOpenTerm = async (studentId, { transaction = null, bi
     raw: true,
     transaction,
   });
-  const classFees = p.classId != null ? await ClassFee.findAll({ where: { classId: p.classId }, attributes: ["name", "amount"], raw: true, transaction }) : [];
+  const classFees = p.classId != null ? await ClassFee.findAll({ where: { classId: p.classId }, attributes: CLASS_FEE_ATTRS, raw: true, transaction }) : [];
+  const classItems = await itemsForTerm(classFees, open, { transaction });
+  await freezeYearShares(classFees, classItems, open, { transaction });
   const studentFees = await StudentFee.findAll({ where: { studentId }, attributes: ["name", "amount"], raw: true, transaction });
   const items = [
-    ...classFees.map((f) => ({ name: f.name, amount: round2(f.amount), source: "CLASS" })),
+    ...classItems,
     ...studentFees.map((f) => ({ name: f.name, amount: round2(f.amount), source: "PUPIL" })),
   ];
   const d = computeDiscounts(items, (await discountsForTerm([studentId], open.termId, { transaction })).get(Number(studentId)) || []);

@@ -1,4 +1,5 @@
 import { Class, ClassFee, Parent, Student, StudentFee, Teacher } from "../models/index.js";
+import { applyPupilShares } from "./classFeeShare.js";
 import { Op } from "sequelize";
 import sequelize from "../config/database.js";
 import { isValidPhoneNumber, calculateAge } from "../utils/func.js";
@@ -260,6 +261,8 @@ export const getStudents = async (options = {}) => {
             const key = g === "male" || g === "female" ? g : "other";
             genderCounts[key] += Number(n) || 0;
         }
+        // B12 (048): a yearly class fee shows as the pupil's term share.
+        if (!liteRequested) await applyPupilShares(rows);
         return {
             students: addAge(rows),
             total,
@@ -271,6 +274,7 @@ export const getStudents = async (options = {}) => {
     }
 
     const students = plain(await Student.findAll(queryOptions));
+    if (!liteRequested) await applyPupilShares(students);
     return addAge(students);
 };
 
