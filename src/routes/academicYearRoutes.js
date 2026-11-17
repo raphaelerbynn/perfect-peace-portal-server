@@ -11,13 +11,14 @@ import {
   removeTerm,
 } from "../controllers/academicYearController.js";
 import { authorizeRoles } from "../utils/middlewares.js";
+import { OFFICE_ROLES } from "../utils/roles.js";
 
 // B7: academic years and the terms in them. Mounted in src/index.js behind
 // authenticateManagementUser (management tokens only). Reading is open to every
 // office role (term pickers show the year); changing is Administrator only,
 // like the existing term settings.
 const ADMIN_ONLY = authorizeRoles("Administrator");
-const ALL_ROLES = authorizeRoles("Administrator", "Class Teacher", "Accountant");
+const ALL_ROLES = authorizeRoles(...OFFICE_ROLES); // B10: Head Teacher reads, never changes
 
 const router = Router();
 

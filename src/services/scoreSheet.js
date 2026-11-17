@@ -1,6 +1,7 @@
 import { StudentMarks, Subject } from "../models/index.js";
 import { AppError } from "../utils/errorHandling.js";
 import { assertClassAccess, assertClassWrite } from "./attendance.js";
+import { isSchoolWideAcademic } from "../utils/roles.js";
 import { bandsForSection } from "./grading.js";
 import { saveClassSubjectScores } from "./results.js";
 import { requireActiveTerm } from "./term.js";
@@ -46,7 +47,7 @@ export const staleRows = (scores, marks, roster) => {
 
 const sheetContext = async (user, { classId, subjectId }) => {
   const klass = await loadClass(classId);
-  if (user?.category !== "Administrator") {
+  if (!isSchoolWideAcademic(user)) {
     try {
       await assertClassAccess(user, klass.name);
     } catch {

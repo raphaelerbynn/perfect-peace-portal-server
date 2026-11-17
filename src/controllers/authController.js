@@ -17,6 +17,7 @@ import { getStaffForSignup } from "../services/staff.js";
 import { JWT_SECRET, JWT_ALGORITHM } from "../config/auth.js";
 import { issueResetCode, verifyResetCode } from "../services/resetCode.js";
 import { AppError } from "../utils/errorHandling.js";
+import { ASSIGNABLE_ROLES } from "../utils/roles.js";
 import {
   parseIndexNumber,
   assertRequiredString,
@@ -24,9 +25,9 @@ import {
   assertEmail,
 } from "../utils/validate.js";
 
-// Categories a user is allowed to self-register (BE-A8). Administrator and
-// anything else must be provisioned by an existing admin, never self-signup.
-const SELF_SIGNUP_CATEGORIES = ["Class Teacher", "Accountant"];
+// Categories an Administrator may give a new office login (BE-A8; B10 adds
+// Head Teacher). Administrator logins come from the seed script only.
+const SELF_SIGNUP_CATEGORIES = ASSIGNABLE_ROLES;
 
 // Discriminator stored alongside the reset code for management accounts.
 const MANAGEMENT_USER_TYPE = "MANAGEMENT";

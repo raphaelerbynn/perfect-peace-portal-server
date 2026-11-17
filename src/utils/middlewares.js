@@ -59,17 +59,22 @@ const authenticateManagementUser = makeAuthenticator({ requireManagement: true }
 // Role-based authorization. Must run AFTER an authenticator that populates
 // req.user. Returns 403 (not 401) when the authenticated user's category is
 // not in the allow-list.
-const authorizeRoles = (...allowedCategories) => (req, res, next) => {
-    try {
-        const category = req.user?.category;
-        if (!category || !allowedCategories.includes(category)) {
-            res.status(403);
-            throw Error("You do not have permission to perform this action");
+const authorizeRoles = (...allowedCategories) => {
+    const gate = (req, res, next) => {
+        try {
+            const category = req.user?.category;
+            if (!category || !allowedCategories.includes(category)) {
+                res.status(403);
+                throw Error("You do not have permission to perform this action");
+            }
+            next();
+        } catch (err) {
+            next(err);
         }
-        next();
-    } catch (err) {
-        next(err);
-    }
+    };
+    // B10: the allow-list, readable by the router-walk access test.
+    gate.allowedRoles = [...allowedCategories];
+    return gate;
 };
 
 export {

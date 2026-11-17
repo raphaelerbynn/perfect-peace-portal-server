@@ -19,6 +19,7 @@ jest.mock("../services/posts.js", () => {
   return {
     __esModule: true,
     isAdmin: real.isAdmin,
+    isNewsManager: real.isNewsManager,
     isClassTeacher: real.isClassTeacher,
     viewerFromUser: jest.fn(viewer),
     listPosts: echo("listPosts"),

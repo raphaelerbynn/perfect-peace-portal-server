@@ -109,6 +109,7 @@ import { getDashboardSummary, getStudentsOwing } from "../services/dashboard.js"
 import { composeMessage, transformReturningKGResult } from "../utils/func.js";
 import { absentee_template, present_template } from "../utils/messageTemplates.js";
 import { AppError } from "../utils/errorHandling.js";
+import { isClassTeacher, isSchoolWideAcademic } from "../utils/roles.js";
 import { Student } from "../models/index.js";
 
 // BE-15: upper bound on bulk result payloads. A single student's report card
@@ -134,7 +135,7 @@ const fetchStudentsOwing = async (req, res, next) => {
     let data = await getStudentsOwing({ include: req.query.include });
     // Security review: a Class Teacher login sees only its own class's pupils
     // (fees are otherwise hidden from Class Teachers).
-    if (req.user?.category === "Class Teacher") {
+    if (isClassTeacher(req.user)) {
       const own = String((await getTeacherClassName(req.user)) ?? "").trim().toLowerCase();
       data = data.filter((r) => own && String(r.class ?? "").trim().toLowerCase() === own);
     }
@@ -519,7 +520,7 @@ const fetchTotalStudentAttendance = async (req, res, next) => {
   const values = req.query;
   try {
     // Security review: a Class Teacher only for pupils in their own class.
-    if (req.user?.category && req.user.category !== "Administrator") {
+    if (req.user?.category && !isSchoolWideAcademic(req.user)) {
       const pupil = await Student.findOne({ where: { studentId: values.studentId }, attributes: ["class"], raw: true });
       if (!pupil) throw new AppError("Student not found", 404);
       await assertClassAccess(req.user, pupil.class);
@@ -1300,9 +1301,9 @@ const fetchNews = async (req, res, next) => {
   try {
     // BE-20: pagination is opt-in via query params; no params => unchanged.
     const { page, limit } = req.query;
-    // B15: only an Administrator gets every row. Portal pupils/teachers get the
+    // B15: only an Administrator (B10: or Head Teacher) gets every row. Portal pupils/teachers get the
     // published posts they may see; other office roles also their own drafts.
-    const viewer = req.user?.category === "Administrator" ? null : await viewerFromUser(req.user);
+    const viewer = isSchoolWideAcademic(req.user) ? null : await viewerFromUser(req.user);
     const data = await getNews({ page, limit, viewer });
     res.json(data);
   } catch (error) {

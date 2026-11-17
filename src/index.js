@@ -9,6 +9,7 @@ import { portalRouter } from "./routes/portalRoutes.js";
 import { teacherRouter } from "./routes/teacherRoutes.js";
 import { errorHandler } from "./utils/errorHandling.js";
 import { authenticateManagementUser, authorizeRoles, undefinedEndpoint } from "./utils/middlewares.js";
+import { ACCOUNTANT, ADMINISTRATOR } from "./utils/roles.js";
 import dotenv from "dotenv";
 import cors from "cors";
 import sequelize from "./config/database.js";
@@ -179,10 +180,10 @@ app.use("/", authenticateManagementUser, academicReportRouter);
 // B14: invoices and credit notes (roles per route).
 app.use("/", authenticateManagementUser, invoiceRouter);
 // Accounting/Fees domain: hidden for Class Teacher (Administrator + Accountant only).
-app.use("/", authenticateManagementUser, authorizeRoles("Administrator", "Accountant"), accountRouter);
+app.use("/", authenticateManagementUser, authorizeRoles(ADMINISTRATOR, ACCOUNTANT), accountRouter);
 
 // Messaging (SMS): Administrator only.
-app.use("/communication", authenticateManagementUser, authorizeRoles("Administrator"), communicationRouter);
+app.use("/communication", authenticateManagementUser, authorizeRoles(ADMINISTRATOR), communicationRouter);
 
 // BE-23: debug routes `/test` (dumped student list unauthenticated) and
 // `/requestCount` have been removed.
