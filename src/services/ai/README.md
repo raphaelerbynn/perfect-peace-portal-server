@@ -51,10 +51,11 @@ All four must be true, checked in this order by `requireAiFeature` and again by 
    | `ASK` | Administrator, Accountant (AI-1 limits the Accountant to finance tools) | – |
    | `PAPERS` | Administrator | `STAFF` (teachers) |
    | `BRIEFING`, `ANNOUNCEMENTS` | Administrator | – |
-   | `REMARKS`, `AT_RISK`, `EXPLAIN`, `DOCUMENTS` | Administrator (switched off, not built) | – |
+   | `AT_RISK` | Administrator, Class Teacher (AI-4 limits the Class Teacher to their own class) | – |
+   | `REMARKS`, `EXPLAIN`, `DOCUMENTS` | Administrator (switched off, not built) | – |
 2. **Server**: `AI_ENABLED=true` and `GEMINI_API_KEY` set (reason `SERVER_OFF` / `NO_KEY`).
 3. **School**: Settings → AI master switch (`SCHOOL_OFF`). Starts off.
-4. **Feature**: its switch (`FEATURE_OFF`). The four built features default on, the rest off.
+4. **Feature**: its switch (`FEATURE_OFF`). The built features (ASK, PAPERS, BRIEFING, ANNOUNCEMENTS, AT_RISK) default on, the rest off.
 
 Then the **budget**: this calendar month's (UTC = Ghana time) `SUM(cost_ghs)` must be below the
 cap (`Ai_settings.monthly_cap_ghs`, or `AI_MONTHLY_BUDGET_GHS` when empty). At or over → 429
@@ -272,3 +273,31 @@ one-minute timer, started in `src/index.js`, not in tests or with AI off). Promp
 WhatsApp driver `src/services/whatsapp.js`. Routes `src/routes/briefingRoutes.js` (`/ai/briefings*`,
 Administrator). Migration 046. A briefing is not a draft (`Ai_briefing`, not `Ai_suggestion`): nothing is sent
 to parents, it is read by the head teacher, and every figure is computed, not written by the model.
+
+## AI-4 Pupils-at-risk watchlist (built on this)
+
+`src/services/atRisk/`: `signals.js` (the reasons' maths, risk score and level, order, fingerprint,
+dismissed/handled rule; pure), `data.js` (the SQL: roster, this term's marks, last term's averages,
+attendance with the closed-term roll-up, the last 15 registers), `service.js` (scope, the list, the AI
+notes via `runJson` + `notesProblem` (AI-5's `unsupportedFigures` per pupil), the status marks). Prompt
+`prompts/atRisk.js`. Routes `src/routes/atRiskRoutes.js`. Migration 049 (`Ai_watchlist_entry`, one row per
+pupil per term once someone acts). Tests: `atRiskSignals`, `atRiskWatchlist`.
+
+- **The list never needs AI.** `GET /ai/watchlist` computes it on every read (Administrator: school-wide or
+  `?classId`; Class Teacher: own class only, another class is a 403) and reports `ai: { available, reason }`
+  for the button. Reasons and lines: attendance under 90% after 10 marked days; away 3+ marked days in a row
+  (open term); average subject score down 5+ points on the previous term (3+ subjects both terms); 2+
+  subjects under the pass mark (B8 scale's first non-fail band, else 50); fees owing at or over the
+  briefing's owing line (GH₵ 100), open term. KG: attendance and fees only. Score = 3/point of average lost
+  + 2/attendance point under the line + 4/subject failed + 3/day away in a row + 4 for fees; HIGH at 24 or 3
+  reasons, MEDIUM at 12 or 2 reasons.
+- **Notes are not drafts.** `POST /ai/watchlist/notes` (`requireAiFeature("AT_RISK")`) writes "why flagged,
+  suggested next step" for up to 12 pupils without a note for their current figures (first names only, no
+  ids). Stored on `Ai_watchlist_entry` with a fingerprint of the reasons and figures, so a note is hidden
+  when the figures move and is never paid for twice. The watchlist is staff-only (the head teacher and the
+  pupil's own class teacher) and nothing from it reaches parents or the record, so there is no approve step;
+  the page labels each note "Written by AI".
+- **Marks:** `PUT /ai/watchlist/:studentId/status` `{ termId?, status: OPEN|HANDLING|DISMISSED, note? }` with
+  who and when. A dismissed pupil comes back on the open list when a NEW reason appears.
+- A "Head Teacher" office role is coming on another branch: add it to `WATCHLIST_ROLES` (service.js) and the
+  `AT_RISK` row of the role table when it lands.

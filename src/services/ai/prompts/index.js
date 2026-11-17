@@ -10,3 +10,5 @@ import "./ask.js";
 import "./questionPaper.js";
 // AI-5
 export { BRIEFING_PROMPT, BRIEFING_LENGTHS, briefingOutputSchema } from "./briefing.js";
+// AI-4
+export { AT_RISK_PROMPT, AT_RISK_LENGTHS, atRiskOutputSchema } from "./atRisk.js";
