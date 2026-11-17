@@ -8,8 +8,7 @@ import { fileRouter } from "./routes/fileRoutes.js";
 import { portalRouter } from "./routes/portalRoutes.js";
 import { teacherRouter } from "./routes/teacherRoutes.js";
 import { errorHandler } from "./utils/errorHandling.js";
-import { authenticateManagementUser, authorizeRoles, undefinedEndpoint } from "./utils/middlewares.js";
-import { ACCOUNTANT, ADMINISTRATOR } from "./utils/roles.js";
+import { authenticateManagementUser, undefinedEndpoint } from "./utils/middlewares.js";
 import dotenv from "dotenv";
 import cors from "cors";
 import sequelize from "./config/database.js";
@@ -26,6 +25,8 @@ import { academicReportRouter } from "./routes/academicReportRoutes.js"; // B11
 import { notificationRouter } from "./routes/notificationRoutes.js";
 // B14
 import { invoicePortalRouter, invoiceRouter } from "./routes/invoiceRoutes.js";
+// B10
+import { roleRouter } from "./routes/roleRoutes.js";
 
 dotenv.config();
 const app = express();
@@ -163,9 +164,12 @@ app.use("/", teacherRouter);
 app.use("/portal/invoices", invoicePortalRouter);
 
 // --- Management (admin portal) routers: token required at mount time ---
+// B10: authenticateManagementUser loads the login's role and permissions from
+// the database; every route below checks a permission (requirePermission),
+// never a role name. src/__tests__/roleAccess.test.js walks them all.
 // NOTE: the standalone unauthenticated `app.get("/staff", fetchAllStaff)` route
 // was removed previously — it leaked all staff records. The authenticated,
-// Administrator-only `/staff` route is wired into generalRouter below.
+// authenticated `/staff` route (staff.view) is wired into generalRouter below.
 app.use("/", authenticateManagementUser, generalRouter);
 // B7: academic years (reads: all office roles; changes: Administrator).
 app.use("/", authenticateManagementUser, academicYearRouter);
@@ -173,17 +177,19 @@ app.use("/", authenticateManagementUser, academicYearRouter);
 app.use("/", authenticateManagementUser, feeBillingRouter);
 // B17: pupil / staff photos and documents (office tokens, role + class scoped).
 app.use("/", authenticateManagementUser, mediaRouter);
-// B9: staff attendance (Administrator).
+// B9: staff attendance.
 app.use("/", authenticateManagementUser, staffAttendanceRouter);
-// B11: academic reports (school-wide: Administrator; one class: + its Class Teacher).
+// B11: academic reports (school-wide, or one class: own class without academics.all_classes).
 app.use("/", authenticateManagementUser, academicReportRouter);
 // B14: invoices and credit notes (roles per route).
 app.use("/", authenticateManagementUser, invoiceRouter);
-// Accounting/Fees domain: hidden for Class Teacher (Administrator + Accountant only).
-app.use("/", authenticateManagementUser, authorizeRoles(ADMINISTRATOR, ACCOUNTANT), accountRouter);
+// B10: roles and permissions, office logins' roles, the caller's own access.
+app.use("/", authenticateManagementUser, roleRouter);
+// Accounting (income, expenses): accounting.view / accounting.manage per route.
+app.use("/", authenticateManagementUser, accountRouter);
 
-// Messaging (SMS): Administrator only.
-app.use("/communication", authenticateManagementUser, authorizeRoles(ADMINISTRATOR), communicationRouter);
+// Messaging (SMS): sms.send.
+app.use("/communication", authenticateManagementUser, communicationRouter);
 
 // BE-23: debug routes `/test` (dumped student list unauthenticated) and
 // `/requestCount` have been removed.

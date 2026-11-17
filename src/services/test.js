@@ -1,6 +1,5 @@
 import { Class, ClassFee, Parent, Student, StudentFee, Teacher } from "../models/index.js";
 import { Op } from "sequelize";
-import { CLASS_TEACHER } from "../utils/roles.js";
 import sequelize from "../config/database.js";
 import { isValidPhoneNumber, calculateAge } from "../utils/func.js";
 import { AppError } from "../utils/errorHandling.js";
@@ -54,7 +53,7 @@ export const getStudents = async (options = {}) => {
     // classId from the Teacher row and FORCE it, ignoring any client-supplied
     // classId/className. If they have no class assigned, return empty (no throw).
     let scopedToEmpty = false;
-    if (requester?.role === CLASS_TEACHER) {
+    if (requester?.ownClassOnly) {
         // The class record names its teacher (Class.teacher_id); live keeps the
         // link there, Teacher.class_id is empty for most staff. Fall back to it.
         const klass = requester.teacherId

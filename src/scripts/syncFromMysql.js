@@ -57,6 +57,7 @@ import {
   NEW_SYSTEM_ACTIVITY,
   REBASE_STUDENTS_SQL,
   TERM_PROMOTED_SQL,
+  LOGIN_ROLE_SQL,
   TERM_YEAR_SQLS,
   activityProblems,
   candidatesSql,
@@ -299,6 +300,8 @@ const afterRows = async (transaction, result) => {
   derived.paymentTermsSet = (await run(FEE_TERM_SQL, transaction, { ids: feeIds.length ? feeIds : [-1] })).length;
 
   derived.termsMarkedPromotedByOldSystem = (await run(TERM_PROMOTED_SQL, transaction)).length;
+  // 050: logins on a system role follow live's category.
+  derived.loginRolesSet = (await run(LOGIN_ROLE_SQL, transaction)).length;
   for (const sql of TERM_YEAR_SQLS) await run(sql, transaction);
 
   const marks = tableResult(result, "Student_marks");

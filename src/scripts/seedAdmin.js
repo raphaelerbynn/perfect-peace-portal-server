@@ -17,6 +17,7 @@ import { UserAccount } from "../models/index.js";
 
 const ROUNDS = 10;
 const ADMIN_CATEGORY = "Administrator";
+const ADMIN_ROLE_ID = 1; // B10: the Administrator system role (migration 050)
 
 const run = async () => {
   const username = process.env.ADMIN_USERNAME || "admin";
@@ -40,6 +41,7 @@ const run = async () => {
   if (existing) {
     existing.password = hash;
     existing.category = ADMIN_CATEGORY;
+    existing.roleId = ADMIN_ROLE_ID;
     existing.email = email || existing.email;
     existing.name = name || existing.name;
     existing.isDeleted = false;
@@ -51,6 +53,7 @@ const run = async () => {
       name,
       email,
       category: ADMIN_CATEGORY,
+      roleId: ADMIN_ROLE_ID,
       password: hash,
       teacherId: null,
     });

@@ -21,7 +21,7 @@
 //   { type: "STAFF", id, name }
 //   { type: "STUDENT", id, classId, name }
 import { Op, UniqueConstraintError, fn, col, literal } from "sequelize";
-import { ADMINISTRATOR, CLASS_TEACHER, HEAD_TEACHER } from "../utils/roles.js";
+import { P } from "../utils/permissions.js";
 import sequelize from "../config/database.js";
 import { Class, Event, PollOption, PollVote, PostComment, PostLike, Student, Teacher } from "../models/index.js";
 import { AppError } from "../utils/errorHandling.js";
@@ -40,11 +40,16 @@ const MONTH_RE = /^(\d{4})-(\d{2})$/;
 const notFound = () => new AppError("Post not found", 404);
 
 // ------------------------------------------------------------------ viewer
-export const isAdmin = (v) => v?.type === "OFFICE" && v.category === ADMINISTRATOR;
-export const isClassTeacher = (v) => v?.type === "OFFICE" && v.category === CLASS_TEACHER;
-// B10: who runs the news feed school-wide (any post, pin, hide comments,
-// drafts): the Administrator and the Head Teacher.
-export const isNewsManager = (v) => v?.type === "OFFICE" && (v.category === ADMINISTRATOR || v.category === HEAD_TEACHER);
+// B10: by permission (the office viewer carries its role's permissions).
+const holds = (v, key) => v?.type === "OFFICE" && v.permissions instanceof Set && v.permissions.has(key);
+// news.manage: runs the feed school-wide (any post, pin, hide comments, every
+// draft). The Administrator.
+export const isNewsManager = (v) => holds(v, P.NEWS_MANAGE);
+// news.post without news.manage: writes posts and manages only their own (own
+// drafts too). The Class Teacher.
+export const isPoster = (v) => holds(v, P.NEWS_POST) && !isNewsManager(v);
+// ...and only to the class linked to the login, unless academics.all_classes.
+export const postsToOwnClassOnly = (v) => isPoster(v) && !holds(v, P.ALL_CLASSES);
 const isStaffViewer = (v) => v?.type === "OFFICE" || v?.type === "STAFF";
 
 export const actorOf = (v) => ({
@@ -57,7 +62,18 @@ export const actorOf = (v) => ({
 export const viewerFromUser = async (user) => {
   if (user?.category) {
     if (!user.username) throw new AppError("You do not have permission to perform this action", 403);
-    return { type: "OFFICE", category: user.category, username: String(user.username), teacherId: user.teacherId ?? null };
+    // B10: an office login reads the feed with news.view (archived: none).
+    if (!(user.permissions instanceof Set) || !user.permissions.has(P.NEWS_VIEW)) {
+      throw new AppError("You do not have permission to perform this action", 403);
+    }
+    return {
+      type: "OFFICE",
+      category: user.category,
+      username: String(user.username),
+      teacherId: user.teacherId ?? null,
+      // Loaded by the authenticator from the login's role (never the token).
+      permissions: user.permissions instanceof Set ? user.permissions : new Set(),
+    };
   }
   if (user?.userRole === "STU") {
     const s = await Student.findByPk(user.id, { attributes: ["studentId", "classId", "fName", "lName", "isDeleted"], raw: true });
@@ -89,7 +105,7 @@ export const statusAllows = (post, v) => {
   const status = post?.status || "PUBLISHED";
   if (status === "PUBLISHED") return true;
   if (isNewsManager(v)) return true;
-  if (isClassTeacher(v)) return post.createdBy != null && post.createdBy === v.username;
+  if (isPoster(v)) return post.createdBy != null && post.createdBy === v.username;
   return false;
 };
 
@@ -107,12 +123,12 @@ export const visibilityWhere = (v, { publishedOnly = false } = {}) => {
     and.push({ audience: "ALL" });
   }
   if (publishedOnly) and.push({ status: "PUBLISHED" });
-  else if (isClassTeacher(v)) and.push({ [Op.or]: [{ status: "PUBLISHED" }, { createdBy: v.username }] });
+  else if (isPoster(v)) and.push({ [Op.or]: [{ status: "PUBLISHED" }, { createdBy: v.username }] });
   else if (!isNewsManager(v)) and.push({ status: "PUBLISHED" });
   return and;
 };
 
-export const canManage = (post, v) => isNewsManager(v) || (isClassTeacher(v) && !!post?.createdBy && post.createdBy === v.username);
+export const canManage = (post, v) => isNewsManager(v) || (isPoster(v) && !!post?.createdBy && post.createdBy === v.username);
 
 const loadVisible = async (postId, v, opts = {}) => {
   const id = Number(postId);
@@ -219,8 +235,9 @@ export const validatePost = async (body = {}, v, current = null) => {
 
   if (has("commentsEnabled")) out.commentsEnabled = bool(body.commentsEnabled, true);
 
-  // Audience. A Class Teacher always posts to their own class.
-  if (isClassTeacher(v)) {
+  // Audience. A poster without "every class" (a Class Teacher) always posts to
+  // their own class.
+  if (postsToOwnClassOnly(v)) {
     const own = await ownClassId(v);
     if (!own) throw new AppError("You have no class to post to. Ask the administrator.", 403);
     if (current === null || body.audience !== undefined || body.audienceClassIds !== undefined) {
@@ -404,7 +421,7 @@ const saveOptions = async (postId, labels, transaction) => {
 };
 
 export const createPost = async (body, v) => {
-  if (!isNewsManager(v) && !isClassTeacher(v)) throw new AppError("You do not have permission to perform this action", 403);
+  if (!isNewsManager(v) && !isPoster(v)) throw new AppError("You do not have permission to perform this action", 403);
   const { postType, values, options } = await validatePost(body, v, null);
   const status = text(body.status || "PUBLISHED").toUpperCase();
   if (!["DRAFT", "PUBLISHED"].includes(status)) throw new AppError("A new post is a draft or published.", 400);
@@ -462,7 +479,7 @@ export const setStatus = async (postId, status, v) => {
 };
 
 export const setPinned = async (postId, pinned, v) => {
-  if (!isNewsManager(v)) throw new AppError("Only an Administrator or Head Teacher can pin posts.", 403);
+  if (!isNewsManager(v)) throw new AppError("Only a news manager can pin posts.", 403);
   const post = await loadVisible(postId, v);
   const on = bool(pinned, true);
   if (on && post.status !== "PUBLISHED") throw new AppError("Publish the post before pinning it.", 400);
@@ -590,7 +607,7 @@ export const deleteComment = async (postId, commentId, v) => {
 };
 
 export const setCommentHidden = async (postId, commentId, hidden, v) => {
-  if (!isNewsManager(v)) throw new AppError("Only an Administrator or Head Teacher can hide comments.", 403);
+  if (!isNewsManager(v)) throw new AppError("Only a news manager can hide comments.", 403);
   const post = await loadVisible(postId, v);
   const c = await loadComment(post, commentId);
   const hide = bool(hidden, true);

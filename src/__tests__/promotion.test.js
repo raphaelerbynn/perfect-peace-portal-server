@@ -36,6 +36,7 @@ import {
   saveRules,
   validateLadder,
 } from "../services/promotion.js";
+import { officeUser } from "../testSupport/officeUser.js";
 
 // ---------------------------------------------------------------------------
 // pure rules
@@ -378,13 +379,14 @@ describe("getHistory scope", () => {
     StudentPromotion.findAll.mockResolvedValue([]);
   });
   it("Administrator: any pupil", async () => {
-    await getHistory(1, { category: "Administrator" });
+    await getHistory(1, officeUser("Administrator"));
     expect(assertClassAccess).not.toHaveBeenCalled();
   });
   it("Class Teacher: own pupils only", async () => {
     assertClassAccess.mockRejectedValueOnce(new AppError("nope", 403));
-    await expect(getHistory(1, { category: "Class Teacher", teacherId: 9 })).rejects.toMatchObject({ statusCode: 403 });
-    expect(assertClassAccess).toHaveBeenCalledWith({ category: "Class Teacher", teacherId: 9 }, "JHS 1");
+    const ct = officeUser("Class Teacher", { teacherId: 9 });
+    await expect(getHistory(1, ct)).rejects.toMatchObject({ statusCode: 403 });
+    expect(assertClassAccess).toHaveBeenCalledWith(ct, "JHS 1");
   });
 });
 

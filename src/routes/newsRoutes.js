@@ -1,8 +1,7 @@
 import { Router } from "express";
 import * as posts from "../services/posts.js";
 import { sendStoredFile, uploadOne } from "../services/storage.js";
-import { authenticateUser } from "../utils/middlewares.js";
-import { ADMINISTRATOR, CLASS_TEACHER, HEAD_TEACHER } from "../utils/roles.js";
+import { authenticateUser, requirePermission } from "../utils/middlewares.js";
 
 // B15: news feed, polls and the events calendar, for EVERY kind of login
 // (portal pupils and teachers, office logins). Mounted after portalRouter and
@@ -32,15 +31,11 @@ const send = (fn) => async (req, res, next) => {
   }
 };
 
-// The office roles that may write posts; the service narrows Class Teachers to
-// their own class and own posts. B10: the Head Teacher manages news like the
-// Administrator (posts.isNewsManager).
-const writers = (req, res, next) => {
-  if (posts.isNewsManager(req.viewer) || posts.isClassTeacher(req.viewer)) return next();
-  res.status(403);
-  return next(new Error("You do not have permission to perform this action"));
-};
-writers.allowedRoles = [ADMINISTRATOR, CLASS_TEACHER, HEAD_TEACHER]; // for the router-walk access test
+// Who may write posts: news.post or news.manage (B10). The service narrows a
+// poster without news.manage to their own posts, and without
+// academics.all_classes to their own class (posts.postsToOwnClassOnly).
+// authenticateUser (in withViewer) loaded the office login's permissions.
+const writers = requirePermission("news.post", "news.manage");
 
 // Calendar paths first: a plain /events is the old list (generalRouter).
 const isCalendar = (req) => req.query.month !== undefined || req.query.upcoming !== undefined;

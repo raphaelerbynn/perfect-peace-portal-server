@@ -14,8 +14,9 @@ jest.mock("../services/term.js", () => ({ __esModule: true, getTerm: jest.fn() }
 import { Class, Student, Teacher } from "../models/index.js";
 import { getTerm } from "../services/term.js";
 import { assertClassWrite } from "../services/attendance.js";
+import { officeUser } from "../testSupport/officeUser.js";
 
-const ct = { category: "Class Teacher", teacherId: 3 };
+const ct = officeUser("Class Teacher", { teacherId: 3 });
 beforeEach(() => {
   jest.resetAllMocks();
   getTerm.mockResolvedValue({ termId: 5 });
@@ -37,7 +38,7 @@ it("a closed term: 403", async () => {
   await expect(assertClassWrite(ct, "JHS 1", [10], 4)).rejects.toMatchObject({ statusCode: 403, message: expect.stringContaining("open term") });
 });
 it("Administrator: unchanged (no pupil or term check)", async () => {
-  await expect(assertClassWrite({ category: "Administrator" }, "JHS 1", [99], 4)).resolves.toBeUndefined();
+  await expect(assertClassWrite(officeUser("Administrator"), "JHS 1", [99], 4)).resolves.toBeUndefined();
   expect(Student.findAll).not.toHaveBeenCalled();
 });
 

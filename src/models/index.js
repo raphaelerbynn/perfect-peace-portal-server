@@ -36,6 +36,8 @@ import EmailLog from "./EmailLog.js";
 import NotificationSetting from "./NotificationSetting.js";
 import TotalAttendance from "./TotalAttendance.js";
 import UserAccount from "./UserAccount.js";
+import Role from "./Role.js";
+import RolePermission from "./RolePermission.js";
 import Deductions from "./Deductions.js";
 import Term from "./Term.js";
 import Tax from "./Tax.js";
@@ -142,6 +144,11 @@ Student.hasMany(TotalAttendance, {
 });
 
 UserAccount.belongsTo(Teacher, { as: "teacher", foreignKey: "teacherId" });
+// B10 (050): the FKs are added by the migration, by name.
+UserAccount.belongsTo(Role, { as: "role", foreignKey: "roleId", constraints: false });
+Role.hasMany(UserAccount, { as: "accounts", foreignKey: "roleId", constraints: false });
+Role.hasMany(RolePermission, { as: "grants", foreignKey: "roleId", constraints: false });
+RolePermission.belongsTo(Role, { as: "role", foreignKey: "roleId", constraints: false });
 
 // B2: teaching assignments.
 TeachingAssignment.belongsTo(Teacher, { as: "teacher", foreignKey: "teacherId" });
@@ -223,6 +230,8 @@ export {
   GradingScaleSection,
   TotalAttendance,
   UserAccount,
+  Role,
+  RolePermission,
   FeeCheck,
   Deductions,
   Term,

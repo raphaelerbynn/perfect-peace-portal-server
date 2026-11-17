@@ -1,5 +1,5 @@
 import { Op, fn, col, where } from "sequelize";
-import { isClassTeacher } from "../utils/roles.js";
+import { hasPermission, mayRelinkClasses, P } from "../utils/permissions.js";
 import sequelize from "../config/database.js";
 import { Class, ClassFee, Student, TeachingAssignment, Teacher, Term } from "../models/index.js";
 import { AppError } from "../utils/errorHandling.js";
@@ -42,7 +42,9 @@ const assignedClassIds = async (teacherId) => {
 const classes = async (user = null) => {
   const classFeeList = await ClassFee.findAll({ raw: true });
 
-  const scoped = isClassTeacher(user);
+  // B10: an office login without academics.all_classes (a Class Teacher) sees
+  // only its classes; portal callers (no category) and the rest see every class.
+  const scoped = !!user?.category && !hasPermission(user, P.ALL_CLASSES);
   const onlyIds = scoped ? await assignedClassIds(user.teacherId) : null;
   if (scoped && onlyIds.length === 0) return [];
 
@@ -93,7 +95,11 @@ const classes = async (user = null) => {
 // teacher assignment; maintain the two-way Class<->Teacher link in a transaction.
 const MAX_CLASS_NAME = 50;
 
-const createClass = async (data) => {
+const RELINK_REFUSED = "Changing a class's teacher needs “Every class”. Ask the administrator.";
+
+const createClass = async (data, actor) => {
+  // B10 review: a class teacher link needs academics.all_classes.
+  if (data?.teacher_id && !mayRelinkClasses(actor)) throw new AppError(RELINK_REFUSED, 403);
   const name = data?.name?.trim?.();
   if (!name) throw new AppError("Class name is required", 400);
   if (name.length > MAX_CLASS_NAME) throw new AppError(`Keep the class name to ${MAX_CLASS_NAME} characters or fewer`, 400);
@@ -241,7 +247,7 @@ const editClassFee = async (data, id) => {
 
 // BE-V4: rename propagates to the students' denormalized `class` name string;
 // two-way teacher link kept consistent; all in one transaction; 404 if missing.
-const editClass = async (data, id) => {
+const editClass = async (data, id, actor) => {
   return await sequelize.transaction(async (t) => {
     const existingClass = await Class.findOne({
       where: { classId: id },
@@ -250,6 +256,12 @@ const editClass = async (data, id) => {
     if (!existingClass) throw new AppError("Class not found", 404);
 
     const previousTeacherId = existingClass.teacherId || null;
+    // B10 review: the edit writes teacher_id (absent = none); a different
+    // teacher needs academics.all_classes.
+    const nextTeacherId = data?.teacher_id ?? null;
+    if (String(nextTeacherId ?? "") !== String(previousTeacherId ?? "") && !mayRelinkClasses(actor)) {
+      throw new AppError(RELINK_REFUSED, 403);
+    }
     const newName = data?.name?.trim?.() || existingClass.name;
     const nameChanged = newName !== existingClass.name;
     if (newName.length > MAX_CLASS_NAME) throw new AppError(`Keep the class name to ${MAX_CLASS_NAME} characters or fewer`, 400);

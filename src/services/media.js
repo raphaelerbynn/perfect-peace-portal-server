@@ -12,7 +12,7 @@ import sequelize from "../config/database.js";
 import { Document, Student, Teacher } from "../models/index.js";
 import { AppError } from "../utils/errorHandling.js";
 import { assertClassAccess } from "./attendance.js";
-import { isClassTeacher, isSchoolWideAcademic } from "../utils/roles.js";
+import { hasPermission, P } from "../utils/permissions.js";
 import { MIME_FOR_EXT, saveUpload, storage } from "./storage.js";
 
 export const STUDENT_DOC_TYPES = {
@@ -60,11 +60,12 @@ const loadOwner = async (ownerType, id, { transaction, lock } = {}) => {
   return row;
 };
 
-// Office access to one pupil: Administrator / Head Teacher, or that pupil's Class Teacher.
+// Office access to one pupil (the route already checked the permission):
+// every pupil with academics.all_classes, else only the login's own class.
 export const assertStudentAccess = async (user, studentId) => {
   const pupil = await loadOwner("STUDENT", parseId(studentId, "Student"));
-  if (isSchoolWideAcademic(user)) return pupil; // Administrator, Head Teacher (B10)
-  if (!isClassTeacher(user)) throw new AppError("You do not have permission to perform this action", 403);
+  if (hasPermission(user, P.ALL_CLASSES)) return pupil;
+  if (!user?.category) throw new AppError("You do not have permission to perform this action", 403);
   try {
     await assertClassAccess(user, pupil.class);
   } catch (e) {
