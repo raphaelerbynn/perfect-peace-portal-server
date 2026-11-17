@@ -245,6 +245,53 @@ const subjectView = (s) => {
   return { subjectId: Number(s.subjectId), name: s.name, ...config, configured };
 };
 
+// B6: a row may carry `previous: { classScore, examScore }`, the saved scores
+// the page showed when the row was checked (the teacher's Excel upload sends
+// them). If a pupil's saved mark is no longer that, the whole save is refused
+// (409) naming them, so a score changed meanwhile is never overwritten.
+const blankScore = (v) => v == null || String(v).trim() === "";
+const sameScore = (a, b) => (blankScore(a) ? blankScore(b) : !blankScore(b) && Number(a) === Number(b));
+
+/** Pupils whose saved mark is no longer the `previous` their row was based on. */
+const staleRows = (scores, marks, roster) => {
+  const byStudent = new Map(marks.map((m) => [Number(m.studentId), m]));
+  const names = new Map(roster.map((s) => [Number(s.studentId), s.name]));
+  return scores
+    .filter((row) => row.previous && typeof row.previous === "object")
+    .filter((row) => {
+      const m = byStudent.get(Number(row.studentId));
+      return !sameScore(row.previous.classScore, m?.classScore) || !sameScore(row.previous.examScore, m?.examScore);
+    })
+    .map((row) => names.get(Number(row.studentId)) || `STU/${row.studentId}`);
+};
+
+const listNames = (names) =>
+  names.length > 5 ? `${names.slice(0, 5).join(", ")} and ${names.length - 5} more` : names.join(", ");
+
+// The check run first inside the save's transaction (rows locked in pupil-id
+// order, the order every score save writes in), or null when no row has `previous`.
+const staleCheck = ({ scores, roster, model, where }) => {
+  const checked = scores.filter((s) => s.previous && typeof s.previous === "object");
+  if (!checked.length) return null;
+  return async (t) => {
+    const marks = await model.findAll({
+      where: { ...where, studentId: checked.map((s) => Number(s.studentId)) },
+      attributes: ["studentId", "classScore", "examScore"],
+      order: [["studentId", "ASC"]],
+      raw: true,
+      transaction: t,
+      ...(t?.LOCK?.UPDATE && { lock: t.LOCK.UPDATE }),
+    });
+    const stale = staleRows(checked, marks, roster);
+    if (stale.length) {
+      throw new AppError(
+        `Nothing was saved: the scores of ${listNames(stale)} changed after you checked this file. Upload it again to see the new scores.`,
+        409
+      );
+    }
+  };
+};
+
 const scoresContext = async (teacherId, { classId, subjectId }) => {
   const teacher = await loadTeacher(teacherId);
   const term = await requireActiveTerm();
@@ -335,8 +382,9 @@ const getScores = async (teacherId, query) => {
 // One learning area for the class, in one transaction. Same row key and
 // fields as the office's KG result (services/results.js createKGResult):
 // (student, term, class, category, assessment); 50% class + 50% exam.
-const saveKgScores = async ({ klass, term, area, scores }) =>
+const saveKgScores = async ({ klass, term, area, scores, checkBefore = null }) =>
   sequelize.transaction(async (t) => {
+    if (checkBefore) await checkBefore(t);
     let saved = 0;
     for (const row of scores) {
       if (blank(row.classScore) && blank(row.examScore)) continue;
@@ -374,7 +422,13 @@ const saveScores = async (teacherId, { classId, subjectId, scores }) => {
   validateScoreRows(scores, subject.isKg ? subject : subjectView(subject), roster);
 
   if (subject.isKg) {
-    const saved = await saveKgScores({ klass, term, area: subject.name, scores });
+    const checkBefore = staleCheck({
+      scores,
+      roster,
+      model: KgAssessment,
+      where: { class: klass.name, termId: term.termId, category: KG_CATEGORY, assessment: subject.name },
+    });
+    const saved = await saveKgScores({ klass, term, area: subject.name, scores, checkBefore });
     return { saved, sheet: await getScores(teacherId, { classId, subjectId }) };
   }
 
@@ -386,6 +440,12 @@ const saveScores = async (teacherId, { classId, subjectId, scores }) => {
     scores: scores.map((s) => ({ studentId: Number(s.studentId), classScore: s.classScore, examScore: s.examScore })),
     enteredBy: teacher.name,
     enteredByTeacherId: teacher.teacherId,
+    checkBefore: staleCheck({
+      scores,
+      roster,
+      model: StudentMarks,
+      where: { class: klass.name, termId: term.termId, subjectId: subject.subjectId },
+    }),
   });
   return { ...result, sheet: await getScores(teacherId, { classId, subjectId }) };
 };
@@ -550,4 +610,5 @@ export {
   // B6: the office's class score sheet (services/scoreSheet.js) uses the same checks.
   subjectView,
   validateScoreRows,
+  staleRows,
 };

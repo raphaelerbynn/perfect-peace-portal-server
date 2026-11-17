@@ -288,3 +288,64 @@ it("B8: the score sheet carries the class's grade bands for the live remark prev
   const sheet = await getScores(11, { classId: 1, subjectId: 100 });
   expect(sheet.grading.bands.map((b) => b.grade)).toEqual(["9", "8", "7", "6", "5", "4", "3", "2", "1"]);
 });
+
+describe("B6: rows checked against the saved scores (teacher Excel upload)", () => {
+  const tx = { LOCK: { UPDATE: "UPDATE" } };
+  // Run the save's checkBefore the way saveClassSubjectScores does.
+  beforeEach(() => {
+    saveClassSubjectScores.mockImplementation(async ({ checkBefore, scores }) => {
+      if (checkBefore) await checkBefore(tx);
+      return { saved: scores.length, skipped: 0 };
+    });
+  });
+  const row = (previous) => ({ studentId: 1, classScore: "25", examScore: "60", previous });
+
+  it("saves when the saved scores are still what the upload compared against", async () => {
+    StudentMarks.findAll.mockResolvedValue([{ studentId: 1, classScore: "20", examScore: "50" }]);
+    await expect(
+      saveScores(11, { classId: 1, subjectId: 100, scores: [row({ classScore: 20, examScore: 50 })] })
+    ).resolves.toMatchObject({ saved: 1 });
+    // The check reads (and locks) only the checked pupils, inside the save's transaction.
+    const check = StudentMarks.findAll.mock.calls[0][0];
+    expect(check).toMatchObject({ where: { class: "JHS 1", termId: 5, subjectId: 100, studentId: [1] }, transaction: tx, lock: "UPDATE" });
+  });
+
+  it("a blank previous matches a pupil with no mark yet", async () => {
+    StudentMarks.findAll.mockResolvedValue([]);
+    await expect(
+      saveScores(11, { classId: 1, subjectId: 100, scores: [row({ classScore: null, examScore: null })] })
+    ).resolves.toMatchObject({ saved: 1 });
+  });
+
+  it("refuses the whole save (409) naming the pupil when a score changed meanwhile", async () => {
+    StudentMarks.findAll.mockResolvedValue([{ studentId: 1, classScore: "22", examScore: "50" }]);
+    await expect(
+      saveScores(11, { classId: 1, subjectId: 100, scores: [row({ classScore: 20, examScore: 50 })] })
+    ).rejects.toMatchObject({ statusCode: 409, message: expect.stringMatching(/Abena Boateng/) });
+  });
+
+  it("rows without previous (the typed sheet) skip the check", async () => {
+    await saveScores(11, { classId: 1, subjectId: 100, scores: [{ studentId: 1, classScore: "25", examScore: "60" }] });
+    expect(saveClassSubjectScores.mock.calls[0][0].checkBefore).toBeNull();
+  });
+
+  it("KG learning areas: same check on the KG report records; stale = nothing written", async () => {
+    sequelize.transaction.mockImplementation(async (cb) => cb(tx));
+    KgAssessment.findAll.mockResolvedValue([{ studentId: 1, classScore: 70, examScore: 50 }]);
+    await expect(
+      saveScores(10, { classId: 3, subjectId: "kg-2", scores: [row({ classScore: 60, examScore: 50 })] })
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(KgAssessment.findAll.mock.calls[0][0]).toMatchObject({
+      where: { class: "KG 1", termId: 5, category: "ACADEMIC PROGRESS/EXAMINATION SCORES", assessment: "Numeracy", studentId: [1] },
+      transaction: tx,
+    });
+    expect(KgAssessment.create).not.toHaveBeenCalled();
+    expect(KgAssessment.update).not.toHaveBeenCalled();
+
+    KgAssessment.findOne.mockResolvedValue(null);
+    await expect(
+      saveScores(10, { classId: 3, subjectId: "kg-2", scores: [row({ classScore: 70, examScore: 50 })] })
+    ).resolves.toMatchObject({ saved: 1 });
+    expect(KgAssessment.create).toHaveBeenCalledTimes(1);
+  });
+});

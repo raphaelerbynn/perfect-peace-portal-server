@@ -13,34 +13,36 @@ import {
   voidOneCreditNote,
   voidOneInvoice,
 } from "../controllers/invoiceController.js";
-import { authenticateUser, authorizeRoles } from "../utils/middlewares.js";
+import { authenticateUser, requirePermission } from "../utils/middlewares.js";
 
 // B14: invoices and credit notes.
 //   invoiceRouter: mounted in src/index.js behind authenticateManagementUser.
-//     - Invoices (make, issue, void, print): Administrator and Accountant.
-//     - Credit notes change what a pupil owes: Administrator only (default,
-//       like payment reversal); the list is open to the Accountant too.
+//     - Invoices: invoices.view (see, print) and invoices.manage (make, issue,
+//       void): Administrator and Accountant.
+//     - Credit notes change what a pupil owes: invoices.credit_notes
+//       (Administrator, like payment reversal); the list is invoices.view.
 //     - Class Teachers: no access.
 //   invoicePortalRouter: mounted at /portal/invoices before the management
 //     routers. Pupil (STU) tokens only (parents use the pupil login); their own
 //     issued invoices, by token id.
-const ADMIN_ONLY = authorizeRoles("Administrator");
-const FINANCE = authorizeRoles("Administrator", "Accountant");
+const VIEW = requirePermission("invoices.view");
+const MANAGE = requirePermission("invoices.manage");
+const CREDIT = requirePermission("invoices.credit_notes");
 
 const router = Router();
 
 // Fixed paths before /invoices/:id.
-router.get("/invoices", FINANCE, fetchInvoices);
-router.get("/invoices/print", FINANCE, fetchInvoicesForPrint);
-router.post("/invoices/generate", FINANCE, makeInvoice);
-router.post("/invoices/bulk", FINANCE, makeInvoicesInBulk);
-router.get("/invoices/:id", FINANCE, fetchInvoice);
-router.post("/invoices/:id/issue", FINANCE, issueOneInvoice);
-router.post("/invoices/:id/void", FINANCE, voidOneInvoice);
+router.get("/invoices", VIEW, fetchInvoices);
+router.get("/invoices/print", VIEW, fetchInvoicesForPrint);
+router.post("/invoices/generate", MANAGE, makeInvoice);
+router.post("/invoices/bulk", MANAGE, makeInvoicesInBulk);
+router.get("/invoices/:id", VIEW, fetchInvoice);
+router.post("/invoices/:id/issue", MANAGE, issueOneInvoice);
+router.post("/invoices/:id/void", MANAGE, voidOneInvoice);
 
-router.get("/credit-notes", FINANCE, fetchCreditNotes);
-router.post("/credit-notes", ADMIN_ONLY, makeCreditNote);
-router.post("/credit-notes/:id/void", ADMIN_ONLY, voidOneCreditNote);
+router.get("/credit-notes", VIEW, fetchCreditNotes);
+router.post("/credit-notes", CREDIT, makeCreditNote);
+router.post("/credit-notes/:id/void", CREDIT, voidOneCreditNote);
 
 const portal = Router();
 const pupilOnly = (req, res, next) =>

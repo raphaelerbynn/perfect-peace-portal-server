@@ -1,11 +1,12 @@
 import { StudentMarks, Subject } from "../models/index.js";
 import { AppError } from "../utils/errorHandling.js";
 import { assertClassAccess, assertClassWrite } from "./attendance.js";
+import { hasPermission, P } from "../utils/permissions.js";
 import { bandsForSection } from "./grading.js";
 import { saveClassSubjectScores } from "./results.js";
 import { requireActiveTerm } from "./term.js";
 import { isKgSection, loadClass } from "./teacherScope.js";
-import { assertMatchesRoster, classRoster, subjectView, validateScoreRows } from "./teacherTools.js";
+import { assertMatchesRoster, classRoster, staleRows, subjectView, validateScoreRows } from "./teacherTools.js";
 
 // ---------------------------------------------------------------------------
 // B6: the office's score sheet for one subject in one class (the admin
@@ -28,25 +29,12 @@ import { assertMatchesRoster, classRoster, subjectView, validateScoreRows } from
 
 const termView = (t) => ({ termId: t.termId, term: t.term });
 const n = (v) => (v == null ? null : Number(v));
-const blankScore = (v) => v == null || String(v).trim() === "";
-const sameScore = (a, b) => (blankScore(a) ? blankScore(b) : !blankScore(b) && Number(a) === Number(b));
-
-/** Pupils whose saved mark is no longer the `previous` their row was based on. */
-export const staleRows = (scores, marks, roster) => {
-  const byStudent = new Map(marks.map((m) => [Number(m.studentId), m]));
-  const names = new Map(roster.map((s) => [Number(s.studentId), s.name]));
-  return scores
-    .filter((row) => row.previous && typeof row.previous === "object")
-    .filter((row) => {
-      const m = byStudent.get(Number(row.studentId));
-      return !sameScore(row.previous.classScore, m?.classScore) || !sameScore(row.previous.examScore, m?.examScore);
-    })
-    .map((row) => names.get(Number(row.studentId)) || `STU/${row.studentId}`);
-};
+// The stale-row check is shared with the teacher's upload (teacherTools.js).
+export { staleRows };
 
 const sheetContext = async (user, { classId, subjectId }) => {
   const klass = await loadClass(classId);
-  if (user?.category !== "Administrator") {
+  if (!hasPermission(user, P.ALL_CLASSES)) {
     try {
       await assertClassAccess(user, klass.name);
     } catch {

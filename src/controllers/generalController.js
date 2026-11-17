@@ -14,6 +14,7 @@ import {
   markClassAttendance,
   assertClassAccess,
   assertClassWrite,
+  assertAttendanceDateOpen,
   getTeacherClassName,
   VALID_STATUSES,
   removeAttendance,
@@ -109,6 +110,7 @@ import { getDashboardSummary, getStudentsOwing } from "../services/dashboard.js"
 import { composeMessage, transformReturningKGResult } from "../utils/func.js";
 import { absentee_template, present_template } from "../utils/messageTemplates.js";
 import { AppError } from "../utils/errorHandling.js";
+import { hasPermission, P } from "../utils/permissions.js";
 import { Student } from "../models/index.js";
 
 // BE-15: upper bound on bulk result payloads. A single student's report card
@@ -132,9 +134,9 @@ const fetchDashboardSummary = async (req, res, next) => {
 const fetchStudentsOwing = async (req, res, next) => {
   try {
     let data = await getStudentsOwing({ include: req.query.include });
-    // Security review: a Class Teacher login sees only its own class's pupils
-    // (fees are otherwise hidden from Class Teachers).
-    if (req.user?.category === "Class Teacher") {
+    // Security review: a login without academics.all_classes (a Class Teacher)
+    // sees only its own class's pupils (fees are otherwise hidden from it).
+    if (!hasPermission(req.user, P.ALL_CLASSES)) {
       const own = String((await getTeacherClassName(req.user)) ?? "").trim().toLowerCase();
       data = data.filter((r) => own && String(r.class ?? "").trim().toLowerCase() === own);
     }
@@ -166,8 +168,9 @@ const fetchAllStudents = async (req, res, next) => {
       maxAge,
       // BE-S1: authoritative scoping source — a Class Teacher is constrained to
       // their own class regardless of any client-supplied classId/search.
+      // B10: limited to the login's own class without academics.all_classes.
       requester: {
-        role: req.user?.category || req.user?.role,
+        ownClassOnly: !hasPermission(req.user, P.ALL_CLASSES),
         teacherId: req.user?.teacherId,
       },
     });
@@ -182,7 +185,8 @@ const fetchAllStaff = async (req, res, next) => {
   try {
     // BE-20: pagination is opt-in via query params; no params => unchanged.
     const { page, limit } = req.query;
-    const data = await getStaff({ page, limit });
+    // B10 review: payroll/bank fields for the Administrator only.
+    const data = await getStaff({ page, limit, user: req.user });
     res.json(data);
   } catch (error) {
     console.log(error);
@@ -519,7 +523,7 @@ const fetchTotalStudentAttendance = async (req, res, next) => {
   const values = req.query;
   try {
     // Security review: a Class Teacher only for pupils in their own class.
-    if (req.user?.category && req.user.category !== "Administrator") {
+    if (req.user?.category && !hasPermission(req.user, P.ALL_CLASSES)) {
       const pupil = await Student.findOne({ where: { studentId: values.studentId }, attributes: ["class"], raw: true });
       if (!pupil) throw new AppError("Student not found", 404);
       await assertClassAccess(req.user, pupil.class);
@@ -548,7 +552,7 @@ const addStudent = async (req, res, next) => {
 const addStaff = async (req, res, next) => {
   const values = req.body;
   try {
-    const data = await createStaff(values);
+    const data = await createStaff(values, req.user); // B10 review: the caller's permissions
     res.json(data);
   } catch (error) {
     console.log(error);
@@ -559,7 +563,7 @@ const addStaff = async (req, res, next) => {
 const addClass = async (req, res, next) => {
   const values = req.body;
   try {
-    const data = await createClass(values);
+    const data = await createClass(values, req.user);
     res.json(data);
   } catch (error) {
     next(error);
@@ -943,6 +947,8 @@ const markAttendance = async (req, res, next) => {
 
     // BE-5: a Class Teacher may only mark their own class, and only its pupils.
     await assertClassWrite(req.user, values.class, values.studentAttendance.map((m) => m.studentId));
+    // B10 review: a day of the open term only (Administrator: any day).
+    await assertAttendanceDateOpen(req.user, values.dateMarked);
 
     // BE-1/BE-2: atomic delete-then-upsert inside markClassAttendance.
     const results = await markClassAttendance({
@@ -997,7 +1003,7 @@ const updateStaff = async (req, res, next) => {
   const teacher_id = req.params.teacher_id;
 
   try {
-    const data = await editStaff(values, teacher_id);
+    const data = await editStaff(values, teacher_id, req.user);
     res.json(data);
   } catch (error) {
     console.log(error);
@@ -1014,7 +1020,7 @@ const updateClass = async (req, res, next) => {
   }
 
   try {
-    const data = await editClass(values, id);
+    const data = await editClass(values, id, req.user);
     res.json(data);
   } catch (error) {
     next(error);
@@ -1105,7 +1111,7 @@ const deleteStaff = async (req, res, next) => {
   const teacher_id = req.params.teacher_id;
 
   try {
-    const data = await removeStaff(teacher_id);
+    const data = await removeStaff(teacher_id, req.user);
     res.json(data);
   } catch (error) {
     console.log(error);
@@ -1125,8 +1131,15 @@ const deleteResult = async (req, res, next) => {
 
   try {
     // BE-1: a Class Teacher may only delete results for their own class.
-    await assertClassAccess(req.user, values.class);
-    const data = await removeResult(values);
+    // B10 review: and only for its pupils, in the open term (unless the role
+    // holds academics.edit_closed_terms). The term is resolved here (missing = the open term, as
+    // removeResult does) so the check and the delete use the same one.
+    const termId = values.termId || (await getTerm())?.termId;
+    if (termId == null || termId === "") {
+      throw new AppError("studentId, class and term are required to delete a result", 400);
+    }
+    await assertClassWrite(req.user, values.class, [values.studentId], termId);
+    const data = await removeResult({ ...values, termId });
     res.json(data);
   } catch (error) {
     next(error);
@@ -1286,6 +1299,8 @@ const deleteAttendance = async (req, res, next) => {
   try {
     // BE-5: a Class Teacher may only clear their own class's attendance.
     await assertClassAccess(req.user, values.class);
+    // B10 review: and only a day of the open term (unless academics.edit_closed_terms).
+    await assertAttendanceDateOpen(req.user, values.dateMarked);
     // BE-8: removeAttendance now hard-requires class + dateMarked (a missing
     // dateMarked used to wipe the whole class across every date).
     const data = await removeAttendance(values);
@@ -1300,9 +1315,10 @@ const fetchNews = async (req, res, next) => {
   try {
     // BE-20: pagination is opt-in via query params; no params => unchanged.
     const { page, limit } = req.query;
-    // B15: only an Administrator gets every row. Portal pupils/teachers get the
-    // published posts they may see; other office roles also their own drafts.
-    const viewer = req.user?.category === "Administrator" ? null : await viewerFromUser(req.user);
+    // B15: only a news manager (news.manage, the Administrator) gets every row.
+    // Portal pupils/teachers get the published posts they may see; other office
+    // roles also their own drafts.
+    const viewer = hasPermission(req.user, P.NEWS_MANAGE) ? null : await viewerFromUser(req.user);
     const data = await getNews({ page, limit, viewer });
     res.json(data);
   } catch (error) {

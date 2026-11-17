@@ -1,12 +1,12 @@
 import { Router } from "express";
 import * as notify from "../services/notify.js";
-import { authenticateManagementUser, authenticateUser, authorizeRoles } from "../utils/middlewares.js";
+import { authenticateManagementUser, authenticateUser, requirePermission } from "../utils/middlewares.js";
 
 // B16: in-app notifications, for EVERY kind of login (portal pupils and
 // teachers, office logins). Each caller reads and marks only their own
 // notifications (recipient from the token; anyone else's is a 404).
 // Office-only actions (switches, email log, "results ready", scores
-// reminder) check the management token and role per route.
+// reminder) check the management token and a permission per route.
 const router = Router();
 
 const send = (fn) => async (req, res, next) => {
@@ -29,14 +29,14 @@ const withRecipient = (req, res, next) =>
     }
   });
 
-const office = (...roles) => [authenticateManagementUser, authorizeRoles(...roles)];
+const office = (...keys) => [authenticateManagementUser, requirePermission(...keys)];
 
 // Office actions first, so "/notifications/email-log" etc. are never taken as ids.
-router.get("/notification-settings", ...office("Administrator"), send(() => notify.getNotificationSettings()));
-router.put("/notification-settings", ...office("Administrator"), send((req) => notify.updateNotificationSettings(req.body, { username: req.user.username })));
-router.get("/notifications/email-log", ...office("Administrator"), send((req) => notify.listEmailLog(req.query)));
-router.post("/notifications/results-ready", ...office("Administrator", "Class Teacher"), send((req) => notify.sendResultsReady(req.body || {}, req.user)));
-router.post("/notifications/scores-reminder", ...office("Administrator"), send(() => notify.sendScoresReminder()));
+router.get("/notification-settings", ...office("settings.manage"), send(() => notify.getNotificationSettings()));
+router.put("/notification-settings", ...office("settings.manage"), send((req) => notify.updateNotificationSettings(req.body, { username: req.user.username })));
+router.get("/notifications/email-log", ...office("settings.manage"), send((req) => notify.listEmailLog(req.query)));
+router.post("/notifications/results-ready", ...office("results.notify_ready"), send((req) => notify.sendResultsReady(req.body || {}, req.user)));
+router.post("/notifications/scores-reminder", ...office("results.remind_teachers"), send(() => notify.sendScoresReminder()));
 
 // The caller's own.
 router.get("/notifications", withRecipient, send((req) => notify.listNotifications(req.recipient, req.query)));

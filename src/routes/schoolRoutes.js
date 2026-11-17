@@ -10,13 +10,15 @@ import {
   updateSchoolSettings,
 } from "../services/school.js";
 import { sendStoredFile, uploadOne } from "../services/storage.js";
-import { authenticateManagementUser, authorizeRoles } from "../utils/middlewares.js";
+import { authenticateManagementUser, requirePermission } from "../utils/middlewares.js";
 
 // B18: school branding. Mounted early in index.js because GET /school and
 // GET /school/logo are PUBLIC (the sign-in screens show the school's name and
 // logo). Every other route here authenticates per route: office token +
-// Administrator. Only these paths are handled; anything else falls through.
-const ADMIN = [authenticateManagementUser, authorizeRoles("Administrator")];
+// settings.manage (the next admission number: students.edit, it is for the Add
+// student form). Only these paths are handled; anything else falls through.
+const ADMIN = [authenticateManagementUser, requirePermission("settings.manage")];
+const ADD_STUDENT = [authenticateManagementUser, requirePermission("students.edit")];
 
 const wrap = (fn) => async (req, res, next) => {
   try {
@@ -57,6 +59,6 @@ router.post(
 router.delete("/school/logo", ...ADMIN, wrap(async (req, res) => res.json(await removeSchoolLogo({ username: who(req) }))));
 router.get("/school/admission-preview", ...ADMIN, wrap(async (req, res) => res.json(await previewAdmissionFormat(req.query.format))));
 // The number the Add student form suggests (the real one is taken on save).
-router.get("/students/next-admission-no", ...ADMIN, wrap(async (req, res) => res.json(await getNextAdmissionNoSuggestion())));
+router.get("/students/next-admission-no", ...ADD_STUDENT, wrap(async (req, res) => res.json(await getNextAdmissionNoSuggestion())));
 
 export { router as schoolRouter };

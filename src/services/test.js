@@ -53,7 +53,7 @@ export const getStudents = async (options = {}) => {
     // classId from the Teacher row and FORCE it, ignoring any client-supplied
     // classId/className. If they have no class assigned, return empty (no throw).
     let scopedToEmpty = false;
-    if (requester?.role === "Class Teacher") {
+    if (requester?.ownClassOnly) {
         // The class record names its teacher (Class.teacher_id); live keeps the
         // link there, Teacher.class_id is empty for most staff. Fall back to it.
         const klass = requester.teacherId

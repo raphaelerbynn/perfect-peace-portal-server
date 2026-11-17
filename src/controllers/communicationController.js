@@ -1,7 +1,7 @@
 import { sendSMSMessage } from "../services/messaging.js";
 import { AppError } from "../utils/errorHandling.js";
 
-// Bulk SMS (Administrator-only — mounted behind authorizeRoles("Administrator")).
+// Bulk SMS (sms.send: the Administrator; gated in routes/communicationRoutes.js).
 // Per the messaging review there is intentionally NO hard recipient cap (the UI
 // shows a "send to N recipients?" confirmation instead); the service validates,
 // normalizes and de-duplicates the recipients and THROWS on provider failure,

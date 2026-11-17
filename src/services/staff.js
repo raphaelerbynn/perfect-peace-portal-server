@@ -3,6 +3,9 @@ import sequelize from "../config/database.js";
 import { Class, Salary, Teacher, UserAccount } from "../models/index.js";
 import { AppError } from "../utils/errorHandling.js";
 import { isValidPhoneNumber } from "../utils/func.js";
+import { hasPermission, mayRelinkClasses, P } from "../utils/permissions.js";
+import { assertManagersRemainWithout, assertMayChangeLogin, lockRoles } from "./roles.js";
+import { clearAccessCache } from "./officeAccess.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -33,13 +36,40 @@ const validateStaffInput = (data, { partial = false } = {}) => {
 // BE-20: optional, backward-compatible pagination. No options => identical
 // behaviour and shape as before (full array). limit/offset only applied when
 // pagination params are supplied.
+// B10 review: payroll and bank details on a staff record. Only a role with
+// staff.view_sensitive (the Administrator) sees them; anyone else who may see
+// the staff list gets it without them.
+export const STAFF_PAYROLL_FIELDS = ["ssnitNumber", "tinNumber", "bank", "accountNumber", "salaryId"];
+
+// B10 review: the request keys for those fields. Without staff.view_sensitive
+// a value for any of them is refused (403, naming it) rather than dropped, so
+// the office knows; an empty value is ignored (the form sends "" for fields
+// the login can't see, which must not wipe the stored value).
+const SENSITIVE_INPUT = { ssnit: "SSNIT number", tin: "TIN number", bank: "bank", account: "account number", salaryId: "rank / salary" };
+const isBlank = (v) => v === undefined || v === null || String(v).trim() === "";
+
+/** Remove blank sensitive keys and refuse filled ones when `actor` lacks staff.view_sensitive. */
+const guardSensitiveInput = (data, actor) => {
+  if (actor === undefined || hasPermission(actor, P.STAFF_VIEW_SENSITIVE)) return data;
+  const filled = Object.keys(SENSITIVE_INPUT).filter((k) => !isBlank(data?.[k]));
+  if (filled.length) {
+    throw new AppError(`You can't set the ${filled.map((k) => SENSITIVE_INPUT[k]).join(", ")}: that needs “See staff bank, account, TIN, SSNIT and salary details”.`, 403);
+  }
+  const out = { ...data };
+  for (const k of Object.keys(SENSITIVE_INPUT)) delete out[k];
+  return out;
+};
+
+const RELINK_REFUSED = "Changing a staff member's class needs “Every class”. Ask the administrator.";
+
 export const getStaff = async (options = {}) => {
   // BE-D6: do NOT swallow DB errors — let them propagate to the central
   // errorHandler. Success-path shape is unchanged.
-  const { page, limit } = options;
+  const { page, limit, user = null } = options;
+  const withPayroll = hasPermission(user, P.STAFF_VIEW_SENSITIVE);
 
   const queryOptions = {
-    attributes: { exclude: ["password", "photoKey", "photoThumbKey"] }, // B17: no storage keys
+    attributes: { exclude: ["password", "photoKey", "photoThumbKey", ...(withPayroll ? [] : STAFF_PAYROLL_FIELDS)] }, // B17: no storage keys
     // BE-T3: never list archived staff.
     where: { isDeleted: { [Op.not]: true } },
     include: [
@@ -48,10 +78,7 @@ export const getStaff = async (options = {}) => {
         as: "class_",
         attributes: ["name"],
       },
-      {
-        model: Salary,
-        as: "salary",
-      },
+      ...(withPayroll ? [{ model: Salary, as: "salary" }] : []),
     ],
   };
 
@@ -104,8 +131,8 @@ export const getStaffForSignup = async () => {
 // leaving Class.teacherId dangling and the linked UserAccount login orphaned.
 // We now archive the teacher in a transaction, release the class back-link, and
 // disable (not destroy) the linked management login. Errors propagate (BE-T2).
-export const removeStaff = async (id) => {
-  return await sequelize.transaction(async (t) => {
+export const removeStaff = async (id, actor) => {
+  const out = await sequelize.transaction(async (t) => {
     const teacher = await Teacher.findOne({
       attributes: ["teacherId"],
       where: { teacherId: id },
@@ -127,6 +154,27 @@ export const removeStaff = async (id) => {
       { where: { teacherId: id }, transaction: t }
     );
 
+    // B10: not the last login that can manage roles (the school would be locked
+    // out); under the roles lock, so two archives at once can't both pass.
+    await lockRoles(t);
+    const accounts = await UserAccount.findAll({
+      where: { teacherId: id },
+      attributes: ["username", "roleId", "category", "isDeleted"],
+      raw: true,
+      transaction: t,
+    });
+    // ...and not a login whose role holds more than the caller (archiving it
+    // disables it), as when changing a login's role.
+    if (actor !== undefined) {
+      for (const a of (accounts || []).filter((x) => !x.isDeleted)) {
+        await assertMayChangeLogin(a, actor, {
+          transaction: t,
+          message: "This staff member's office login has permissions you don't have, so you can't archive them.",
+        });
+      }
+    }
+    await assertManagersRemainWithout(accounts || [], { transaction: t });
+
     // Disable the linked management login (if any) without destroying it.
     await UserAccount.update(
       { isDeleted: true },
@@ -135,6 +183,9 @@ export const removeStaff = async (id) => {
 
     return { archived: true, teacherId: Number(id) };
   });
+  // B10: an archived login loses its access at once (officeAccess cache).
+  clearAccessCache();
+  return out;
 };
 
 // BE-T1/BE-T5/BE-T2: createStaff now accepts the same keys the edit path uses
@@ -142,11 +193,13 @@ export const removeStaff = async (id) => {
 // salaryId, so class assignment and salary/rank were silently dropped on add.
 // Wrapped in a transaction; maintains the Class.teacherId back-link; validates;
 // detects duplicates; does not swallow errors.
-export const createStaff = async (data) => {
+export const createStaff = async (input, actor) => {
+  const data = guardSensitiveInput(input, actor);
   validateStaffInput(data);
 
   const classId = data.class ?? data.class_id ?? null;
   const salaryId = data.salaryId || null;
+  if (classId != null && classId !== "" && !mayRelinkClasses(actor)) throw new AppError(RELINK_REFUSED, 403);
 
   return await sequelize.transaction(async (t) => {
     // BE-T7: duplicate detection on a natural key (name + phone when present).
@@ -218,7 +271,8 @@ export const createStaff = async (data) => {
 // (so an edit that omits a field no longer nulls it — salaryId in particular was
 // being wiped on every edit); rejects an already-assigned class with a real 409;
 // errors propagate.
-export const editStaff = async (data, id) => {
+export const editStaff = async (input, id, actor) => {
+  const data = guardSensitiveInput(input, actor);
   validateStaffInput(data, { partial: true });
 
   return await sequelize.transaction(async (t) => {
@@ -232,6 +286,15 @@ export const editStaff = async (data, id) => {
 
     // `class` (when sent) carries the classId; "" / null means "unassign".
     const newClassId = data.class !== undefined ? data.class || null : undefined;
+
+    // B10 review: a different class needs academics.all_classes (the link is
+    // what limits a login to its own class). The current link is the class
+    // naming this teacher (live keeps it there), else Teacher.class_id.
+    if (newClassId !== undefined && !mayRelinkClasses(actor)) {
+      const linked = await Class.findOne({ where: { teacherId: id, isDeleted: { [Op.not]: true } }, attributes: ["classId"], transaction: t });
+      const currentClassId = linked?.classId ?? current.classId ?? null;
+      if (String(newClassId ?? "") !== String(currentClassId ?? "")) throw new AppError(RELINK_REFUSED, 403);
+    }
 
     // BE-T4: check (inside the transaction) that the target class isn't held by
     // a DIFFERENT teacher.

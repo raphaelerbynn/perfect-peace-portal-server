@@ -22,8 +22,9 @@ jest.mock("../models/index.js", () => {
 import { Event } from "../models/index.js";
 import { notifyPostPublished } from "../services/notify.js";
 import * as P from "../services/posts.js";
+import { officeUser } from "../testSupport/officeUser.js";
 
-const admin = { type: "OFFICE", category: "Administrator", username: "admin", teacherId: null };
+const admin = { type: "OFFICE", ...officeUser("Administrator", { username: "admin", teacherId: null }) };
 const row = (over = {}) => ({ eventId: 10, name: "Sports day", description: "Come", postType: "NEWS", status: "DRAFT", audience: "ALL", audienceClassIds: null, createdBy: "admin", publishedAt: null, ...over });
 
 beforeEach(() => {

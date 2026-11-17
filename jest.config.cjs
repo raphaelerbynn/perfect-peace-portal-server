@@ -7,6 +7,8 @@ module.exports = {
   roots: ["<rootDir>/src"],
   testMatch: ["**/__tests__/**/*.test.js"],
   clearMocks: true,
+  // B10: office permissions come from an in-memory access store in tests.
+  setupFilesAfterEnv: ["<rootDir>/src/testSupport/jestSetup.js"],
   collectCoverageFrom: [
     "src/services/**/*.js",
     "src/utils/**/*.js",

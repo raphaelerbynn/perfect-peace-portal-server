@@ -76,6 +76,17 @@ The tool:
 
 Use Node 20 (`.nvmrc`). On Node ≥ 25, `jsonwebtoken` fails to load.
 
+## After the move: office logins' roles (B10, migration 050)
+
+After `npm run migrate`, check every office login got a role:
+
+```sql
+SELECT category, count(*) FROM "dbo"."User_account" GROUP BY 1 ORDER BY 1;
+SELECT username, category FROM "dbo"."User_account" WHERE role_id IS NULL;
+```
+
+Only categories that are exactly `Administrator`, `Class Teacher` or `Accountant` get a role. Anything else (other case, trailing spaces, `Head Teacher` from rehearsals) reaches no office page until it is given a role on People → Office logins. With more than one API process, role changes reach the other processes within 60 s (restart to apply at once). See `db/migrations/README.md`.
+
 ## ⚠️ What your data-move script MUST produce (so the ORM + raw queries work)
 
 The Sequelize models are pinned to **`schema: 'dbo'`**, and Postgres is
