@@ -4,7 +4,32 @@ import sequelize from "../config/database.js";
 import { Class, ClassFee, Student, TeachingAssignment, Teacher, Term } from "../models/index.js";
 import { AppError } from "../utils/errorHandling.js";
 import { recomputeStudentOwing } from "./fee.js";
-import { isPesewaAmount } from "../utils/money.js";
+import { isPesewaAmount, round2, toNum } from "../utils/money.js";
+import { FEE_PERIODS, annotateClassFeeList, freezeBilledTerms, normPeriod } from "./classFeeShare.js";
+
+// B12 (048): "TERM" (default) or "YEAR"; anything else is refused. Missing =
+// `fallback` (a new item: TERM; an edit: the item's current choice).
+const parsePeriod = (value, fallback) => {
+  if (value == null || value === "") return fallback;
+  const p = String(value).trim().toUpperCase();
+  if (!FEE_PERIODS.includes(p)) throw new AppError("Choose per term or per year for the fee", 400);
+  return p;
+};
+
+// Locks the class's pupils in id order (the order billing locks them), so a
+// change to a YEAR item and "Bill this term" on the same class queue up
+// instead of deadlocking on the item row.
+const lockClassPupils = async (classId, transaction) => {
+  if (classId == null || !transaction?.LOCK) return;
+  await Student.findAll({
+    attributes: ["studentId"],
+    where: { classId, isDeleted: { [Op.not]: true } },
+    order: [["studentId", "ASC"]],
+    raw: true,
+    transaction,
+    lock: transaction.LOCK.UPDATE,
+  });
+};
 
 // Recompute cached owing for EVERY (non-archived) student in a class — a class
 // fee change shifts the bill for the whole class (parity with the studentFees
@@ -40,7 +65,8 @@ const assignedClassIds = async (teacherId) => {
 // `user`: a Class Teacher office login sees only the classes assigned to them
 // (the Classes page and every class picker). Other callers: every class.
 const classes = async (user = null) => {
-  const classFeeList = await ClassFee.findAll({ raw: true });
+  // B12 (048): each item with its share for the open term (YEAR items).
+  const classFeeList = await annotateClassFeeList(await ClassFee.findAll({ raw: true }));
 
   const scoped = isClassTeacher(user);
   const onlyIds = scoped ? await assignedClassIds(user.teacherId) : null;
@@ -174,6 +200,7 @@ const createClassFee = async (data) => {
     throw new AppError("Fee amount can have at most 2 decimal places (cedis and pesewas)", 400);
   }
   if (classId == null) throw new AppError("classId is required", 400);
+  const period = parsePeriod(data?.period, "TERM");
 
   return await sequelize.transaction(async (t) => {
     const targetClass = await Class.findOne({
@@ -182,6 +209,8 @@ const createClassFee = async (data) => {
       transaction: t,
     });
     if (!targetClass) throw new AppError("Class not found", 404);
+    // Same lock order as billing: the class's pupils first, then fee items.
+    await lockClassPupils(classId, t);
 
     const duplicate = await ClassFee.findOne({
       where: {
@@ -195,10 +224,18 @@ const createClassFee = async (data) => {
       throw new AppError("This class already has a fee with that name", 409);
     }
 
+    // B12 (048): only a YEAR item names its period (TERM is the default), so
+    // a TERM item is created exactly as before.
     const created = await ClassFee.create(
-      { name, amount, classId },
+      period === "YEAR" ? { name, amount, classId, period } : { name, amount, classId },
       { transaction: t }
     );
+    // A new YEAR item is on the current term's bill (as a new TERM item always
+    // was) at that term's share: keep that share for the terms billed now.
+    if (period === "YEAR") {
+      const row = typeof created.get === "function" ? created.get({ plain: true }) : created;
+      await freezeBilledTerms({ ...row, period: "YEAR", termAmounts: row.termAmounts || {} }, { transaction: t });
+    }
 
     await recomputeClassStudentsOwing(classId, t);
     return created;
@@ -223,9 +260,29 @@ const editClassFee = async (data, id) => {
       transaction: t,
     });
     if (!existing) throw new AppError("Class fee not found", 404);
+    // Review fix: lock the class's pupils BEFORE the item row on every edit
+    // (the office saves every row, changed or not). Billing locks pupils, then
+    // the class's YEAR items in classFeeId order; doing the same here means a
+    // Save and a "Bill this term" queue up instead of deadlocking.
+    await lockClassPupils(existing.classId, t);
+
+    // B12 (048): a change to a yearly amount, or between per term and per
+    // year, never re-bills a term already billed: first keep what the item is
+    // billed at for the terms the class is billed for now; the change then
+    // only reaches terms not billed yet. A TERM item that stays TERM works as
+    // before (its new amount is the current term's too).
+    const oldPeriod = normPeriod(existing.period);
+    const period = parsePeriod(data?.period, oldPeriod);
+    const yearly = oldPeriod === "YEAR" || period === "YEAR";
+    const changed = period !== oldPeriod || round2(toNum(existing.amount)) !== round2(amount);
+    let kept = [];
+    if (yearly && changed) {
+      const row = await ClassFee.findOne({ where: { classFeeId: id }, raw: true, transaction: t, lock: t.LOCK?.UPDATE });
+      kept = await freezeBilledTerms(row, { transaction: t });
+    }
 
     await ClassFee.update(
-      { name, amount },
+      yearly ? { name, amount, period } : { name, amount },
       { where: { classFeeId: id }, transaction: t }
     );
 
@@ -235,6 +292,12 @@ const editClassFee = async (data, id) => {
       where: { classFeeId: id },
       transaction: t,
     });
+    if (yearly && updated) {
+      const out = typeof updated.toJSON === "function" ? updated.toJSON() : { ...updated };
+      // The terms that kept their amount (already billed), for the message.
+      out.keptTerms = kept;
+      return out;
+    }
     return updated;
   });
 };
@@ -379,6 +442,8 @@ const removeClassFee = async (id) => {
     if (!existing) throw new AppError("Class fee not found", 404);
 
     const classId = existing.classId;
+    // Same lock order as billing: the class's pupils, then the item.
+    await lockClassPupils(classId, t);
     const response = await ClassFee.destroy({
       where: { classFeeId: id },
       transaction: t,

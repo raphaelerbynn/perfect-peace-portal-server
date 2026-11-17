@@ -3,13 +3,11 @@ import sequelize from "../config/database.js";
 import {
   AcademicYear,
   Class,
-  ClassFee,
   CreditNote,
   Fee,
   Invoice,
   InvoiceLine,
   Student,
-  StudentFee,
   StudentTermBill,
   Term,
 } from "../models/index.js";
@@ -18,6 +16,7 @@ import { isPesewaAmount, round2, toNum } from "../utils/money.js";
 import { paginatedResponse, parsePagination } from "../utils/pagination.js";
 import { recomputeStudentOwing } from "./fee.js";
 import { computeDiscounts, discountsForTerm } from "./feeBill.js";
+import { periodItems } from "./classFeeShare.js";
 import { notifyInvoiceIssued } from "./notify.js";
 import { displayStatus, isCurrentPeriod, periodEnd, recalcStudentInvoices } from "./invoiceLedger.js";
 
@@ -136,7 +135,7 @@ export const invoiceLines = ({ arrears = 0, items = [], discountLines = [] }) =>
   const lines = [];
   const a = round2(arrears);
   if (a !== 0) lines.push({ kind: "ARREARS", description: a > 0 ? "Balance brought forward" : "Credit brought forward (paid earlier)", amount: a });
-  for (const i of items) lines.push({ kind: "ITEM", description: String(i.name ?? "Fee").trim().slice(0, 200) || "Fee", amount: round2(i.amount) });
+  for (const i of items) lines.push({ kind: "ITEM", description: String(i.label ?? i.name ?? "Fee").trim().slice(0, 200) || "Fee", amount: round2(i.amount) });
   for (const d of discountLines) {
     if (round2(d.amount) > 0) lines.push({ kind: "DISCOUNT", description: `Discount: ${String(d.name ?? "").trim()}`.slice(0, 200), amount: -round2(d.amount) });
   }
@@ -158,10 +157,8 @@ export const invoiceLines = ({ arrears = 0, items = [], discountLines = [] }) =>
  */
 const billFor = async (pupil, term, { transaction = null } = {}) => {
   if (pupil.feesPeriodTermId != null && Number(pupil.feesPeriodTermId) === Number(term.termId)) {
-    const classFees =
-      pupil.classId != null ? await ClassFee.findAll({ where: { classId: pupil.classId }, attributes: ["name", "amount"], raw: true, transaction }) : [];
-    const studentFees = await StudentFee.findAll({ where: { studentId: pupil.studentId }, attributes: ["name", "amount"], raw: true, transaction });
-    const items = [...classFees, ...studentFees].map((f) => ({ name: f.name, amount: round2(f.amount) }));
+    // B12 (048): a YEAR class fee is the term's share, labelled as such.
+    const items = (await periodItems(pupil, { transaction })).items.map(invoiceItem);
     const disc = (await discountsForTerm([pupil.studentId], term.termId, { transaction })).get(Number(pupil.studentId)) || [];
     const d = computeDiscounts(items, disc);
     return {
@@ -181,10 +178,13 @@ const billFor = async (pupil, term, { transaction = null } = {}) => {
     classId: saved.classId ?? null,
     afterFeeId: Number(saved.afterFeeId) || 0,
     arrears: round2(saved.arrears),
-    items: (saved.items || []).map((i) => ({ name: i.name, amount: round2(i.amount) })),
+    items: (saved.items || []).map(invoiceItem),
     discountLines: (saved.discounts || []).map((d) => ({ name: d.name, amount: round2(d.amount) })),
   };
 };
+
+/** An invoice item: name + amount, and the "yearly … share" label of a YEAR item. */
+const invoiceItem = (i) => ({ name: i.name, amount: round2(i.amount), ...(i.label ? { label: i.label } : {}) });
 
 const lockPupil = async (studentId, transaction) => {
   const pupil = await Student.findOne({ where: { studentId }, attributes: PUPIL_ATTRS, raw: true, transaction, ...lock(transaction) });
