@@ -2,7 +2,6 @@ import { Op } from "sequelize";
 import bcrypt from "bcrypt";
 import sequelize from "../config/database.js";
 import { Class, ClassFee, Parent, Student, StudentFee, Teacher, UserAccount } from "../models/index.js";
-import { applyPupilShares } from "./classFeeShare.js";
 import { calculateAge } from "../utils/func.js";
 
 const BCRYPT_ROUNDS = 10;
@@ -140,9 +139,6 @@ const getStudentDetails = async (indexNumber) => {
     //         }
     //     }
     // }
-
-    // B12 (048): a yearly class fee shows as the pupil's term share.
-    if (student) await applyPupilShares(student);
 
     //calculate age (real date diff — BE-25)
     student.age = calculateAge(student?.dob);

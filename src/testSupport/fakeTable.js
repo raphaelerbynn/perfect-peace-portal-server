@@ -1,7 +1,7 @@
 // Test support only (not used by the app).
 // Tiny in-memory stand-in for a Sequelize model, for service tests with the
 // models mocked. Understands the where-clauses the services use: equality,
-// IN (arrays), null, Op.not / ne / lt / lte / gt / gte / iLike / in / or / and.
+// IN (arrays), null, Op.ne / lt / lte / gt / gte / iLike / in / or / and.
 import { Op } from "sequelize";
 
 const likeToRegex = (pattern) =>
@@ -23,7 +23,6 @@ const matchValue = (actual, cond) => {
   if (typeof cond === "object" && !(cond instanceof Date)) {
     return Object.getOwnPropertySymbols(cond).every((sym) => {
       const v = cond[sym];
-      if (sym === Op.not) return v === null ? actual != null : actual == null || String(actual) !== String(v);
       if (sym === Op.ne) return v === null ? actual != null : actual == null || String(actual) !== String(v);
       if (sym === Op.lt) return actual != null && cmp(actual, v) < 0;
       if (sym === Op.lte) return actual != null && cmp(actual, v) <= 0;
