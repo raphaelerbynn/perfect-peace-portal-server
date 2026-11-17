@@ -208,6 +208,8 @@ const createClassFee = async (data) => {
       transaction: t,
     });
     if (!targetClass) throw new AppError("Class not found", 404);
+    // Same lock order as billing: the class's pupils first, then fee items.
+    await lockClassPupils(classId, t);
 
     const duplicate = await ClassFee.findOne({
       where: {
@@ -257,6 +259,11 @@ const editClassFee = async (data, id) => {
       transaction: t,
     });
     if (!existing) throw new AppError("Class fee not found", 404);
+    // Review fix: lock the class's pupils BEFORE the item row on every edit
+    // (the office saves every row, changed or not). Billing locks pupils, then
+    // the class's YEAR items in classFeeId order; doing the same here means a
+    // Save and a "Bill this term" queue up instead of deadlocking.
+    await lockClassPupils(existing.classId, t);
 
     // B12 (048): a change to a yearly amount, or between per term and per
     // year, never re-bills a term already billed: first keep what the item is
@@ -269,7 +276,6 @@ const editClassFee = async (data, id) => {
     const changed = period !== oldPeriod || round2(toNum(existing.amount)) !== round2(amount);
     let kept = [];
     if (yearly && changed) {
-      await lockClassPupils(existing.classId, t);
       const row = await ClassFee.findOne({ where: { classFeeId: id }, raw: true, transaction: t, lock: t.LOCK?.UPDATE });
       kept = await freezeBilledTerms(row, { transaction: t });
     }
@@ -435,8 +441,8 @@ const removeClassFee = async (id) => {
     if (!existing) throw new AppError("Class fee not found", 404);
 
     const classId = existing.classId;
-    // Same lock order as billing when billing may write this (YEAR) item.
-    if (normPeriod(existing.period) === "YEAR") await lockClassPupils(classId, t);
+    // Same lock order as billing: the class's pupils, then the item.
+    await lockClassPupils(classId, t);
     const response = await ClassFee.destroy({
       where: { classFeeId: id },
       transaction: t,

@@ -48,11 +48,15 @@ export const splitYearly = (amount, n = ASSUMED_TERMS_PER_YEAR) => {
 const dateKey = (t) => `${t?.startDate ? String(t.startDate).slice(0, 10) : "0000-00-00"}#${String(t?.termId ?? 0).padStart(10, "0")}`;
 
 /**
- * Pure. Where `term` sits in its academic year: { n, index, no, assumed }.
+ * Pure. Where `term` sits in its academic year: { n, index, no, assumed, pinned }.
  * `terms` = terms to look in (only those of the same year count). term null
  * (a period no term has claimed yet) = the first of an assumed 3.
+ * `pinnedN`: the term count an item's year was first billed with (review fix:
+ * once a share is billed the count never changes, so a term added to the year
+ * later can't make the year bill more than its amount). With a pinned count, a
+ * term past it has index >= n (nothing left to bill).
  */
-export const termPosition = (term, terms = []) => {
+export const termPosition = (term, terms = [], { pinnedN = null } = {}) => {
   if (!term) return { n: ASSUMED_TERMS_PER_YEAR, index: 0, no: 1, assumed: true, untied: true };
   const same =
     term.academicYearId != null
@@ -60,16 +64,29 @@ export const termPosition = (term, terms = []) => {
       : [];
   if (!same.some((t) => Number(t.termId) === Number(term.termId))) same.push(term);
   const count = term.academicYearId != null ? same.length : 0;
-  const n = Math.max(ASSUMED_TERMS_PER_YEAR, count);
+  const pinned = Number.isInteger(Number(pinnedN)) && Number(pinnedN) >= 1 ? Number(pinnedN) : null;
+  const n = pinned ?? Math.max(ASSUMED_TERMS_PER_YEAR, count);
+  const maxNo = Math.max(n, count);
   const num = Number.parseInt(String(term.term ?? "").trim(), 10);
   let index;
-  if (Number.isInteger(num) && num >= 1 && num <= n) index = num - 1;
+  if (Number.isInteger(num) && num >= 1 && num <= maxNo) index = num - 1;
   else {
     const rank = [...same].sort((a, b) => (dateKey(a) < dateKey(b) ? -1 : 1)).findIndex((t) => Number(t.termId) === Number(term.termId));
-    index = Math.min(Math.max(rank, 0), n - 1);
+    index = Math.max(rank, 0);
+    if (!pinned) index = Math.min(index, n - 1);
   }
-  return { n, index, no: index + 1, assumed: count < ASSUMED_TERMS_PER_YEAR };
+  return { n, index, no: index + 1, assumed: !pinned && count < ASSUMED_TERMS_PER_YEAR, ...(pinned ? { pinned: true } : {}) };
 };
+
+/**
+ * THE share rule, in one place: what term `pos` bills of a yearly amount.
+ * Today: the term's equal share of the CURRENT yearly amount (so after a
+ * mid-year edit, unbilled terms bill the new amount ÷ terms). A term past the
+ * year's (pinned) count bills 0. If the school later wants "what is left of the
+ * new amount over the terms left", change only this function (`fee` carries
+ * the billed entries in termAmounts).
+ */
+export const yearlyShare = (fee, pos) => (pos.index >= pos.n ? 0 : splitYearly(fee.amount, pos.n)[pos.index]);
 
 /** "1,500" / "1,000.50" (whole cedis without decimals). */
 export const cedis = (v) => {
@@ -80,8 +97,8 @@ export const cedis = (v) => {
 };
 
 /** "Tuition (yearly GH₵ 1,500 — Term 2 share)" */
-export const yearlyLabel = (name, yearly, no) =>
-  `${String(name ?? "Fee").trim() || "Fee"} (yearly GH₵ ${cedis(yearly)} — ${no ? `Term ${no} share` : "one term's share"})`;
+export const yearlyLabel = (name, yearly, no, { beyond = false } = {}) =>
+  `${String(name ?? "Fee").trim() || "Fee"} (yearly GH₵ ${cedis(yearly)} — ${beyond ? "already billed in full this year" : no ? `Term ${no} share` : "one term's share"})`;
 
 const frozenFor = (fee, term) => {
   if (!term) return null;
@@ -91,18 +108,41 @@ const frozenFor = (fee, term) => {
   return e && e.amount != null ? e : null;
 };
 
-const yearItem = (fee, { amount, yearly, no, of, assumed = false }) => ({
-  name: fee.name,
-  amount: round2(amount),
-  source: "CLASS",
-  classFeeId: fee.classFeeId ?? null,
-  period: "YEAR",
-  yearly: round2(yearly),
-  shareNo: no ?? null,
-  shareOf: of ?? null,
-  ...(assumed ? { assumedTerms: true } : {}),
-  label: yearlyLabel(fee.name, yearly, no),
-});
+const yearItem = (fee, { amount, yearly, no, of, year = null, assumed = false }) => {
+  const beyond = no != null && of != null && Number(no) > Number(of);
+  return {
+    name: fee.name,
+    amount: round2(amount),
+    source: "CLASS",
+    classFeeId: fee.classFeeId ?? null,
+    period: "YEAR",
+    yearly: round2(yearly),
+    shareNo: no ?? null,
+    shareOf: of ?? null,
+    ...(year != null ? { year: Number(year) } : {}),
+    ...(assumed ? { assumedTerms: true } : {}),
+    label: yearlyLabel(fee.name, yearly, no, { beyond }),
+  };
+};
+
+/**
+ * Pure. The term count `fee`'s yearly amount was first billed with in `term`'s
+ * year (the `of` of a YEAR entry for a term of that year), or null.
+ */
+export const pinnedTermCount = (fee, term, terms = []) => {
+  if (!term || term.academicYearId == null) return null;
+  const all = fee?.termAmounts && typeof fee.termAmounts === "object" ? fee.termAmounts : {};
+  const sameYear = new Set(
+    (terms || []).filter((t) => t.academicYearId != null && Number(t.academicYearId) === Number(term.academicYearId)).map((t) => Number(t.termId))
+  );
+  const hits = Object.entries(all)
+    .filter(([termId, e]) => e && e.period === "YEAR" && Number(e.of) >= 1 && (e.year != null ? Number(e.year) === Number(term.academicYearId) : sameYear.has(Number(termId))))
+    .sort((a, b) => Number(a[0]) - Number(b[0]));
+  return hits.length ? Number(hits[0][1].of) : null;
+};
+
+/** Pure: the position a YEAR item's share uses for `term` (pinned count applied). */
+export const sharePosition = (fee, term, terms = []) => termPosition(term, terms, { pinnedN: pinnedTermCount(fee, term, terms) });
 
 /**
  * Pure. The bill item a class fee gives for `term` (null = a period no term has
@@ -111,13 +151,19 @@ const yearItem = (fee, { amount, yearly, no, of, assumed = false }) => ({
 export const classFeeItem = (fee, term, terms = []) => {
   const frozen = frozenFor(fee, term);
   if (frozen) {
-    if (frozen.period === "YEAR") return yearItem(fee, { amount: frozen.amount, yearly: frozen.yearly, no: frozen.no, of: frozen.of });
+    if (frozen.period === "YEAR") return yearItem(fee, { amount: frozen.amount, yearly: frozen.yearly, no: frozen.no, of: frozen.of, year: frozen.year ?? term?.academicYearId });
     return { name: fee.name, amount: round2(frozen.amount), source: "CLASS" };
   }
   if (normPeriod(fee.period) !== "YEAR") return { name: fee.name, amount: round2(fee.amount), source: "CLASS" };
-  const pos = termPosition(term, terms);
-  const share = splitYearly(fee.amount, pos.n)[pos.index];
-  return yearItem(fee, { amount: share, yearly: fee.amount, no: pos.untied ? null : pos.no, of: pos.n, assumed: pos.assumed });
+  const pos = sharePosition(fee, term, terms);
+  return yearItem(fee, {
+    amount: yearlyShare(fee, pos),
+    yearly: fee.amount,
+    no: pos.untied ? null : pos.no,
+    of: pos.n,
+    year: term?.academicYearId ?? null,
+    assumed: pos.assumed,
+  });
 };
 
 /** Pure: does working out `term`'s items need the year's terms? */
@@ -141,21 +187,25 @@ export const loadYearTerms = async (term, { transaction = null } = {}) => {
  * Queries only when a YEAR item needs the year's terms (TERM-only classes run
  * no extra query). Sequential (may share the caller's transaction).
  */
-export const itemsForTerm = async (classFees, term, { transaction = null, terms = null } = {}) => {
+export const itemsForTerm = async (classFees, term, opts = {}) => (await resolveItems(classFees, term, opts)).items;
+
+const anyYearlyFee = (classFees) => (classFees || []).some((f) => normPeriod(f.period) === "YEAR" || (f.termAmounts && Object.keys(f.termAmounts).length));
+
+/** itemsForTerm, also returning the term row it resolved (null if none was needed). */
+const resolveItems = async (classFees, term, { transaction = null, terms = null } = {}) => {
   let t = term;
-  const anyYearly = (classFees || []).some((f) => normPeriod(f.period) === "YEAR" || (f.termAmounts && Object.keys(f.termAmounts).length));
-  if (!anyYearly) return classFeeItems(classFees, null);
+  if (!anyYearlyFee(classFees)) return { items: classFeeItems(classFees, null), term: null };
   if (t != null && typeof t !== "object") {
     t = await Term.findOne({ where: { termId: t }, attributes: TERM_ATTRS, raw: true, transaction });
   }
   const list = needsYearTerms(classFees, t) ? terms || (await loadYearTerms(t, { transaction })) : [];
-  return classFeeItems(classFees, t || null, list);
+  return { items: classFeeItems(classFees, t || null, list), term: t || null };
 };
 
 /** The entry kept on an item for a billed term. */
 export const frozenEntry = (item) =>
   item.period === "YEAR"
-    ? { period: "YEAR", amount: round2(item.amount), yearly: round2(item.yearly), no: item.shareNo ?? null, of: item.shareOf ?? null }
+    ? { period: "YEAR", amount: round2(item.amount), yearly: round2(item.yearly), no: item.shareNo ?? null, of: item.shareOf ?? null, year: item.year ?? null }
     : { period: "TERM", amount: round2(item.amount) };
 
 /**
@@ -166,7 +216,10 @@ export const frozenEntry = (item) =>
 export const freezeYearShares = async (classFees, items, term, { transaction = null } = {}) => {
   if (!term) return 0;
   let n = 0;
-  for (let k = 0; k < (classFees || []).length; k += 1) {
+  // Item rows are locked in classFeeId order (every path does the same), after
+  // the caller has locked the pupils.
+  const order = (classFees || []).map((f, k) => k).sort((a, b) => Number(classFees[a].classFeeId) - Number(classFees[b].classFeeId));
+  for (const k of order) {
     const f = classFees[k];
     if (normPeriod(f.period) !== "YEAR" || frozenFor(f, term)) continue;
     n += (await addEntries(f.classFeeId, { [String(term.termId)]: frozenEntry(items[k]) }, { transaction })) ? 1 : 0;
@@ -226,12 +279,17 @@ export const freezeBilledTerms = async (fee, { transaction = null } = {}) => {
  * pupil = { studentId, classId, feesPeriodTermId }. Sequential queries, in the
  * order recomputeStudentOwing always ran them (class fees, then pupil fees).
  */
-export const periodItems = async (pupil, { transaction = null } = {}) => {
+export const periodItems = async (pupil, { transaction = null, freeze = false } = {}) => {
   const classFees =
     pupil.classId != null
-      ? await ClassFee.findAll({ where: { classId: pupil.classId }, attributes: CLASS_FEE_ATTRS, raw: true, transaction })
+      ? await ClassFee.findAll({ where: { classId: pupil.classId }, attributes: CLASS_FEE_ATTRS, order: [["classFeeId", "ASC"]], raw: true, transaction })
       : [];
-  const classItems = await itemsForTerm(classFees, pupil.feesPeriodTermId ?? null, { transaction });
+  const { items: classItems, term } = await resolveItems(classFees, pupil.feesPeriodTermId ?? null, { transaction });
+  // Review fix: a balance worked out on a term's live share (a pupil moved or
+  // promoted into the class, a term not billed for the class) records that
+  // share at once, so the balance can't later drift when terms are edited or
+  // added. Only inside a transaction (the caller holds the pupil's lock first).
+  if (freeze && transaction && term) await freezeYearShares(classFees, classItems, term, { transaction });
   const studentFees = await StudentFee.findAll({ where: { studentId: pupil.studentId }, attributes: ["name", "amount"], raw: true, transaction });
   const pupilItems = studentFees.map((f) => ({ name: f.name, amount: round2(f.amount), source: "PUPIL" }));
   return { classItems, pupilItems, items: [...classItems, ...pupilItems] };
@@ -264,7 +322,7 @@ export const previewTerm = (terms = [], today = todayLocal()) =>
 export const describeClassFee = (fee, term, terms = [], termsById = new Map()) => {
   const period = normPeriod(fee.period);
   const item = classFeeItem(fee, term, terms);
-  const pos = termPosition(term, terms);
+  const pos = sharePosition(fee, term, terms);
   const billed = Object.entries(fee.termAmounts && typeof fee.termAmounts === "object" ? fee.termAmounts : {})
     .map(([termId, e]) => {
       const t = termsById.get(Number(termId));
@@ -290,9 +348,37 @@ export const describeClassFee = (fee, term, terms = [], termsById = new Map()) =
 export const annotateClassFeeList = async (rows) => {
   if (!hasYearly(rows)) return rows;
   const terms = await Term.findAll({ attributes: [...TERM_ATTRS, "active"], raw: true });
-  const term = previewTerm(terms);
   const byId = new Map(terms.map((t) => [Number(t.termId), t]));
-  return rows.map((f) => describeClassFee(f, term, terms, byId));
+  // Review fix: preview each class on the term its pupils are billed for now
+  // (the most common fee-period term in the class), not the open / next term,
+  // so the class total matches the pupils' bills (e.g. in the holiday after
+  // Term 2, before Term 3 is billed). A class with no billed pupils: the open
+  // term, else the next term to start.
+  const pupils = await Student.findAll({
+    where: { isDeleted: { [Op.not]: true }, feesPeriodTermId: { [Op.ne]: null } },
+    attributes: ["classId", "feesPeriodTermId"],
+    raw: true,
+  });
+  const termOfClass = classTermMap(pupils);
+  const fallback = previewTerm(terms);
+  return rows.map((f) => describeClassFee(f, byId.get(termOfClass.get(Number(f.classId))) || fallback, terms, byId));
+};
+
+/** Pure: classId -> the fee-period term most of its pupils are on (ties: the later term id). */
+export const classTermMap = (pupils) => {
+  const counts = new Map();
+  for (const p of pupils || []) {
+    if (p.classId == null || p.feesPeriodTermId == null) continue;
+    const c = counts.get(Number(p.classId)) || new Map();
+    c.set(Number(p.feesPeriodTermId), (c.get(Number(p.feesPeriodTermId)) || 0) + 1);
+    counts.set(Number(p.classId), c);
+  }
+  const out = new Map();
+  for (const [classId, c] of counts) {
+    const best = [...c.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0];
+    out.set(classId, best[0]);
+  }
+  return out;
 };
 
 /**

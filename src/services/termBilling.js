@@ -166,7 +166,7 @@ const planClass = async (term, classId, ctx, { transaction = null, lock = false 
     const t = ctx.byId.get(Number(pr.termId));
     promotedOn.set(Number(pr.studentId), later(promotedOn.get(Number(pr.studentId)), t));
   }
-  const classFees = await ClassFee.findAll({ where: { classId }, attributes: CLASS_FEE_ATTRS, raw: true, transaction });
+  const classFees = await ClassFee.findAll({ where: { classId }, attributes: CLASS_FEE_ATTRS, order: [["classFeeId", "ASC"]], raw: true, transaction });
   // B12 (048): the class's items for T (a YEAR item = T's share), and for a
   // period no term has claimed yet (what an ADOPTED pupil has on now).
   const classItems = classFeeItems(classFees, term, ctx.terms);
@@ -416,7 +416,7 @@ export const tieAdmissionToOpenTerm = async (studentId, { transaction = null, bi
     raw: true,
     transaction,
   });
-  const classFees = p.classId != null ? await ClassFee.findAll({ where: { classId: p.classId }, attributes: CLASS_FEE_ATTRS, raw: true, transaction }) : [];
+  const classFees = p.classId != null ? await ClassFee.findAll({ where: { classId: p.classId }, attributes: CLASS_FEE_ATTRS, order: [["classFeeId", "ASC"]], raw: true, transaction }) : [];
   const classItems = await itemsForTerm(classFees, open, { transaction });
   await freezeYearShares(classFees, classItems, open, { transaction });
   const studentFees = await StudentFee.findAll({ where: { studentId }, attributes: ["name", "amount"], raw: true, transaction });

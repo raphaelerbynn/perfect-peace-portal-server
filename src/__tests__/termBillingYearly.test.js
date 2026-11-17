@@ -41,6 +41,7 @@ import { invoiceLines } from "../services/invoices.js";
 import {
   applyPupilShares,
   annotateClassFeeList,
+  classTermMap,
   classFeeItem,
   cedis,
   splitYearly,
@@ -357,5 +358,128 @@ describe("what the screens read", () => {
     Term.findAll.mockClear();
     expect(await annotateClassFeeList(rows)).toBe(rows);
     expect(Term.findAll).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------------
+// Review fixes (2026-11-17).
+describe("review: lock order (no deadlock between Save and Bill this term)", () => {
+  const trace = () => {
+    const log = [];
+    const wrap = (model, name, method) => {
+      const impl = model[method].getMockImplementation();
+      model[method].mockImplementation(async (opts = {}, ...rest) => {
+        if (opts?.lock) log.push(name === "ClassFee" ? `ClassFee#${opts.where.classFeeId}` : name);
+        return impl(opts, ...rest);
+      });
+    };
+    wrap(Student, "Student", "findAll");
+    wrap(Student, "Student", "findOne");
+    wrap(ClassFee, "ClassFee", "findOne");
+    // An UPDATE takes the item's row lock too.
+    const upd = ClassFee.update.getMockImplementation();
+    ClassFee.update.mockImplementation(async (patch, opts = {}) => {
+      log.push(`ClassFee#${opts.where.classFeeId}`);
+      return upd(patch, opts);
+    });
+    return log;
+  };
+
+  it("saving an UNCHANGED yearly item locks the class's pupils before the item", async () => {
+    const log = trace();
+    await editClassFee({ name: "Tuition", amount: 1000, period: "YEAR" }, 1);
+    expect(log[0]).toBe("Student");
+    // ...and a changed one too.
+    log.length = 0;
+    await editClassFee({ name: "Tuition", amount: 1100, period: "YEAR" }, 1);
+    expect(log[0]).toBe("Student");
+    expect(log.indexOf("ClassFee#1")).toBeGreaterThan(0);
+  });
+
+  it("billing locks the pupils, then the yearly items in classFeeId order", async () => {
+    // Two yearly items, listed out of id order.
+    db.classFees.unshift({ classFeeId: 7, classId: 1, name: "Books", amount: "300.00", period: "YEAR", termAmounts: { 2: { period: "YEAR", amount: 100, yearly: 300, no: 1, of: 3 } } });
+    S(1).feesOpeningBalance = 633;
+    S(1).feesBillAtStart = 633;
+    S(1).feesOwing = 633;
+    S(2).feesBillAtStart = 633;
+    const log = trace();
+    await confirm(3);
+    // Each item: a locked read, then its update (same row).
+    const items = log.filter((x, k) => x.startsWith("ClassFee") && x !== log[k - 1]);
+    expect(log[0]).toBe("Student");
+    expect(items.slice(0, 2)).toEqual(["ClassFee#1", "ClassFee#7"]);
+  });
+});
+
+describe("review: the year never bills more than its amount", () => {
+  it("a 4th term added after the year was billed in thirds bills 0 more", async () => {
+    await confirm(3);
+    moveToTerm2();
+    await confirm(4);
+    expect(S(1).feesOwing).toBe(1600);
+    // The school adds a 4th term to 2026/2027.
+    db.terms.push({ termId: 5, term: "4", startDate: "2027-08-02", endDate: "2027-08-30", active: false, academicYearId: 2 });
+    await recomputeStudentOwing(1, { transaction: T });
+    expect(S(1).feesOwing).toBe(1600); // nothing billed moves
+    setToday("2027-05-01");
+    open(4);
+    const p = await previewTermBilling(5, { classId: 1 });
+    expect(p.rows[0].items[0]).toMatchObject({ amount: 0, label: "Tuition (yearly GH₵ 1,000 — already billed in full this year)" });
+    await confirm(5);
+    const tuition = db.bills.filter((b) => b.studentId === 1).map((b) => b.items[0].amount);
+    expect(tuition).toEqual([333, 334, 0]);
+    expect(333 + tuition.reduce((a, b) => a + b, 0)).toBe(1000); // Term 1 (333) + the rest
+    expect(S(1).feesOwing).toBe(1600 + 200); // only Feeding
+  });
+
+  it("the count is pinned from the first billed share, even before every term is recorded", () => {
+    // Only Term 1 existed when it was billed (3 assumed, entry of: 3); a 4-term year is recorded later.
+    const four = [...db.terms, { termId: 5, term: "4", startDate: "2027-08-02", academicYearId: 2 }];
+    expect(classFeeItem(fee(1), db.terms[2], four)).toMatchObject({ amount: 333, shareOf: 3 });
+    expect(classFeeItem(fee(1), four[4], four)).toMatchObject({ amount: 0 });
+    // An item never billed in the year uses the year's count.
+    const fresh = { ...fee(1), termAmounts: {} };
+    expect(classFeeItem(fresh, four[4], four)).toMatchObject({ amount: 250, shareOf: 4 });
+  });
+});
+
+describe("review: balances on a live share are recorded at once", () => {
+  it("a pupil moved into a yearly class: the share is kept, so later term edits don't move the balance", async () => {
+    // Yaw is in BASIC 2, on Term 2 (termId 3); BASIC 1 was never billed for Term 2.
+    db.students.push({ ...pupil(6, "Yaw", 0), classId: 2, feesOpeningBalance: 0, feesBillAtStart: 0, feesPeriodTermId: 3 });
+    S(6).classId = 1; // the office corrects his class (editStudent recomputes in its transaction)
+    await recomputeStudentOwing(6, { transaction: T });
+    expect(S(6).feesOwing).toBe(533);
+    expect(fee(1).termAmounts["3"]).toMatchObject({ amount: 333, of: 3, year: 2 });
+    // Later the terms change: a 4th term, and Term 2 renumbered by mistake.
+    db.terms.push({ termId: 5, term: "4", startDate: "2027-08-02", academicYearId: 2 });
+    db.terms.find((t) => t.termId === 3).term = "3";
+    await recomputeStudentOwing(6, { transaction: T });
+    expect(S(6).feesOwing).toBe(533);
+  });
+
+  it("a recompute outside a transaction never writes", async () => {
+    db.students.push({ ...pupil(6, "Yaw", 0), feesOpeningBalance: 0, feesBillAtStart: 0, feesPeriodTermId: 3 });
+    await recomputeStudentOwing(6);
+    expect(fee(1).termAmounts["3"]).toBeUndefined();
+  });
+});
+
+describe("review: the class list previews the term its pupils are on", () => {
+  it("most common fee-period term per class", () => {
+    const m = classTermMap([
+      { classId: 1, feesPeriodTermId: 3 }, { classId: 1, feesPeriodTermId: 3 }, { classId: 1, feesPeriodTermId: 4 },
+      { classId: 2, feesPeriodTermId: 2 }, { classId: null, feesPeriodTermId: 2 },
+    ]);
+    expect([...m.entries()]).toEqual([[1, 3], [2, 2]]);
+  });
+
+  it("in the holiday after Term 2 (pupils on Term 2), the class shows Term 2's share, not Term 3's", async () => {
+    await confirm(3);
+    setToday("2027-04-10"); // Term 2 has ended, Term 3 not started, no term open
+    open(null);
+    const rows = await annotateClassFeeList(db.classFees.filter((f) => f.classId === 1).map((f) => ({ ...f })));
+    expect(rows[0]).toMatchObject({ shareTermId: 3, termShare: 333 });
   });
 });

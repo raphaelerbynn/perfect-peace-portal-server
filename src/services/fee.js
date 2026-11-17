@@ -82,7 +82,7 @@ export const recomputeStudentOwing = async (studentId, { transaction = null } = 
   const after = Number(student.feesPeriodAfterFeeId) || 0;
   // One query at a time: inside a transaction they share one connection.
   // B12 (048): a YEAR class fee counts as the period's term's share.
-  const { items } = await periodItems(student, { transaction });
+  const { items } = await periodItems(student, { transaction, freeze: true });
   // B12: the pupil's discounts for the term this period bills.
   const discounts =
     student.feesPeriodTermId != null
