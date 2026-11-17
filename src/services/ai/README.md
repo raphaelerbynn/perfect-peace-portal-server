@@ -43,16 +43,21 @@ Models: `AiUsageLog`, `AiSuggestion`, `AiSettings`. Tests: `src/__tests__/ai*.te
 
 All four must be true, checked in this order by `requireAiFeature` and again by `run.js`:
 
-1. **Role** (`AI_FEATURE_INFO[feature].office` / `.portal`; 403). There is no B10 permission
-   system yet, so that table *is* the permission check; `gate.js#roleAllowed` is the one place to
-   swap when B10 lands.
-   | Feature | Office roles | Portal |
+1. **Permission** (B10; 403). An office login's role must hold the feature's permission
+   (`AI_FEATURE_INFO[feature].permission`, keys in `src/utils/permissions.js`, module "AI assistant"),
+   loaded on the server by the authenticator, never read from the token; a portal token's
+   `userRole` must be in `.portal`. `gate.js#featureAllowed` is the check. Every office route also
+   has `requirePermission(key)` in front, so the router-walk test (`roleAccess.test.js`) sees it.
+   | Key | What | Built-in roles |
    |---|---|---|
-   | `ASK` | Administrator, Accountant (AI-1 limits the Accountant to finance tools) | – |
-   | `PAPERS` | Administrator | `STAFF` (teachers) |
-   | `BRIEFING`, `ANNOUNCEMENTS` | Administrator | – |
-   | `AT_RISK` | Administrator, Class Teacher (AI-4 limits the Class Teacher to their own class) | – |
-   | `REMARKS`, `EXPLAIN`, `DOCUMENTS` | Administrator (switched off, not built) | – |
+   | `ai.settings` | Settings → AI, usage, and seeing budget amounts (status, 429 bodies) | Administrator |
+   | `ai.suggestions.review` | `/ai/suggestions*` (list, edit, accept, reject office drafts) | Administrator |
+   | `ai.ask` | `ASK`: `/ai/chat`, `/ai/conversations*`; the tools offered follow the role's other permissions (AI-1) | Administrator, Accountant (finance tools only) |
+   | `ai.papers.view_all` | `PAPERS` office side: `/question-papers*` read-only (teachers: portal `STAFF`, unchanged) | Administrator |
+   | `ai.briefing` | `BRIEFING`: `/ai/briefings*`, and who gets the in-app notice | Administrator |
+   | `ai.announcements` | `ANNOUNCEMENTS`: `/ai/announcements/draft` (accepting a news draft also needs `news.manage`) | Administrator |
+   | `ai.at_risk` | `AT_RISK`: `/ai/watchlist*`; every class with `academics.all_classes`, else the login's own class | Administrator, Class Teacher (own class) |
+   | (`ai.settings`) | `REMARKS`, `EXPLAIN`, `DOCUMENTS`: parked, no routes; they get their own key when built | Administrator |
 2. **Server**: `AI_ENABLED=true` and `GEMINI_API_KEY` set (reason `SERVER_OFF` / `NO_KEY`).
 3. **School**: Settings → AI master switch (`SCHOOL_OFF`). Starts off.
 4. **Feature**: its switch (`FEATURE_OFF`). The built features (ASK, PAPERS, BRIEFING, ANNOUNCEMENTS, AT_RISK) default on, the rest off.
@@ -63,7 +68,7 @@ cap (`Ai_settings.monthly_cap_ghs`, or `AI_MONTHLY_BUDGET_GHS` when empty). At o
 by a few pesewas.
 
 Error bodies the frontends read: `{ message, code: "AI_DISABLED", reason, feature }`,
-`{ message, code: "AI_QUOTA", spentGhs, capGhs, period }` (amounts for an Administrator only; anyone else
+`{ message, code: "AI_QUOTA", spentGhs, capGhs, period }` (amounts only with `ai.settings`; anyone else
 gets `{ message, code: "AI_QUOTA" }` with no figures), `{ message, code: "AI_FAILED", errorClass }`.
 Messages are written for staff and say the task can still be done by hand.
 
@@ -77,7 +82,10 @@ Messages are written for staff and say the task can still be done by hand.
 4. Accept handler: `registerAcceptHandler("<FEATURE>", handler)` at import of the feature's service.
    Pass `{ officeReviewable: false }` when the drafts belong to the person who asked (AI-3 papers):
    the office `/ai/suggestions` endpoints then never list them and answer 404 for them.
-5. Route: `requireAiFeature("<FEATURE>")` in the right router (mount order in `src/index.js`).
+5. Route: `requireAiFeature("<FEATURE>")` in the right router (mount order in `src/index.js`); an office
+   route also gets `authenticateManagementUser, requirePermission("ai.<key>")` first, and its key goes in
+   the catalogue (`src/utils/permissions.js`), the feature's `permission` and the router-walk test's
+   `BEFORE` / `AI_GATES` tables.
 6. Migration if the feature needs its own tables: **044–046 are reserved** for AI-1/3/5/8.
 7. Tests with the fake provider; add the page using the shared UI pieces below.
 
@@ -184,7 +192,8 @@ that throws leaves the draft untouched, and a second accept returns the row with
 handler again. A feature with no handler cannot be accepted (400). Edits/accept/reject of a final
 draft are 409.
 
-Office endpoints (Administrator), in `routes/aiRoutes.js`:
+Office endpoints (`ai.suggestions.review`), in `routes/aiRoutes.js`. Accept passes the caller (`user`) to
+the handler as well as `actor`, so a handler checks what that login may do:
 
 | Method | Path | |
 |---|---|---|
@@ -215,7 +224,7 @@ type (mount order in `src/index.js`): portal-teacher routes under `/teacher/*`, 
 router behind `authenticateManagementUser` or per-route auth like `aiRouter`.
 
 Other endpoints: `GET /ai/status` (any signed-in user; their features with `{ available, reason }`,
-budget only for the Administrator), `GET/PUT /ai/settings` and `GET /ai/usage` (Administrator).
+budget only with `ai.settings`), `GET/PUT /ai/settings` and `GET /ai/usage` (`ai.settings`).
 
 ## Shared UI
 
@@ -245,14 +254,18 @@ limit, the streamed tool loop), `prompts/ask.js`, `controllers/askController.js`
 
 - **Tools** are read-only (raw `SELECT`s or existing read services; a test records every statement
   they send and fails on anything but SELECT / WITH), return aggregates or capped top-N lists with
-  the full count, and never select contact columns. Each has `roles`: the Administrator gets all
-  15; the Accountant gets `current_term`, `students_count(_by_class)`, `fees_*`,
+  the full count, and never select contact columns. Each has `needs` (B10): the permissions of the
+  screen with the same figures, on top of `ai.ask` (`current_term` nothing more; counts `fees.view`,
+  `accounting.view` or `academics.all_classes`; `fees_*` `fees.view`; `income_expense_summary`
+  `accounting.view`; attendance / results `attendance.view` / `results.view` + `academics.all_classes`;
+  `staff_list` / `staff_count` `staff.view`; `staff_attendance_summary` `staff_attendance.view`). So the
+  Administrator gets all 15 and the Accountant `current_term`, `students_count(_by_class)`, `fees_*`,
   `income_expense_summary`. `toolsFor(user)` filters what the model is offered and `invokeTool`
-  refuses at call time too. A new tool: add it to `TOOLS` with its roles; the read-only test picks it up.
+  refuses at call time too. A new tool: add it to `TOOLS` with its `needs`; the read-only test picks it up.
 - **Fast path**: whole-school pupil / staff counts and the current term are answered with no model
   call and no usage row (also over the cap). Anything with a class, date, ranking or second
   question goes to the model.
-- **`POST /ai/chat`** `{ question, conversationId? }`: refusals come before the stream as JSON
+- **`POST /ai/chat`** (`ai.ask`) `{ question, conversationId? }`: refusals come before the stream as JSON
   (400, 404, 429 `AI_ASK_LIMIT` = `AI_ASK_PER_HOUR` (20) questions per user per hour, 429
   `AI_QUOTA`), then SSE events `conversation`, `tool` (`started|finished|failed` + a "Checking
   fees" label), `text`, `error`, `done`. Each model turn is a `streamText` call (switches and cap
@@ -271,7 +284,7 @@ limit, the streamed tool loop), `prompts/ask.js`, `controllers/askController.js`
 measure → QUIET / AI write-up via `runJson` + figure check → plain fallback → deliver), `scheduler.js` (the
 one-minute timer, started in `src/index.js`, not in tests or with AI off). Prompt `prompts/briefing.js`.
 WhatsApp driver `src/services/whatsapp.js`. Routes `src/routes/briefingRoutes.js` (`/ai/briefings*`,
-Administrator). Migration 046. A briefing is not a draft (`Ai_briefing`, not `Ai_suggestion`): nothing is sent
+`ai.briefing`; the in-app notice goes to every login whose role holds it, `roles.js#loginsHolding`). Migration 046. A briefing is not a draft (`Ai_briefing`, not `Ai_suggestion`): nothing is sent
 to parents, it is read by the head teacher, and every figure is computed, not written by the model.
 
 ## AI-4 Pupils-at-risk watchlist (built on this)
@@ -283,8 +296,8 @@ notes via `runJson` + `notesProblem` (AI-5's `unsupportedFigures` per pupil), th
 `prompts/atRisk.js`. Routes `src/routes/atRiskRoutes.js`. Migration 049 (`Ai_watchlist_entry`, one row per
 pupil per term once someone acts). Tests: `atRiskSignals`, `atRiskWatchlist`.
 
-- **The list never needs AI.** `GET /ai/watchlist` computes it on every read (Administrator: school-wide or
-  `?classId`; Class Teacher: own class only, another class is a 403) and reports `ai: { available, reason }`
+- **The list never needs AI.** `GET /ai/watchlist` (`ai.at_risk`) computes it on every read (with
+  `academics.all_classes`: school-wide or `?classId`; without: the login's own class only, another class is a 403) and reports `ai: { available, reason }`
   for the button. Reasons and lines: attendance under 90% after 10 marked days; away 3+ marked days in a row
   (open term); average subject score down 5+ points on the previous term (3+ subjects both terms); 2+
   subjects under the pass mark (B8 scale's first non-fail band, else 50); fees owing at or over the
@@ -299,5 +312,5 @@ pupil per term once someone acts). Tests: `atRiskSignals`, `atRiskWatchlist`.
   the page labels each note "Written by AI".
 - **Marks:** `PUT /ai/watchlist/:studentId/status` `{ termId?, status: OPEN|HANDLING|DISMISSED, note? }` with
   who and when. A dismissed pupil comes back on the open list when a NEW reason appears.
-- A "Head Teacher" office role is coming on another branch: add it to `WATCHLIST_ROLES` (service.js) and the
-  `AT_RISK` row of the role table when it lands.
+- Who (B10): `ai.at_risk`, plus `academics.all_classes` for every class. A head teacher who isn't the
+  Administrator is a custom role with both.

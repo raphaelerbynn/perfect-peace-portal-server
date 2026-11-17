@@ -15,6 +15,7 @@
 import { Op, fn, col } from "sequelize";
 import { AiUsageLog } from "../../models/index.js";
 import { round2, toNum } from "../../utils/money.js";
+import { hasPermission, P } from "../../utils/permissions.js";
 import { aiConfig, priceFor } from "./config.js";
 import { AiQuotaError } from "./errors.js";
 import { getAiSettings } from "./settings.js";
@@ -92,7 +93,7 @@ export const budgetState = async (now = new Date()) => {
 
 /**
  * The guard run before every call. Logs a BLOCKED row when it refuses. The
- * error shows the spend and cap only when `user` is an Administrator.
+ * error shows the spend and cap only when `user`'s role holds ai.settings.
  */
 export const assertWithinBudget = async ({ feature, user, model } = {}) => {
   const state = await budgetState();
@@ -100,7 +101,7 @@ export const assertWithinBudget = async ({ feature, user, model } = {}) => {
     if (feature) {
       await recordUsage({ feature, user, model: model || aiConfig().defaultModel, status: "BLOCKED", errorClass: "QUOTA", errorMessage: `Monthly cap reached (GH₵ ${state.spentGhs} of ${state.capGhs})` });
     }
-    throw new AiQuotaError({ ...state, showAmounts: user?.category === "Administrator" });
+    throw new AiQuotaError({ ...state, showAmounts: hasPermission(user, P.AI_SETTINGS) });
   }
   return state;
 };

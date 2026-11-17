@@ -62,6 +62,8 @@ const { setAiProviderForTests } = require("../services/ai/client.js");
 const { createFakeProvider } = require("../services/ai/providers/fake.js");
 const { clearAiSettingsCache } = require("../services/ai/settings.js");
 const { notesProblem } = require("../services/atRisk/service.js");
+const accessStore = require("../services/accessStore.js"); // the in-memory fake (testSupport/jestSetup.js)
+const { clearAccessCache } = require("../services/officeAccess.js");
 
 const sign = (p) => jwt.sign(p, "test-secret", { algorithm: "HS256", expiresIn: "1h" });
 const T = {
@@ -209,6 +211,48 @@ describe("who sees the watchlist", () => {
     expect((await get("/ai/watchlist", T.teacher)).status).toBe(403);
     expect((await get("/ai/watchlist", T.pupil)).status).toBe(403);
     expect((await request(app).get("/ai/watchlist")).status).toBe(401);
+  });
+
+  describe("custom roles (B10): ai.at_risk, with academics.all_classes for every class", () => {
+    const custom = (roleId, name, permissions, teacherId) => {
+      accessStore.addRole({ roleId, name, permissions });
+      return sign({ category: name, username: `u${roleId}`, roleId, teacherId });
+    };
+    beforeEach(() => {
+      accessStore.reset();
+      clearAccessCache();
+    });
+    afterAll(() => {
+      accessStore.reset();
+      clearAccessCache();
+    });
+
+    it("ai.at_risk without academics.all_classes: the class linked to the login only (as the Class Teacher)", async () => {
+      const t = custom(40, "Year head", ["ai.at_risk"], 3);
+      const own = await get("/ai/watchlist", t);
+      expect(own.status).toBe(200);
+      expect(own.body.scope).toEqual({ classId: 5, className: "P5", own: true });
+      expect(own.body.entries.map((e) => e.studentId)).toEqual([1]);
+      expect((await get("/ai/watchlist?classId=6", t)).status).toBe(403);
+      expect((await post("/ai/watchlist/notes", t, { classId: 6 })).status).toBe(403);
+      expect((await put("/ai/watchlist/4/status", t, { status: "DISMISSED" })).status).toBe(403); // pupil in another class
+      // no class linked to the login: refused
+      expect((await get("/ai/watchlist", custom(41, "Unlinked", ["ai.at_risk"], 9))).status).toBe(403);
+    });
+
+    it("ai.at_risk with academics.all_classes: school-wide or any one class", async () => {
+      const t = custom(42, "Deputy head", ["ai.at_risk", "academics.all_classes"], null);
+      const all = await get("/ai/watchlist", t);
+      expect(all.status).toBe(200);
+      expect(all.body.entries.map((e) => e.studentId)).toEqual([3, 4, 1]);
+      expect((await get("/ai/watchlist?classId=6", t)).body.scope).toMatchObject({ classId: 6 });
+    });
+
+    it("academics.all_classes without ai.at_risk: no watchlist", async () => {
+      const t = custom(43, "Records", ["academics.all_classes", "results.view", "attendance.view"], null);
+      expect((await get("/ai/watchlist", t)).status).toBe(403);
+      expect((await post("/ai/watchlist/notes", t, {})).status).toBe(403);
+    });
   });
 
   it("a past term: no open-term reasons (days in a row, fees), no previous term for the first", async () => {

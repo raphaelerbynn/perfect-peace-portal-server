@@ -12,10 +12,9 @@
 //   setStatus        mark a pupil's entry as being handled / dismissed /
 //                    open again, with who and when.
 //
-// Who: the Administrator, school-wide; a Class Teacher, their own class only
-// (the class their login is linked to, checked with assertClassAccess). A
-// "Head Teacher" office role is coming on another branch: add it to the role
-// lists here and in the AT_RISK row of the AI role table when it lands.
+// Who (B10): a role holding ai.at_risk. With academics.all_classes (the
+// Administrator) school-wide or any one class; without it (the Class Teacher)
+// the class the login is linked to only, checked with assertClassAccess.
 //
 // The notes are NOT drafts (Ai_suggestion): the watchlist is staff-only (the
 // head teacher and the pupil's own class teacher), nothing from it reaches
@@ -24,8 +23,9 @@
 import { Op } from "sequelize";
 import { AiWatchlistEntry, Class, Student, Term } from "../../models/index.js";
 import { AppError } from "../../utils/errorHandling.js";
+import { hasPermission, P } from "../../utils/permissions.js";
 import { AT_RISK_LENGTHS, AT_RISK_PROMPT, atRiskOutputSchema, renderPrompt } from "../ai/prompts/index.js";
-import { featureBlockReason, roleAllowed } from "../ai/gate.js";
+import { featureAllowed, featureBlockReason } from "../ai/gate.js";
 import { redactForAi } from "../ai/redact.js";
 import { runJson } from "../ai/run.js";
 import { actorOf, budgetState } from "../ai/usage.js";
@@ -39,7 +39,6 @@ import { isKgSection } from "../teacherScope.js";
 import * as data from "./data.js";
 import { DEFAULT_THRESHOLDS, LEVELS, assessPupil, effectiveStatus, fingerprintOf, orderWatchlist, passMarkFromBands } from "./signals.js";
 
-export const WATCHLIST_ROLES = Object.freeze(["Administrator", "Class Teacher"]);
 // Most pupils one "Write AI notes" press covers (SchoolPro's watchlist cap).
 export const MAX_NOTES = 12;
 export const STATUSES = Object.freeze(["OPEN", "HANDLING", "DISMISSED"]);
@@ -51,28 +50,31 @@ const toId = (v, name) => {
   return n;
 };
 const textOf = (v) => (typeof v === "string" ? v.trim() : "");
-const isAdmin = (user) => user?.category === "Administrator";
+// The watchlist itself (the routes check the same key); every class needs academics.all_classes.
+const mayUseWatchlist = (user) => hasPermission(user, P.AI_AT_RISK);
+const everyClass = (user) => hasPermission(user, P.ALL_CLASSES);
 
 // ------------------------------------------------------------------ scope
 /**
- * Which class the caller may see. Administrator: the asked class, or every
- * class (null). Class Teacher: their own class only; asking for another is 403.
+ * Which class the caller may see (needs ai.at_risk). With academics.all_classes:
+ * the asked class, or every class (null). Without: the class linked to the
+ * login only; asking for another is 403.
  * -> { classId, className, own }
  */
 export const resolveScope = async (user, classId) => {
+  if (!mayUseWatchlist(user)) throw new AppError("You do not have permission to see the watchlist.", 403);
   const asked = classId === undefined || classId === null || classId === "" ? null : toId(classId, "classId");
-  if (isAdmin(user)) {
+  if (everyClass(user)) {
     if (asked === null) return { classId: null, className: null, own: false };
     const klass = await Class.findOne({ where: { classId: asked }, attributes: ["classId", "name", "section", "isDeleted"], raw: true });
     if (!klass || klass.isDeleted) throw new AppError("Class not found", 404);
     return { classId: klass.classId, className: String(klass.name ?? "").trim(), own: false };
   }
-  if (user?.category !== "Class Teacher") throw new AppError("You do not have permission to see the watchlist.", 403);
   if (!user.teacherId) throw new AppError("Your login is not linked to a class. Ask the administrator.", 403);
   const own = await Class.findOne({ where: { teacherId: user.teacherId, isDeleted: { [Op.not]: true } }, attributes: ["classId", "name", "section"], raw: true });
   if (!own) throw new AppError("Your login is not linked to a class. Ask the administrator.", 403);
   if (asked !== null && asked !== Number(own.classId)) throw new AppError("You can only see the watchlist for your own class.", 403);
-  await assertClassAccess(user, own.name); // the shared Class Teacher check (same class, by name)
+  await assertClassAccess(user, own.name); // the shared own-class check (same class, by name)
   return { classId: Number(own.classId), className: String(own.name ?? "").trim(), own: true };
 };
 
@@ -226,7 +228,7 @@ const csv = (v) =>
 
 /** What the caller's AI button can do now (no amounts: the page asks /ai/status for those). */
 export const aiStateFor = async (user) => {
-  if (!roleAllowed("AT_RISK", user)) return { available: false, reason: "ROLE" };
+  if (!featureAllowed("AT_RISK", user)) return { available: false, reason: "ROLE" };
   let reason = await featureBlockReason("AT_RISK");
   if (!reason && (await budgetState()).overCap) reason = "QUOTA";
   return { available: !reason, reason };
@@ -363,11 +365,11 @@ export const setStatus = async ({ user, studentId, body = {} }) => {
   const pupil = await Student.findOne({ where: { studentId: id }, attributes: ["studentId", "classId", "isDeleted"], raw: true });
   if (!pupil || pupil.isDeleted) throw new AppError("Pupil not found", 404);
   // Scope: the pupil's class must be one the caller may see.
-  if (!isAdmin(user)) {
+  if (!everyClass(user)) {
     const scope = await resolveScope(user, null);
     if (Number(pupil.classId) !== Number(scope.classId)) throw new AppError("You can only act on pupils in your own class.", 403);
   }
-  const list = await computeWatchlist({ user, termId: body.termId, classId: isAdmin(user) ? pupil.classId : null });
+  const list = await computeWatchlist({ user, termId: body.termId, classId: everyClass(user) ? pupil.classId : null });
   const entry = list.entries.find((e) => e.studentId === id);
   const now = new Date();
   await AiWatchlistEntry.upsert({

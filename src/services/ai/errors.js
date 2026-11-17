@@ -53,9 +53,9 @@ export class AiUnavailableError extends AiAppError {
   }
 }
 
-// Only an Administrator is told the amounts: teachers (papers) and the
-// Accountant (Ask) get the plain message, with no figures in message or
-// details. `showAmounts` is decided per caller by assertWithinBudget({ user }).
+// Only a role holding ai.settings (the Administrator) is told the amounts:
+// teachers (papers), the Accountant (Ask) and the Class Teacher (watchlist) get
+// the plain message, with no figures in message or details. `showAmounts` is decided per caller by assertWithinBudget({ user }).
 export class AiQuotaError extends AiAppError {
   constructor({ spentGhs, capGhs, period, showAmounts = false }) {
     super(

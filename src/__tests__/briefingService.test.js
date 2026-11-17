@@ -66,7 +66,12 @@ jest.mock("../models/index.js", () => {
     AiSettings: { findOne: jest.fn(async () => ({ ...mockDb.aiSettings })) },
     AiUsageLog: { create: jest.fn(async (r) => r), sum: jest.fn(async () => mockDb.spent), findAll: jest.fn(async () => []) },
     Term: { findOne: jest.fn(async () => mockDb.term) },
+    // B10: the in-app notice goes to the logins whose role holds ai.briefing
+    // (services/roles.js#loginsHolding; its query is tested in roles.test.js).
     UserAccount: { findAll: jest.fn(async () => mockDb.admins.map((username) => ({ username }))) },
+    RolePermission: { findAll: jest.fn(async () => []) },
+    Role: {},
+    Teacher: {},
   };
 });
 

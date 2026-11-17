@@ -173,8 +173,12 @@ export const editSuggestion = async (id, content, { actor, scope, includePrivate
     return { ...row, content, status: "EDITED", reviewedBy: str(actor, 110), reviewedAt: now, updatedAt: now };
   });
 
-/** Apply the draft through the feature's handler, exactly once. */
-export const acceptSuggestion = async (id, { actor, scope, includePrivate = false } = {}) =>
+/**
+ * Apply the draft through the feature's handler, exactly once. `user` is the
+ * caller (req.user, with its permissions), passed on so the handler can check
+ * what that login may do (AI-8: news.manage to make a post).
+ */
+export const acceptSuggestion = async (id, { actor, user = null, scope, includePrivate = false } = {}) =>
   sequelize.transaction(async (transaction) => {
     const row = await getSuggestion(id, { scope, transaction, lock: true, includePrivate });
     if (row.status === "ACCEPTED") return row; // double click: same answer
@@ -183,7 +187,7 @@ export const acceptSuggestion = async (id, { actor, scope, includePrivate = fals
     if (!handler) {
       throw new AppError(`Drafts for ${row.feature} can't be accepted yet (that feature isn't built). The draft was left as it is.`, 400);
     }
-    const result = (await handler.accept(row, { transaction, actor })) || {};
+    const result = (await handler.accept(row, { transaction, actor, user })) || {};
     const now = new Date();
     const patch = { status: "ACCEPTED", reviewedBy: str(actor, 110), reviewedAt: now, updatedAt: now };
     if (result.entityId !== undefined && result.entityId !== null) patch.entityId = str(result.entityId, 60);

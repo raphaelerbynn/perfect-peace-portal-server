@@ -16,39 +16,41 @@ export const AI_FEATURES = Object.freeze({
 export const AI_FEATURE_KEYS = Object.freeze(Object.values(AI_FEATURES));
 
 // What the Settings -> AI page shows, plus each feature's default switch (a
-// missing key in Ai_settings.feature_toggles uses this) and who may use it.
-//
-// PP has no permission system yet (B10 isn't built), so this table IS the
-// permission check: `office` = management categories, `portal` = portal
-// userRoles (STAFF = teachers). requireAiFeature() reads it. When B10 lands,
-// swap the lookup in gate.js#roleAllowed for the permission middleware.
+// missing key in Ai_settings.feature_toggles uses this) and who may use it:
+//   `permission` = the B10 permission an office login's role must hold
+//                  (src/utils/permissions.js; the routes gate on the same key);
+//   `portal`     = portal userRoles (STAFF = teachers), unchanged by B10.
+// requireAiFeature() and aiStatusFor() read it (gate.js#featureAllowed).
+// The parked features have no routes yet: they follow ai.settings (whoever
+// runs AI) until they are built and get their own key.
 export const AI_FEATURE_INFO = Object.freeze({
   ASK: {
     label: "Ask the school",
     description: "Ask a question about pupils, attendance, results or fees and get an answer from the school's own records.",
     defaultOn: true,
-    office: ["Administrator", "Accountant"], // AI-1 limits the Accountant to the finance tools
+    permission: "ai.ask", // AI-1: the tools offered follow the role's other permissions (ask/tools.js)
     portal: [],
   },
   PAPERS: {
     label: "Question papers",
     description: "Teachers draft class exercises and test papers from a topic; the teacher checks every question.",
     defaultOn: true,
-    office: ["Administrator"],
+    // Office: the read-only view of every paper; teachers write theirs in the portal.
+    permission: "ai.papers.view_all",
     portal: ["STAFF"],
   },
   BRIEFING: {
     label: "Monday briefing",
     description: "A short weekly summary for the head teacher: attendance, fees, results, things to look at.",
     defaultOn: true,
-    office: ["Administrator"],
+    permission: "ai.briefing",
     portal: [],
   },
   ANNOUNCEMENTS: {
     label: "Announcement drafts",
     description: "Turn a few notes into a notice for parents in the school's tone.",
     defaultOn: true,
-    office: ["Administrator"],
+    permission: "ai.announcements",
     portal: [],
   },
   REMARKS: {
@@ -56,17 +58,16 @@ export const AI_FEATURE_INFO = Object.freeze({
     description: "Not built yet.",
     defaultOn: false,
     later: true,
-    office: ["Administrator"],
+    permission: "ai.settings",
     portal: [],
   },
   AT_RISK: {
     label: "Pupils at risk",
     description: "A short note on each pupil on the at-risk watchlist (attendance, scores, fees): why they are on it and what to do first. The list itself works without AI.",
     defaultOn: true,
-    // AI-4: the Class Teacher for their own class only (the watchlist routes
-    // check the class). A "Head Teacher" office role is coming on another branch:
-    // add it here when it lands.
-    office: ["Administrator", "Class Teacher"],
+    // AI-4: without academics.all_classes, the login's own class only (the
+    // watchlist service checks the class).
+    permission: "ai.at_risk",
     portal: [],
   },
   EXPLAIN: {
@@ -74,7 +75,7 @@ export const AI_FEATURE_INFO = Object.freeze({
     description: "Not built yet.",
     defaultOn: false,
     later: true,
-    office: ["Administrator"],
+    permission: "ai.settings",
     portal: [],
   },
   DOCUMENTS: {
@@ -82,7 +83,7 @@ export const AI_FEATURE_INFO = Object.freeze({
     description: "Not built yet.",
     defaultOn: false,
     later: true,
-    office: ["Administrator"],
+    permission: "ai.settings",
     portal: [],
   },
 });

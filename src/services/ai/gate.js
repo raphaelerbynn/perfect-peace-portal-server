@@ -6,8 +6,10 @@
 // In order:
 //   1. a valid token (reuses req.user if an earlier middleware set it, so it
 //      works inside teacherRouter / generalRouter as well as on its own);
-//   2. the role table in constants.js (AI_FEATURE_INFO[feature].office for
-//      management tokens, .portal for portal tokens; STAFF = teachers)  -> 403;
+//   2. who may use it (AI_FEATURE_INFO in constants.js): an office token's
+//      role must hold the feature's B10 permission (loaded on the server by
+//      the authenticator, never read from the token); a portal token's
+//      userRole must be in .portal (STAFF = teachers)  -> 403;
 //   3. the server switch (AI_ENABLED + GEMINI_API_KEY), the school switch and
 //      the feature switch (Settings -> AI)  -> 403 code AI_DISABLED + reason;
 //   4. unless { budget: false }: this month's spend below the cap -> 429 AI_QUOTA.
@@ -15,6 +17,7 @@
 //
 // run.js repeats 3 and 4 before every model call (cron jobs have no request).
 import { authenticateUser } from "../../utils/middlewares.js";
+import { hasPermission, P } from "../../utils/permissions.js";
 import { AI_FEATURE_INFO } from "./constants.js";
 import { aiConfig, serverBlockReason } from "./config.js";
 import { AiUnavailableError } from "./errors.js";
@@ -25,14 +28,20 @@ const assertKnown = (feature) => {
   if (!AI_FEATURE_INFO[feature]) throw new Error(`Unknown AI feature "${feature}" (add it to services/ai/constants.js)`);
 };
 
-/** True when this token's role may use the feature (the B10 stand-in). */
-export const roleAllowed = (feature, user) => {
+/**
+ * True when this caller may use the feature: an office login whose role holds
+ * the feature's permission (B10), or a portal token whose userRole is listed.
+ */
+export const featureAllowed = (feature, user) => {
   const info = AI_FEATURE_INFO[feature];
   if (!info || !user) return false;
-  if (user.category) return info.office.includes(user.category);
+  if (user.category) return hasPermission(user, info.permission);
   if (user.userRole) return info.portal.includes(String(user.userRole).toUpperCase());
   return false;
 };
+
+/** Budget amounts (spent, cap) are shown only to whoever runs AI (ai.settings). */
+export const showsBudgetAmounts = (user) => hasPermission(user, P.AI_SETTINGS);
 
 /** null when the feature can run now, else SERVER_OFF | NO_KEY | SCHOOL_OFF | FEATURE_OFF. */
 export const featureBlockReason = async (feature) => {
@@ -59,12 +68,12 @@ export const requireAiFeature = (feature, { budget = true } = {}) => {
     authenticateIfNeeded(req, res, async (authErr) => {
       if (authErr) return next(authErr);
       try {
-        if (!roleAllowed(feature, req.user)) {
+        if (!featureAllowed(feature, req.user)) {
           res.status(403);
           throw new Error("You do not have permission to use this AI feature.");
         }
         await assertAiFeatureOn(feature);
-        if (budget) await assertWithinBudget({ user: req.user }); // cheap pre-check (amounts for Administrators only); run.js logs refusals per call
+        if (budget) await assertWithinBudget({ user: req.user }); // cheap pre-check (amounts with ai.settings only); run.js logs refusals per call
         req.aiFeature = feature;
         req.aiActor = actorOf(req.user);
         return next();
@@ -77,8 +86,8 @@ export const requireAiFeature = (feature, { budget = true } = {}) => {
 /**
  * GET /ai/status: for the signed-in caller, each feature their role may use
  * with { available, reason }, plus the budget. Lets a page show the disabled /
- * quota state up front instead of failing on click. Never reveals amounts to
- * non-Administrators.
+ * quota state up front instead of failing on click. Amounts only with
+ * ai.settings.
  */
 export const aiStatusFor = async (user) => {
   const cfg = aiConfig();
@@ -86,17 +95,16 @@ export const aiStatusFor = async (user) => {
   const budget = await budgetState();
   const features = {};
   for (const [key, info] of Object.entries(AI_FEATURE_INFO)) {
-    if (!roleAllowed(key, user)) continue;
+    if (!featureAllowed(key, user)) continue;
     let reason = serverBlockReason(cfg);
     if (!reason && !settings.enabled) reason = "SCHOOL_OFF";
     if (!reason && !settings.featureToggles[key]) reason = "FEATURE_OFF";
     if (!reason && budget.overCap) reason = "QUOTA";
     features[key] = { available: !reason, reason, label: info.label };
   }
-  const isAdmin = user?.category === "Administrator";
   return {
     features,
     overCap: budget.overCap,
-    ...(isAdmin ? { budget } : {}),
+    ...(showsBudgetAmounts(user) ? { budget } : {}),
   };
 };

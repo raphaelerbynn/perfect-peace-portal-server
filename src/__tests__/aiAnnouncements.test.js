@@ -81,6 +81,9 @@ import { clearAiSettingsCache } from "../services/ai/settings.js";
 import { setAiProviderForTests } from "../services/ai/client.js";
 import { createFakeProvider } from "../services/ai/providers/fake.js";
 import { acceptSuggestion, editSuggestion, rejectSuggestion } from "../services/ai/suggestions.js";
+import { officeUser } from "../testSupport/officeUser.js";
+import * as accessStore from "../services/accessStore.js";
+import { clearAccessCache } from "../services/officeAccess.js";
 import { checkDraft, parseDraftRequest } from "../services/aiAnnouncements.js";
 import { ungroundedSpecifics } from "../utils/dateGuard.js";
 import { normaliseSms, smsInfo, smsLimit } from "../utils/sms.js";
@@ -388,6 +391,9 @@ describe("POST /ai/announcements/draft", () => {
 
 // ------------------------------------------------------------------ accept
 describe("accept / edit / reject", () => {
+  // B10: the accepting login as the authenticator leaves it on req.user.
+  const ADMIN = officeUser("Administrator", { username: "admin" });
+  const accept = (id, user = ADMIN) => acceptSuggestion(id, { actor: `OFFICE:${user.username}`, user });
   const make = async (body) => {
     turnOn();
     const res = await draft(body);
@@ -398,7 +404,7 @@ describe("accept / edit / reject", () => {
   it("news: accept creates a DRAFT post (never published, no notification)", async () => {
     script([{ json: GOOD_NEWS }]);
     const s = await make({ ...NEWS, post: { audience: "STAFF" } });
-    const out = await acceptSuggestion(s.suggestionId, { actor: "OFFICE:admin" });
+    const out = await accept(s.suggestionId);
     expect(out).toMatchObject({ status: "ACCEPTED", entityId: "55", applied: { mode: "news", postId: 55, status: "DRAFT" } });
     expect(Event.create).toHaveBeenCalledTimes(1);
     const [row, opts] = Event.create.mock.calls[0];
@@ -407,7 +413,7 @@ describe("accept / edit / reject", () => {
     expect(notifyPostPublished).not.toHaveBeenCalled();
     expect(sendSMSMessage).not.toHaveBeenCalled();
     // a second click does not make a second post
-    await acceptSuggestion(s.suggestionId, { actor: "OFFICE:admin" });
+    await accept(s.suggestionId);
     expect(Event.create).toHaveBeenCalledTimes(1);
   });
 
@@ -415,7 +421,7 @@ describe("accept / edit / reject", () => {
     script([{ json: GOOD_NEWS }]);
     const s = await make(NEWS);
     await editSuggestion(s.suggestionId, { ...s.content, body: "Edited by the head." }, { actor: "OFFICE:admin" });
-    await acceptSuggestion(s.suggestionId, { actor: "OFFICE:admin" });
+    await accept(s.suggestionId);
     expect(Event.create.mock.calls[0][0]).toMatchObject({ description: "Edited by the head.", status: "DRAFT", audience: "ALL" });
     await expect(editSuggestion(s.suggestionId, { ...s.content, body: "" }, { actor: "OFFICE:admin" })).rejects.toThrow(/already accepted/);
   });
@@ -429,7 +435,7 @@ describe("accept / edit / reject", () => {
   it("sms: accept returns the text for the SMS box and sends nothing", async () => {
     script([{ json: { text: "Dear Parent, sports day is on Friday 20th November 2026. Perfect Peace" } }]);
     const s = await make({ ...NEWS, mode: "sms" });
-    const out = await acceptSuggestion(s.suggestionId, { actor: "OFFICE:admin" });
+    const out = await accept(s.suggestionId);
     expect(out.status).toBe("ACCEPTED");
     expect(out.applied).toMatchObject({ mode: "sms", text: "Dear Parent, sports day is on Friday 20th November 2026. Perfect Peace", sms: { parts: 1, encoding: "GSM" } });
     expect(sendSMSMessage).not.toHaveBeenCalled();
@@ -444,13 +450,49 @@ describe("accept / edit / reject", () => {
     expect(Event.create).not.toHaveBeenCalled();
   });
 
-  it("accept over HTTP is Administrator-only (AI-0 endpoint)", async () => {
+  it("accept over HTTP needs ai.suggestions.review (the Administrator; not the Class Teacher or Accountant)", async () => {
     script([{ json: GOOD_NEWS }]);
     const s = await make(NEWS);
-    const res = await request(app).post(`/ai/suggestions/${s.suggestionId}/accept`).set("Authorization", `Bearer ${T.classTeacher}`);
-    expect(res.status).toBe(403);
+    for (const t of [T.classTeacher, T.accountant]) {
+      const res = await request(app).post(`/ai/suggestions/${s.suggestionId}/accept`).set("Authorization", `Bearer ${t}`);
+      expect(res.status).toBe(403);
+    }
     const ok = await request(app).post(`/ai/suggestions/${s.suggestionId}/accept`).set("Authorization", `Bearer ${T.admin}`);
     expect(ok.status).toBe(200);
     expect(ok.body.applied).toMatchObject({ postId: 55, status: "DRAFT" });
+  });
+
+  it("a news draft becomes a post only for a login whose role holds news.manage; the draft stays open otherwise", async () => {
+    script([{ json: GOOD_NEWS }]);
+    const s = await make(NEWS);
+    const reviewer = officeUser("Draft reviewer", { username: "rev", roleId: 21 }, ["ai.suggestions.review", "news.view", "news.post"]);
+    await expect(accept(s.suggestionId, reviewer)).rejects.toMatchObject({ statusCode: 403, message: expect.stringMatching(/manage all news/) });
+    expect(Event.create).not.toHaveBeenCalled();
+    expect(mockDb.suggestions.find((x) => x.suggestionId === s.suggestionId).status).toBe("PENDING");
+    // no caller at all (an internal call): refused, never an invented Administrator
+    await expect(acceptSuggestion(s.suggestionId, { actor: "OFFICE:admin" })).rejects.toMatchObject({ statusCode: 403 });
+    expect(Event.create).not.toHaveBeenCalled();
+    const manager = officeUser("News manager", { username: "editor", roleId: 22 }, ["ai.suggestions.review", "news.view", "news.manage"]);
+    const out = await accept(s.suggestionId, manager);
+    expect(out.applied).toMatchObject({ mode: "news", status: "DRAFT" });
+    expect(Event.create.mock.calls[0][0]).toMatchObject({ status: "DRAFT", createdBy: "editor" });
+  });
+
+  it("a custom role over HTTP: ai.suggestions.review + news.manage accepts; without news.manage it is a 403", async () => {
+    accessStore.reset();
+    clearAccessCache();
+    accessStore.addRole({ roleId: 23, name: "Editor", permissions: ["ai.suggestions.review", "news.view", "news.manage"] });
+    accessStore.addRole({ roleId: 24, name: "Reviewer", permissions: ["ai.suggestions.review", "news.view"] });
+    const editor = sign({ category: "Editor", username: "ed", roleId: 23 });
+    const reviewer = sign({ category: "Reviewer", username: "rv", roleId: 24 });
+    script([{ json: GOOD_NEWS }]);
+    const s = await make(NEWS);
+    const no = await request(app).post(`/ai/suggestions/${s.suggestionId}/accept`).set("Authorization", `Bearer ${reviewer}`);
+    expect(no.status).toBe(403);
+    const ok = await request(app).post(`/ai/suggestions/${s.suggestionId}/accept`).set("Authorization", `Bearer ${editor}`);
+    expect(ok.status).toBe(200);
+    expect(Event.create.mock.calls[0][0]).toMatchObject({ createdBy: "ed" });
+    accessStore.reset();
+    clearAccessCache();
   });
 });

@@ -11,17 +11,19 @@
 //      metered). Any figure it wasn't given -> rejected (one retry, then the
 //      plain list). Over the cap / AI off / AI failed -> the plain list of
 //      computed statements, marked source PLAIN with the reason.
-//   5. Deliver a READY briefing: the in-app bell for Administrators (B16), and
+//   5. Deliver a READY briefing: the in-app bell for every login whose role
+//      holds ai.briefing (B16, B10: the Administrator), and
 //      the head teacher's email and/or WhatsApp if chosen in the settings.
 //      Recipient address / number go only to those providers, never the AI.
 //
-// Run now (Administrator) REPLACES today's briefing in place (history keeps
+// Run now (ai.briefing) REPLACES today's briefing in place (history keeps
 // one row per day) and delivers it again. A day already being made -> 409.
 import { Op } from "sequelize";
-import { AiBriefing, Term, UserAccount } from "../../models/index.js";
+import { AiBriefing, Term } from "../../models/index.js";
 import { AppError } from "../../utils/errorHandling.js";
 import { round2, toNum } from "../../utils/money.js";
 import { parsePagination } from "../../utils/pagination.js";
+import { P } from "../../utils/permissions.js";
 import { renderNotificationEmail } from "../../utils/emailTemplate.js";
 import { BRIEFING_LENGTHS, BRIEFING_PROMPT, briefingOutputSchema, renderPrompt } from "../ai/prompts/index.js";
 import { redactForAi } from "../ai/redact.js";
@@ -29,6 +31,7 @@ import { runJson } from "../ai/run.js";
 import { actorOf } from "../ai/usage.js";
 import { absoluteLink, findMissingScores, notify, sendEmailBatch, termLabel } from "../notify.js";
 import { isEmail, maskEmail } from "../mailer.js";
+import { loginsHolding } from "../roles.js";
 import { getSchoolSettings } from "../school.js";
 import { maskWhatsAppNumber, sendWhatsApp } from "../whatsapp.js";
 import * as data from "./data.js";
@@ -359,10 +362,8 @@ export const briefingText = (content, { schoolName, date, url } = {}) => {
   return lines.join("\n");
 };
 
-const officeAdmins = async () =>
-  (await UserAccount.findAll({ where: { category: "Administrator", isDeleted: { [Op.not]: true } }, attributes: ["username"], raw: true }))
-    .map((u) => u.username)
-    .filter(Boolean);
+// B10: the office logins whose role holds ai.briefing (the Administrator).
+const briefingReaders = () => loginsHolding(P.AI_BRIEFING);
 
 /**
  * Deliver a READY briefing on the chosen channels. Never throws: each
@@ -374,7 +375,7 @@ export const deliverBriefing = async (row, settings) => {
   if (row.status !== "READY" && !(NOTIFY_QUIET && row.status === "QUIET")) return { ...delivered, skipped: row.status };
 
   try {
-    const admins = await officeAdmins();
+    const admins = await briefingReaders();
     const res = await notify({
       type: "AI_BRIEFING",
       recipients: admins.map((u) => ({ type: "OFFICE", id: u })),

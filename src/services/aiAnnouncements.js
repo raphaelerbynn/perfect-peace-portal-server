@@ -31,9 +31,10 @@ import { getAiSettings } from "./ai/settings.js";
 import { createSuggestion, registerAcceptHandler } from "./ai/suggestions.js";
 import { actorOf } from "./ai/usage.js";
 import { ANNOUNCEMENT_LENGTHS, ANNOUNCEMENT_PROMPT } from "./ai/prompts/announcement.js";
-import { createDraftPostInTransaction } from "./posts.js";
+import { createDraftPostInTransaction, viewerFromUser } from "./posts.js";
 import { getSchoolSettings } from "./school.js";
 import { AppError } from "../utils/errorHandling.js";
+import { hasPermission, P } from "../utils/permissions.js";
 import { ungroundedSpecifics } from "../utils/dateGuard.js";
 import { normaliseSms, smsInfo, smsLimit, SMS_MAX_PARTS } from "../utils/sms.js";
 
@@ -219,22 +220,25 @@ export const draftAnnouncement = async (body, user, { now = new Date() } = {}) =
 };
 
 // ------------------------------------------------------------------ accept
-// Only an Administrator can accept (/ai/suggestions/:id/accept is
-// Administrator-only), so the post is written as that office login.
-const viewerFromActor = (actor) => {
-  const m = /^OFFICE:(.+)$/.exec(String(actor || ""));
-  if (!m) throw new AppError("Only an office login can use this draft.", 403);
-  return { type: "OFFICE", category: "Administrator", username: m[1], teacherId: null };
+// The post is written as the office login that accepts (req.user, with the
+// permissions its role holds). A news draft needs news.manage: an AI draft
+// may be for any audience, as only a news manager may post (B10).
+const newsManagerViewer = async (user) => {
+  if (!user?.category) throw new AppError("Only an office login can use this draft.", 403);
+  if (!hasPermission(user, P.NEWS_MANAGE)) {
+    throw new AppError("Turning this draft into a news post needs permission to manage all news. Ask the administrator.", 403);
+  }
+  return viewerFromUser(user);
 };
 
-export const acceptAnnouncement = async (suggestion, { transaction, actor }) => {
+export const acceptAnnouncement = async (suggestion, { transaction, user }) => {
   const c = suggestion.content || {};
   if (c.mode === "sms") {
     // Never sent from here: the text goes back to the SMS box.
     const text = String(c.text || "").trim();
     return { data: { mode: "sms", text, sms: smsInfo(text) } };
   }
-  const viewer = viewerFromActor(actor);
+  const viewer = await newsManagerViewer(user);
   const postId = await createDraftPostInTransaction(
     {
       title: c.title,

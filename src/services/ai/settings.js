@@ -4,6 +4,7 @@
 import { AiSettings } from "../../models/index.js";
 import { AppError } from "../../utils/errorHandling.js";
 import { round2, toNum } from "../../utils/money.js";
+import { PERMISSIONS, SYSTEM_ROLES } from "../../utils/permissions.js";
 import { AI_FEATURE_INFO, AI_FEATURE_KEYS, DEFAULT_TONE } from "./constants.js";
 import { aiConfig, serverBlockReason } from "./config.js";
 
@@ -49,6 +50,18 @@ export const getAiSettings = async ({ fresh = false } = {}) => {
 };
 
 /** What the Settings -> AI page needs: the settings, the server's state and the features. */
+// B10: the page's "For:" line. The built-in roles that hold the feature's
+// permission (from code, so it can't drift), the portal teachers, and the
+// permission itself so the page can say custom roles need it.
+const whoFor = (info) => ({
+  permission: info.permission,
+  permissionLabel: PERMISSIONS.find((p) => p.key === info.permission)?.label ?? null,
+  roles: [
+    ...SYSTEM_ROLES.filter((r) => r.permissions.includes(info.permission)).map((r) => r.name),
+    ...info.portal.map((r) => (r === "STAFF" ? "Teachers (portal)" : r)),
+  ],
+});
+
 export const getAiSettingsForAdmin = async () => {
   const settings = await getAiSettings({ fresh: true });
   const cfg = aiConfig();
@@ -69,7 +82,7 @@ export const getAiSettingsForAdmin = async () => {
       label: AI_FEATURE_INFO[key].label,
       description: AI_FEATURE_INFO[key].description,
       later: Boolean(AI_FEATURE_INFO[key].later),
-      roles: [...AI_FEATURE_INFO[key].office, ...AI_FEATURE_INFO[key].portal.map((r) => (r === "STAFF" ? "Teachers (portal)" : r))],
+      ...whoFor(AI_FEATURE_INFO[key]),
       on: settings.featureToggles[key],
     })),
   };

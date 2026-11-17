@@ -23,8 +23,13 @@ import { getProfitLoss } from "../services/graph.js";
 import { getStaffSummary } from "../services/staffAttendance.js";
 import { invokeTool, resolveTerm, termRange, toolsFor, TOOL_NAMES, TOOLS, ToolRefusedError, declarationsFor } from "../services/ai/ask/tools.js";
 
-const admin = { category: "Administrator", username: "head" };
-const accountant = { category: "Accountant", username: "bursar" };
+import { officeUser } from "../testSupport/officeUser.js";
+import { PERMISSION_KEYS } from "../utils/permissions.js";
+
+// B10: callers as the authenticator leaves them (the system roles' permissions).
+const admin = officeUser("Administrator", { username: "head" });
+const accountant = officeUser("Accountant", { username: "bursar" });
+const custom = (perms) => officeUser("Custom", { username: "custom", roleId: 20 }, perms);
 const TERM = { termId: 12, term: "1", startDate: "2026-09-08", endDate: "2026-12-18", active: true, academicYearId: 3, yearName: "2026/2027" };
 const PREV = { termId: 11, term: "3", startDate: "2026-04-27", endDate: "2026-07-24", active: false, academicYearId: 2, yearName: "2025/2026" };
 
@@ -45,13 +50,17 @@ beforeEach(() => {
 describe("roles: what each office role is offered and may call", () => {
   const FINANCE = ["current_term", "students_count", "students_count_by_class", "fees_students_owing", "fees_collection_by_term", "fees_collection_by_class", "income_expense_summary"];
 
-  it("the catalogue: 15 read-only tools, each with a JSON schema and roles", () => {
+  it("the catalogue: 15 read-only tools, each with a JSON schema and the permissions it needs", () => {
     expect(TOOLS).toHaveLength(15);
     expect(new Set(TOOL_NAMES).size).toBe(15);
     for (const t of TOOLS) {
       expect(t.parameters).toMatchObject({ type: "object", properties: expect.any(Object) });
       expect(t.description.length).toBeGreaterThan(20);
-      expect(t.roles).toContain("Administrator");
+      expect(Array.isArray(t.needs)).toBe(true);
+      for (const group of t.needs) {
+        expect(group.length).toBeGreaterThan(0);
+        for (const k of group) expect(PERMISSION_KEYS).toContain(k);
+      }
     }
   });
 
@@ -68,9 +77,58 @@ describe("roles: what each office role is offered and may call", () => {
   });
 
   it("Class Teachers and portal tokens are offered nothing", () => {
-    expect(toolsFor({ category: "Class Teacher", username: "ct" })).toEqual([]);
+    expect(toolsFor(officeUser("Class Teacher", { username: "ct" }))).toEqual([]);
     expect(toolsFor({ id: 3, userRole: "STAFF" })).toEqual([]);
     expect(toolsFor(null)).toEqual([]);
+  });
+
+  it("a role name or a token's claims are never read: only the permissions loaded on the server", () => {
+    expect(toolsFor({ category: "Administrator", username: "head" })).toEqual([]); // no permissions loaded
+    expect(toolsFor({ category: "Administrator", username: "head", permissions: [...PERMISSION_KEYS] })).toEqual([]); // a list from a token, not the server's Set
+  });
+
+  describe("custom roles (B10): the tools follow the role's other permissions", () => {
+    it("ai.ask + fees.view: the fee tools, pupil counts and the current term; no income/expense, results, attendance or staff", () => {
+      const clerk = custom(["ai.ask", "fees.view"]);
+      expect(toolsFor(clerk).map((t) => t.name).sort()).toEqual(
+        ["current_term", "students_count", "students_count_by_class", "fees_students_owing", "fees_collection_by_term", "fees_collection_by_class"].sort()
+      );
+      expect(toolsFor(clerk).every((t) => FINANCE.includes(t.name))).toBe(true);
+    });
+
+    it.each(["income_expense_summary", "results_top_students", "attendance_rate_by_class", "staff_count", "staff_attendance_summary"])(
+      "ai.ask + fees.view is refused %s at call time, before any query runs",
+      async (name) => {
+        await expect(run(name, {}, custom(["ai.ask", "fees.view"]))).rejects.toBeInstanceOf(ToolRefusedError);
+        expect(mockQ.calls).toHaveLength(0);
+        expect(getProfitLoss).not.toHaveBeenCalled();
+        expect(getTermReport).not.toHaveBeenCalled();
+      }
+    );
+
+    it("ai.ask + accounting.view: income and expense, counts and the current term", () => {
+      expect(toolsFor(custom(["ai.ask", "accounting.view"])).map((t) => t.name).sort()).toEqual(
+        ["current_term", "students_count", "students_count_by_class", "income_expense_summary"].sort()
+      );
+    });
+
+    it("fees.view without ai.ask: nothing", () => {
+      expect(toolsFor(custom(["fees.view", "accounting.view", "results.view", "academics.all_classes"]))).toEqual([]);
+    });
+
+    it("whole-school registers and results need academics.all_classes as well", () => {
+      const ownClass = custom(["ai.ask", "attendance.view", "results.view"]);
+      expect(toolsFor(ownClass).map((t) => t.name)).toEqual(["current_term"]);
+      const everyClass = custom(["ai.ask", "attendance.view", "results.view", "academics.all_classes"]);
+      expect(toolsFor(everyClass).map((t) => t.name).sort()).toEqual(
+        ["current_term", "students_count", "students_count_by_class", "attendance_rate_by_class", "attendance_chronic_absentees", "results_subject_averages", "results_top_students", "results_bottom_students"].sort()
+      );
+    });
+
+    it("staff tools: staff.view for the list and count, staff_attendance.view for the register summary", () => {
+      expect(toolsFor(custom(["ai.ask", "staff.view"])).map((t) => t.name).sort()).toEqual(["current_term", "staff_count", "staff_list"]);
+      expect(toolsFor(custom(["ai.ask", "staff_attendance.view"])).map((t) => t.name).sort()).toEqual(["current_term", "staff_attendance_summary"]);
+    });
   });
 
   it.each(["results_top_students", "results_bottom_students", "results_subject_averages", "attendance_rate_by_class", "attendance_chronic_absentees", "staff_list", "staff_count", "staff_attendance_summary"])(

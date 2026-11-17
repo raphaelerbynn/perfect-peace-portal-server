@@ -355,11 +355,14 @@ describe("suggestions", () => {
     const accept = jest.fn(async () => ({ entityId: 77 }));
     registerAcceptHandler("ANNOUNCEMENTS", accept);
     await make();
-    const a = await acceptSuggestion("1", { actor: admin });
+    const caller = { category: "Administrator", username: "admin", permissions: new Set(["ai.suggestions.review"]) };
+    const a = await acceptSuggestion("1", { actor: admin, user: caller });
     expect(a).toMatchObject({ status: "ACCEPTED", entityId: "77", reviewedBy: admin });
+    // the handler gets the caller (B10: it checks what that login may do)
     expect(accept).toHaveBeenCalledWith(expect.objectContaining({ suggestionId: 1, content: { title: "Sports day", body: "Dear Parent" } }), {
       transaction: expect.objectContaining({ LOCK: expect.anything() }),
       actor: admin,
+      user: caller,
     });
     // double click: same answer, handler not run again
     await expect(acceptSuggestion(1, { actor: admin })).resolves.toMatchObject({ status: "ACCEPTED" });

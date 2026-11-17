@@ -453,9 +453,10 @@ export const createPost = async (body, v) => {
 
 // AI-8: an accepted AI draft becomes a DRAFT post, inside the caller's
 // transaction (the one that marks the draft accepted). Never published here,
-// so no B16 notification. Returns the new post id.
+// so no B16 notification. Who may write it: as createPost (B10: news.manage,
+// or news.post limited by validatePost). Returns the new post id.
 export const createDraftPostInTransaction = async (body, v, transaction) => {
-  if (!isAdmin(v) && !isClassTeacher(v)) throw new AppError("You do not have permission to perform this action", 403);
+  if (!isNewsManager(v) && !isPoster(v)) throw new AppError("You do not have permission to perform this action", 403);
   const { postType, values, options } = await validatePost({ ...body, postType: "NEWS" }, v, null);
   const now = new Date();
   const post = await Event.create(

@@ -150,6 +150,27 @@ const managersLeft = async ({ exceptUsername = null, exceptUsernames = [], excep
   return UserAccount.count({ where: { [Op.and]: and }, transaction });
 };
 
+/**
+ * Usernames of the active office logins whose role holds `key` (AI-5: who
+ * gets the briefing in the office app). A login with no role_id counts by the
+ * system role its category names, as officeAccess resolves it.
+ */
+export const loginsHolding = async (key, { transaction } = {}) => {
+  const ids = await roleIdsHolding(key, transaction);
+  const systemNames = SYSTEM_ROLES.filter((r) => ids.includes(r.roleId)).map((r) => r.name);
+  const holders = [];
+  if (ids.length) holders.push({ roleId: { [Op.in]: ids } });
+  if (systemNames.length) holders.push({ roleId: null, category: { [Op.in]: systemNames } });
+  if (!holders.length) return [];
+  const rows = await UserAccount.findAll({
+    where: { [Op.and]: [{ isDeleted: { [Op.not]: true } }, { [Op.or]: holders }] },
+    attributes: ["username"],
+    raw: true,
+    transaction,
+  });
+  return rows.map((r) => r.username).filter(Boolean);
+};
+
 const LAST_MANAGER =
   "At least one office login must keep “Create and edit roles”. Give that permission to another login's role first.";
 

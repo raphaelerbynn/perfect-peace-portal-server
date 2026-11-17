@@ -11,12 +11,24 @@
 //     pass every result through redactForAi and cut it to 12,000 characters.
 //   - No text-to-SQL: the model picks a tool and fills typed arguments; the
 //     SQL is fixed and the arguments are bound as replacements.
-//   - Each tool says which office roles may use it. The Administrator gets
-//     all of them; the Accountant (bursar) gets the finance ones only: fees,
-//     income and expense, student counts and the current term (client answer
-//     6). toolsFor(user) filters what the model is OFFERED and invokeTool()
-//     refuses at CALL time as well, so a tool name the model invents or
-//     remembers from an earlier turn still can't run for the wrong role.
+//   - B10: each tool names the permissions it needs (`needs`: every group,
+//     any key in a group), on top of ai.ask. They are the permissions of the
+//     screen the same figures are on, so Ask never shows a role more than its
+//     pages do:
+//       current_term                  ai.ask alone (needed to name any term)
+//       students_count(_by_class)     fees.view, accounting.view or academics.all_classes
+//       fees_*                        fees.view
+//       income_expense_summary        accounting.view
+//       attendance_*                  attendance.view + academics.all_classes (whole school)
+//       results_*                     results.view + academics.all_classes (whole school)
+//       staff_list, staff_count       staff.view
+//       staff_attendance_summary      staff_attendance.view
+//     So the Administrator gets all of them and the Accountant (bursar) the
+//     finance ones only: fees, income and expense, pupil counts and the
+//     current term (client answer 6), as before B10. toolsFor(user) filters
+//     what the model is OFFERED and invokeTool() refuses at CALL time as well,
+//     so a tool name the model invents or remembers from an earlier turn
+//     still can't run for the wrong role.
 import sequelize from "../../../config/database.js";
 import { AppError } from "../../../utils/errorHandling.js";
 import { round2, toNum } from "../../../utils/money.js";
@@ -25,11 +37,19 @@ import { getTermReport } from "../../academicReports.js";
 import { getDashboardSummary } from "../../dashboard.js";
 import { getProfitLoss } from "../../graph.js";
 import { getStaffSummary } from "../../staffAttendance.js";
+import { hasAnyPermission, hasPermission, P } from "../../../utils/permissions.js";
 
-export const ADMIN = "Administrator";
-export const ACCOUNTANT = "Accountant";
-const ALL = [ADMIN, ACCOUNTANT];
-const ADMIN_ONLY = [ADMIN];
+// What a tool needs besides ai.ask: a list of groups, each passed by ANY of its keys.
+const NEEDS = Object.freeze({
+  NOTHING_MORE: [],
+  COUNTS: [["fees.view", "accounting.view", P.ALL_CLASSES]],
+  FEES: [["fees.view"]],
+  ACCOUNTING: [["accounting.view"]],
+  ATTENDANCE: [["attendance.view"], [P.ALL_CLASSES]],
+  RESULTS: [["results.view"], [P.ALL_CLASSES]],
+  STAFF: [["staff.view"]],
+  STAFF_ATTENDANCE: [["staff_attendance.view"]],
+});
 
 // The tool's error text reaches the model, which says it to the asker.
 export class ToolInputError extends Error {}
@@ -298,7 +318,7 @@ const listOf = (rows, shape) => ({
 export const TOOLS = [
   {
     name: "current_term",
-    roles: ALL,
+    needs: NEEDS.NOTHING_MORE,
     description:
       "The term that is open now and the most recent terms with their ids and dates. Call this first whenever a question names a term ('last term', 'Term 2').",
     parameters: { type: "object", properties: {} },
@@ -314,7 +334,7 @@ export const TOOLS = [
   },
   {
     name: "students_count",
-    roles: ALL,
+    needs: NEEDS.COUNTS,
     description:
       "How many pupils are on the roll now (not counting graduated or left classes), with boys and girls and the number of classes.",
     parameters: { type: "object", properties: {} },
@@ -331,7 +351,7 @@ export const TOOLS = [
   },
   {
     name: "students_count_by_class",
-    roles: ALL,
+    needs: NEEDS.COUNTS,
     description: "Pupils on the roll in each class (with boys and girls) and each class's id. Graduated / left classes are listed apart.",
     parameters: { type: "object", properties: {} },
     handler: async () => {
@@ -349,7 +369,7 @@ export const TOOLS = [
   },
   {
     name: "fees_students_owing",
-    roles: ALL,
+    needs: NEEDS.FEES,
     description:
       "Pupils who owe fees now, most owed first, with the total owed and how many owe. Optional minimum amount (GH₵) and class.",
     parameters: {
@@ -376,7 +396,7 @@ export const TOOLS = [
   },
   {
     name: "fees_collection_by_term",
-    roles: ALL,
+    needs: NEEDS.FEES,
     description:
       "Fees collected (payments, reversed ones left out) per term, newest term first, with the number of payments and pupils who paid. Optional single term.",
     parameters: { type: "object", properties: { ...TERM_PARAM, ...LIMIT_PARAM(6, 12) } },
@@ -393,7 +413,7 @@ export const TOOLS = [
   },
   {
     name: "fees_collection_by_class",
-    roles: ALL,
+    needs: NEEDS.FEES,
     description: "Fees collected in one term per class (by the class the payment was recorded for), plus what each class owes now.",
     parameters: { type: "object", properties: { ...TERM_PARAM } },
     handler: async (args) => {
@@ -420,7 +440,7 @@ export const TOOLS = [
   },
   {
     name: "income_expense_summary",
-    roles: ALL,
+    needs: NEEDS.ACCOUNTING,
     description:
       "Profit and loss for one term: fees collected, other income, expenses and the balance. The term runs from the day after the previous term ended (fees paid in the holiday count) to its end, or today.",
     parameters: { type: "object", properties: { ...TERM_PARAM } },
@@ -444,7 +464,7 @@ export const TOOLS = [
   },
   {
     name: "attendance_rate_by_class",
-    roles: ADMIN_ONLY,
+    needs: NEEDS.ATTENDANCE,
     description: "Pupil attendance rate (days present ÷ days marked; sick counts as absent) per class and for the school, for one term.",
     parameters: { type: "object", properties: { ...TERM_PARAM } },
     handler: async (args) => {
@@ -463,7 +483,7 @@ export const TOOLS = [
   },
   {
     name: "attendance_chronic_absentees",
-    roles: ADMIN_ONLY,
+    needs: NEEDS.ATTENDANCE,
     description:
       "Pupils whose attendance in one term is below a rate (default 80%), lowest first, with days present and marked. Pupils with fewer than 5 days marked are left out.",
     parameters: {
@@ -497,7 +517,7 @@ export const TOOLS = [
   },
   {
     name: "results_subject_averages",
-    roles: ADMIN_ONLY,
+    needs: NEEDS.RESULTS,
     description:
       "Average subject mark and pass rate per subject for one term, for the whole school or one class (needs that class's id).",
     parameters: { type: "object", properties: { ...TERM_PARAM, ...CLASS_PARAM } },
@@ -531,7 +551,7 @@ export const TOOLS = [
     ["results_bottom_students", BOTTOM_SQL, "lowest"],
   ].map(([name, sql, word]) => ({
     name,
-    roles: ADMIN_ONLY,
+    needs: NEEDS.RESULTS,
     description: `Pupils with the ${word} overall term score (% of the total marks) in one term, for the school or one class.`,
     parameters: { type: "object", properties: { ...TERM_PARAM, ...CLASS_PARAM, ...LIMIT_PARAM(10, 30) } },
     handler: async (args) => {
@@ -548,7 +568,7 @@ export const TOOLS = [
   })),
   {
     name: "staff_list",
-    roles: ADMIN_ONLY,
+    needs: NEEDS.STAFF,
     description: "Staff on the books now: name, position and the class they are class teacher of. No contact details.",
     parameters: { type: "object", properties: { ...LIMIT_PARAM(60, 100) } },
     handler: async (args) => {
@@ -558,7 +578,7 @@ export const TOOLS = [
   },
   {
     name: "staff_count",
-    roles: ADMIN_ONLY,
+    needs: NEEDS.STAFF,
     description: "How many staff are on the books now, by position, with men and women.",
     parameters: { type: "object", properties: {} },
     handler: async () => {
@@ -571,7 +591,7 @@ export const TOOLS = [
   },
   {
     name: "staff_attendance_summary",
-    roles: ADMIN_ONLY,
+    needs: NEEDS.STAFF_ATTENDANCE,
     description: "Staff attendance for one term: days marked, present, late, absent, sick, on leave and the % attended (present + late), for the school and each member of staff.",
     parameters: { type: "object", properties: { ...TERM_PARAM } },
     handler: async (args) => {
@@ -600,16 +620,19 @@ export const TOOLS = [
 const BY_NAME = new Map(TOOLS.map((t) => [t.name, t]));
 export const TOOL_NAMES = TOOLS.map((t) => t.name);
 
-/** The office role a token carries (management tokens only; portal tokens get no tools). */
-const roleOf = (user) => (user?.category ? String(user.category) : null);
-
-export const toolAllowed = (tool, user) => Boolean(tool && roleOf(user) && tool.roles.includes(roleOf(user)));
+/**
+ * May this caller run the tool? An office login whose role holds ai.ask and
+ * every group of the tool's `needs` (portal tokens never get tools: they carry
+ * no permissions).
+ */
+export const toolAllowed = (tool, user) =>
+  Boolean(tool && user?.category && hasPermission(user, P.AI_ASK) && tool.needs.every((group) => hasAnyPermission(user, group)));
 
 /** The tools to OFFER the model for this caller. */
 export const toolsFor = (user) => TOOLS.filter((t) => toolAllowed(t, user));
 
 /**
- * Run one tool for a caller, checking the role AGAIN at call time. Throws
+ * Run one tool for a caller, checking the permissions AGAIN at call time. Throws
  * ToolRefusedError for a tool the role may not use (or one that doesn't exist)
  * and ToolInputError for bad arguments; any other failure is logged and given
  * to the model as a plain "couldn't look that up".
@@ -628,5 +651,5 @@ export const invokeTool = async (name, args, { user } = {}) => {
   }
 };
 
-/** Declarations as the model sees them (no roles, no handlers). */
+/** Declarations as the model sees them (no permissions, no handlers). */
 export const declarationsFor = (user) => toolsFor(user).map(({ name, description, parameters }) => ({ name, description, parameters }));

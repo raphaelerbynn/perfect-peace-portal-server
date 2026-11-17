@@ -7,7 +7,7 @@ export { getAiClient, createAiClient, setAiProviderForTests, classifyError } fro
 export { createFakeProvider } from "./providers/fake.js";
 export { runJson, runText, runChat, streamText, runToolLoop } from "./run.js";
 export { redactForAi, redactText, redactedPaths } from "./redact.js";
-export { requireAiFeature, assertAiFeatureOn, featureBlockReason, roleAllowed, aiStatusFor } from "./gate.js";
+export { requireAiFeature, assertAiFeatureOn, featureBlockReason, featureAllowed, showsBudgetAmounts, aiStatusFor } from "./gate.js";
 export { getAiSettings, getAiSettingsForAdmin, updateAiSettings, clearAiSettingsCache } from "./settings.js";
 export { recordUsage, costOf, actorOf, budgetState, assertWithinBudget, usageSummary } from "./usage.js";
 export {

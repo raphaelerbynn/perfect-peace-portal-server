@@ -259,7 +259,7 @@ export async function* runAsk(prepared, user, { signal, maxIterations } = {}) {
   const prompt = renderPrompt(ASK_PROMPT, {
     schoolName: school?.name || "the school",
     today: todayText(),
-    role: user.category,
+    role: user.roleName || user.category,
     toolNames: declarations.map((d) => d.name),
     question,
   });

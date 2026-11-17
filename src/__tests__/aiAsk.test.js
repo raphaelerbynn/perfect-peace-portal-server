@@ -96,12 +96,17 @@ const { normaliseQuestion, tryFastPath } = require("../services/ai/ask/fastPath.
 const { postAsk } = require("../controllers/askController.js");
 
 const sign = (p) => jwt.sign(p, "test-secret", { algorithm: "HS256", expiresIn: "1h" });
-const ADMIN = { category: "Administrator", username: "head", teacherId: null };
-const ACC = { category: "Accountant", username: "bursar", teacherId: null };
+const { officeUser } = require("../testSupport/officeUser.js");
+// Token claims, and the same logins as the authenticator leaves them on
+// req.user (B10: the system role's permissions, loaded on the server).
+const ADMIN_CLAIMS = { category: "Administrator", username: "head", teacherId: null };
+const ACC_CLAIMS = { category: "Accountant", username: "bursar", teacherId: null };
+const ADMIN = officeUser("Administrator", ADMIN_CLAIMS);
+const ACC = officeUser("Accountant", ACC_CLAIMS);
 const T = {
-  admin: sign(ADMIN),
+  admin: sign(ADMIN_CLAIMS),
   admin2: sign({ category: "Administrator", username: "deputy", teacherId: null }),
-  accountant: sign(ACC),
+  accountant: sign(ACC_CLAIMS),
   classTeacher: sign({ category: "Class Teacher", username: "ct", teacherId: 3 }),
   teacher: sign({ id: 3, userRole: "STAFF" }),
 };
@@ -315,6 +320,31 @@ describe("the tool loop over SSE", () => {
     const toolMsg = provider.calls[1].messages.find((m) => m.role === "tool");
     expect(toolMsg.toolResults[0].result).toEqual({ error: "This is not something you can look up for this user." });
     expect(mockDb.queries.some((q) => /Student_result/.test(q))).toBe(false);
+  });
+
+  it("a custom role with ai.ask + fees.view (B10), over HTTP: offered the fee tools, counts and the term only; other tools refused at call time", async () => {
+    const accessStore = require("../services/accessStore.js");
+    const { clearAccessCache } = require("../services/officeAccess.js");
+    accessStore.reset();
+    clearAccessCache();
+    accessStore.addRole({ roleId: 50, name: "Fees clerk", permissions: ["ai.ask", "fees.view"] });
+    const clerk = sign({ category: "Fees clerk", username: "clerk", roleId: 50 });
+    turnOn();
+    const provider = createFakeProvider([{ toolCalls: [{ name: "income_expense_summary", args: {} }] }, { text: "I can't look that up for you." }]);
+    setAiProviderForTests(provider);
+    mockDb.queries = [];
+    const res = await ask(clerk, { question: "What did we spend this term?" });
+    expect(res.status).toBe(200);
+    expect(toolNamesOffered(provider.calls[0])).toEqual(
+      ["current_term", "fees_collection_by_class", "fees_collection_by_term", "fees_students_owing", "students_count", "students_count_by_class"].sort()
+    );
+    expect(parseSse(res.body).filter((e) => e.type === "tool").map((e) => e.status)).toEqual(["started", "failed"]);
+    expect(provider.calls[1].messages.find((m) => m.role === "tool").toolResults[0].result).toEqual({ error: "This is not something you can look up for this user." });
+    // without ai.ask, fees.view alone does not open Ask
+    accessStore.addRole({ roleId: 51, name: "Fees only", permissions: ["fees.view"] });
+    expect((await ask(sign({ category: "Fees only", username: "fo", roleId: 51 }), { question: "hi" })).status).toBe(403);
+    accessStore.reset();
+    clearAccessCache();
   });
 
   it("the Administrator is offered every tool", async () => {

@@ -45,6 +45,8 @@ const { requireAiFeature } = require("../services/ai/gate.js");
 const { clearAiSettingsCache } = require("../services/ai/settings.js");
 const { staffToken } = require("../routes/teacherRoutes.js");
 const { errorHandler } = require("../utils/errorHandling.js");
+const accessStore = require("../services/accessStore.js"); // the in-memory fake (testSupport/jestSetup.js)
+const { clearAccessCache } = require("../services/officeAccess.js");
 
 const sign = (p) => jwt.sign(p, "test-secret", { algorithm: "HS256", expiresIn: "1h" });
 const T = {
@@ -54,6 +56,19 @@ const T = {
   teacher: sign({ id: 3, userRole: "STAFF" }),
   pupil: sign({ id: 7, userRole: "STU" }),
 };
+// B10 custom roles (made in each test that uses them, with addCustomRoles()).
+const CUSTOM = {
+  askFees: { roleId: 30, name: "Bursar's clerk", permissions: ["ai.ask", "fees.view"] },
+  askSettings: { roleId: 31, name: "AI lead", permissions: ["ai.ask", "ai.settings"] },
+  atRiskOwn: { roleId: 32, name: "Year head", permissions: ["ai.at_risk"] },
+  nothingAi: { roleId: 33, name: "Fees only", permissions: ["fees.view", "accounting.view", "academics.all_classes"] },
+};
+const addCustomRoles = () => {
+  accessStore.reset();
+  clearAccessCache();
+  for (const r of Object.values(CUSTOM)) accessStore.addRole(r);
+};
+const customToken = (key) => sign({ category: CUSTOM[key].name, username: `u-${key}`, roleId: CUSTOM[key].roleId, teacherId: 3 });
 const auth = (r, t) => (t ? r.set("Authorization", `Bearer ${t}`) : r);
 
 const ENV = { ...process.env };
@@ -69,6 +84,8 @@ beforeEach(() => {
   mockDb.settings = { aiSettingsId: 1, enabled: false, featureToggles: {}, monthlyCapGhs: 100, tone: {} };
   mockDb.spent = 0;
   clearAiSettingsCache();
+  accessStore.reset();
+  clearAccessCache();
 });
 afterAll(() => {
   process.env = ENV;
@@ -78,7 +95,7 @@ afterAll(() => {
 const featureApp = () => {
   const a = express();
   a.use(express.json());
-  for (const f of ["ASK", "PAPERS", "BRIEFING", "ANNOUNCEMENTS", "REMARKS"]) {
+  for (const f of ["ASK", "PAPERS", "BRIEFING", "ANNOUNCEMENTS", "AT_RISK", "REMARKS"]) {
     a.post(`/f/${f}`, requireAiFeature(f), (req, res) => res.json({ ok: true, actor: req.aiActor }));
   }
   a.get("/f/PAPERS-list", requireAiFeature("PAPERS", { budget: false }), (req, res) => res.json({ ok: true }));
@@ -90,12 +107,14 @@ const featureApp = () => {
 
 describe("requireAiFeature: roles (AI on)", () => {
   const fa = featureApp();
+  // B10: the system roles' AI permissions reproduce the AI branch's role table.
   const ROLE_TABLE = [
     // feature,        admin, accountant, classTeacher, teacher(portal), pupil
     ["ASK", 200, 200, 403, 403, 403],
     ["PAPERS", 200, 403, 403, 200, 403],
     ["BRIEFING", 200, 403, 403, 403, 403],
     ["ANNOUNCEMENTS", 200, 403, 403, 403, 403],
+    ["AT_RISK", 200, 403, 200, 403, 403],
   ];
   it.each(ROLE_TABLE)("%s", async (feature, ...expected) => {
     on();
@@ -122,6 +141,27 @@ describe("requireAiFeature: roles (AI on)", () => {
 
   it("an unknown feature key fails when the route is defined", () => {
     expect(() => requireAiFeature("NOPE")).toThrow(/Unknown AI feature/);
+  });
+
+  it("custom roles (B10): the feature's permission decides, never the role's name", async () => {
+    on();
+    addCustomRoles();
+    const expectStatus = async (feature, key, status) => {
+      const res = await auth(request(fa).post(`/f/${feature}`), customToken(key));
+      expect([feature, key, res.status]).toEqual([feature, key, status]);
+    };
+    await expectStatus("ASK", "askFees", 200);
+    await expectStatus("BRIEFING", "askFees", 403);
+    await expectStatus("AT_RISK", "atRiskOwn", 200);
+    await expectStatus("ASK", "atRiskOwn", 403);
+    for (const f of ["ASK", "PAPERS", "BRIEFING", "ANNOUNCEMENTS", "AT_RISK", "REMARKS"]) await expectStatus(f, "nothingAi", 403);
+    // the parked features follow ai.settings
+    await expectStatus("REMARKS", "askSettings", 403); // switched off by default, but past the permission check:
+    const reason = (await auth(request(fa).post("/f/REMARKS"), customToken("askSettings"))).body.reason;
+    expect(reason).toBe("FEATURE_OFF");
+    // a token naming the Administrator category but carrying a custom roleId gets the custom role
+    const forged = sign({ category: "Administrator", username: "u-askFees", roleId: CUSTOM.askFees.roleId });
+    expect((await auth(request(fa).post("/f/BRIEFING"), forged)).status).toBe(403);
   });
 });
 
@@ -197,7 +237,7 @@ describe("/ai/* routes", () => {
     ["patch", "/ai/suggestions/1"],
     ["post", "/ai/suggestions/1/accept"],
     ["post", "/ai/suggestions/1/reject"],
-  ])("%s %s: Administrator only", async (method, path) => {
+  ])("%s %s: Administrator only (ai.settings / ai.suggestions.review)", async (method, path) => {
     expect((await request(app)[method](path)).status).toBe(401);
     for (const t of [T.accountant, T.classTeacher, T.teacher, T.pupil]) {
       // eslint-disable-next-line no-await-in-loop
@@ -215,6 +255,18 @@ describe("/ai/* routes", () => {
     expect(res.body.server).toMatchObject({ ready: true, hasKey: true, envEnabled: true });
     expect(JSON.stringify(res.body)).not.toContain("secret-key-123");
     expect(res.body.features).toHaveLength(8);
+  });
+
+  it("GET /ai/settings: each feature's \"For:\" comes from the built-in roles holding its permission (B10)", async () => {
+    const res = await auth(request(app).get("/ai/settings"), T.admin);
+    const by = Object.fromEntries(res.body.features.map((f) => [f.key, f]));
+    expect(by.ASK).toMatchObject({ permission: "ai.ask", roles: ["Administrator", "Accountant"] });
+    expect(by.PAPERS).toMatchObject({ permission: "ai.papers.view_all", roles: ["Administrator", "Teachers (portal)"] });
+    expect(by.BRIEFING).toMatchObject({ permission: "ai.briefing", roles: ["Administrator"] });
+    expect(by.ANNOUNCEMENTS).toMatchObject({ permission: "ai.announcements", roles: ["Administrator"] });
+    expect(by.AT_RISK).toMatchObject({ permission: "ai.at_risk", roles: ["Administrator", "Class Teacher"] });
+    expect(by.REMARKS).toMatchObject({ permission: "ai.settings", roles: ["Administrator"] });
+    for (const f of res.body.features) expect(f.permissionLabel).toEqual(expect.any(String));
   });
 
   it("PUT /ai/settings: switching on while the server is off is a 400 the page can show", async () => {
@@ -240,6 +292,35 @@ describe("/ai/* routes", () => {
     const over = await auth(request(app).get("/ai/status"), T.teacher);
     expect(over.body.features.PAPERS).toMatchObject({ available: false, reason: "QUOTA" });
     expect((await request(app).get("/ai/status")).status).toBe(401);
+  });
+
+  it("budget amounts follow ai.settings (B10): a custom role with ai.ask sees none; with ai.settings it sees them", async () => {
+    on();
+    addCustomRoles();
+    const plain = await auth(request(app).get("/ai/status"), customToken("askFees"));
+    expect(Object.keys(plain.body.features)).toEqual(["ASK"]);
+    expect(plain.body.budget).toBeUndefined();
+    const lead = await auth(request(app).get("/ai/status"), customToken("askSettings"));
+    expect(lead.body.budget).toMatchObject({ capGhs: 100 });
+    // ...and the 429 at the cap
+    mockDb.spent = 100;
+    const fa = featureApp();
+    const noAmounts = await auth(request(fa).post("/f/ASK"), customToken("askFees"));
+    expect(noAmounts.status).toBe(429);
+    expect(noAmounts.body).toEqual({ code: "AI_QUOTA", message: "This month's AI budget is used up; carry on by hand." });
+    const amounts = await auth(request(fa).post("/f/ASK"), customToken("askSettings"));
+    expect(amounts.status).toBe(429);
+    expect(amounts.body).toMatchObject({ code: "AI_QUOTA", spentGhs: 100, capGhs: 100 });
+    // the Class Teacher (watchlist) gets no amounts either
+    expect((await auth(request(fa).post("/f/AT_RISK"), T.classTeacher)).body).toEqual({ code: "AI_QUOTA", message: "This month's AI budget is used up; carry on by hand." });
+  });
+
+  it("settings and usage need ai.settings; Ask alone does not open them", async () => {
+    addCustomRoles();
+    expect((await auth(request(app).get("/ai/usage"), customToken("askFees"))).status).toBe(403);
+    expect((await auth(request(app).get("/ai/settings"), customToken("askFees"))).status).toBe(403);
+    expect((await auth(request(app).get("/ai/usage"), customToken("askSettings"))).status).toBe(200);
+    expect((await auth(request(app).get("/ai/suggestions"), customToken("askSettings"))).status).toBe(403); // drafts: ai.suggestions.review
   });
 
   it("reviewing drafts works with AI switched off (404 for a missing one, not 403)", async () => {

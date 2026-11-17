@@ -21,11 +21,12 @@ jest.mock("../config/database.js", () => {
 });
 
 import { invokeTool, TOOLS } from "../services/ai/ask/tools.js";
+import { officeUser } from "../testSupport/officeUser.js";
 
 const WRITE = /^\s*(INSERT|UPDATE|DELETE|MERGE|UPSERT|CREATE|ALTER|DROP|TRUNCATE|GRANT|REVOKE|COPY|LOCK|CALL|DO)\b|\bFOR\s+UPDATE\b|\bFOR\s+SHARE\b|\bINTO\s+"|\bnextval\(/i;
 const READ = /^\s*(SELECT|WITH)\b/i;
 
-const admin = { category: "Administrator", username: "head" };
+const admin = officeUser("Administrator", { username: "head" });
 // The table each tool must actually reach (so a tool that failed early can't pass by sending nothing).
 const REACHES = {
   students_count: "Student",

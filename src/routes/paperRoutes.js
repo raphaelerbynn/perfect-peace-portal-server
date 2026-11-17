@@ -19,7 +19,8 @@ import {
 // Importing paperAi registers the PAPERS accept handler.
 import { acceptSection, discardDraft, generateSection, regenerateItem, saveDraft } from "../services/paperAi.js";
 import { loadTeacher } from "../services/teacherScope.js";
-import { authenticateManagementUser, authorizeRoles } from "../utils/middlewares.js";
+import { authenticateManagementUser, requirePermission } from "../utils/middlewares.js";
+import { P as PERM } from "../utils/permissions.js";
 
 // AI-3: question papers.
 //
@@ -31,7 +32,7 @@ import { authenticateManagementUser, authorizeRoles } from "../utils/middlewares
 // never stranded. A teacher only ever reaches their own papers (404 otherwise).
 //
 // paperOfficeRouter: /question-papers*, the head teacher's read-only view of
-// every paper (Administrator).
+// every paper (ai.papers.view_all: the Administrator).
 const send = (fn) => async (req, res, next) => {
   try {
     res.json(await fn(req, res));
@@ -92,8 +93,8 @@ teacher.post(
 
 // Office: the head teacher can view every paper (read-only).
 const office = Router();
-const ADMIN = [authenticateManagementUser, authorizeRoles("Administrator")];
-office.get("/question-papers", ...ADMIN, send((req) => listAllPapers(req.query)));
-office.get("/question-papers/:id", ...ADMIN, send((req) => getAnyPaper(req.params.id)));
+const VIEW_ALL = [authenticateManagementUser, requirePermission(PERM.AI_PAPERS_VIEW_ALL)];
+office.get("/question-papers", ...VIEW_ALL, send((req) => listAllPapers(req.query)));
+office.get("/question-papers/:id", ...VIEW_ALL, send((req) => getAnyPaper(req.params.id)));
 
 export { teacher as paperTeacherRouter, office as paperOfficeRouter };
