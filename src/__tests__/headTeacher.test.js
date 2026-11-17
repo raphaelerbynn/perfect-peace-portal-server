@@ -11,7 +11,7 @@ import request from "supertest";
 jest.mock("../services/term.js", () => ({
   __esModule: true,
   ...jest.requireActual("../services/term.js"),
-  getTerm: jest.fn(async () => ({ termId: 5 })),
+  getTerm: jest.fn(async () => ({ termId: 5, startDate: "2026-09-08", endDate: "2026-12-18" })),
 }));
 jest.mock("../services/results.js", () => ({
   __esModule: true,
@@ -39,13 +39,14 @@ jest.mock("../services/test.js", () => ({
 }));
 
 const app = require("../index.js").default;
-const { Class, Student } = require("../models/index.js");
+const { Class, Student, Teacher } = require("../models/index.js");
 const results = require("../services/results.js");
 const attendance = require("../services/attendance.js");
 const { assertClassAccess, assertClassWrite, getTeacherClassName } = attendance;
 
 const sign = (p) => jwt.sign(p, "test-secret", { algorithm: "HS256", expiresIn: "1h" });
 const headTeacher = sign({ category: "Head Teacher", username: "head", teacherId: 9 });
+const admin = sign({ category: "Administrator", username: "admin", teacherId: null });
 const classTeacher = sign({ category: "Class Teacher", username: "ct", teacherId: 3 });
 const auth = (r, t) => r.set("Authorization", `Bearer ${t}`);
 
@@ -57,7 +58,11 @@ beforeEach(() => {
   jest.spyOn(Class, "findOne").mockImplementation(async ({ where }) =>
     where?.teacherId === 3 ? { classId: 1, name: "JHS 1" } : null
   );
-  jest.spyOn(Student, "findAll").mockResolvedValue([]);
+  // Pupil 10 is in JHS 1 (the Class Teacher's own class).
+  jest.spyOn(Student, "findAll").mockImplementation(async ({ where }) => {
+    const ids = Object.getOwnPropertySymbols(where?.studentId || {}).flatMap((s) => where.studentId[s]);
+    return ids.filter((id) => id === 10).map((studentId) => ({ studentId }));
+  });
 });
 afterAll(() => jest.restoreAllMocks());
 
@@ -147,5 +152,85 @@ describe("news: the Head Teacher manages posts like the Administrator", () => {
     expect(posts.canManage(draft, ct)).toBe(false);
     expect(posts.isNewsManager({ type: "OFFICE", category: "Accountant" })).toBe(false);
     expect(posts.isNewsManager({ type: "STAFF", category: "Head Teacher" })).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------- review fixes
+describe("B10 review: closed terms and past registers (Head Teacher and Class Teacher)", () => {
+  const ownCt = classTeacher; // Class Teacher of JHS 1, pupil 10
+  const delResult = (t, termId) =>
+    auth(request(app).delete(`/delete-result?student_id=10&class=JHS%201${termId ? `&termId=${termId}` : ""}`), t);
+  const mark = (t, day) =>
+    auth(request(app).post("/mark-attendance"), t).send({ class: "JHS 1", dateMarked: day, studentAttendance: [{ studentId: 10, status: "Present" }] });
+  const clear = (t, day) => auth(request(app).post("/delete-attendance"), t).send({ class: "JHS 1", dateMarked: day });
+
+  beforeEach(() => {
+    jest.spyOn(attendance, "removeAttendance").mockResolvedValue(1);
+  });
+
+  it("deleting a closed term's result: Head Teacher and Class Teacher refused, Administrator allowed", async () => {
+    expect((await delResult(headTeacher, 4)).status).toBe(403);
+    expect((await delResult(ownCt, 4)).status).toBe(403);
+    expect(results.removeResult).not.toHaveBeenCalled();
+    expect((await delResult(admin, 4)).status).toBe(200);
+    expect(results.removeResult).toHaveBeenCalledWith(expect.objectContaining({ termId: "4" }));
+  });
+
+  it("deleting an open-term result works; no termId means the open term", async () => {
+    expect((await delResult(headTeacher, 5)).status).toBe(200);
+    expect((await delResult(ownCt)).status).toBe(200);
+    expect(results.removeResult).toHaveBeenLastCalledWith(expect.objectContaining({ termId: 5 }));
+  });
+
+  it("marking a register outside the open term: refused for both, allowed for the Administrator", async () => {
+    expect((await mark(headTeacher, "2026-05-04")).status).toBe(403);
+    expect((await mark(ownCt, "2026-12-21")).status).toBe(403);
+    expect(attendance.markClassAttendance).not.toHaveBeenCalled();
+    expect((await mark(ownCt, "2026-11-17")).status).toBe(200);
+    expect((await mark(admin, "2026-05-04")).status).toBe(200);
+  });
+
+  it("clearing a register outside the open term: refused for both, allowed for the Administrator", async () => {
+    expect((await clear(headTeacher, "2026-05-04")).status).toBe(403);
+    expect((await clear(ownCt, "2026-05-04")).status).toBe(403);
+    expect((await clear(ownCt, "2026-11-17")).status).toBe(200);
+    expect((await clear(admin, "2026-05-04")).status).toBe(200);
+  });
+
+  it("no open term: non-Administrators can't change registers", async () => {
+    const { getTerm } = require("../services/term.js");
+    getTerm.mockResolvedValue(null);
+    try {
+      expect((await mark(headTeacher, "2026-11-17")).status).toBe(403);
+      expect((await clear(ownCt, "2026-11-17")).status).toBe(403);
+    } finally {
+      getTerm.mockResolvedValue({ termId: 5, startDate: "2026-09-08", endDate: "2026-12-18" });
+    }
+  });
+});
+
+describe("B10 review: the staff list carries no payroll or bank data for the Head Teacher", () => {
+  const PAYROLL = ["ssnitNumber", "tinNumber", "bank", "accountNumber", "salaryId"];
+  let seen;
+  beforeEach(() => {
+    seen = [];
+    jest.spyOn(Teacher, "findAll").mockImplementation(async (opts) => {
+      seen.push(opts);
+      return [];
+    });
+  });
+
+  it("Head Teacher: those columns and the Salary row are left out of the query", async () => {
+    expect((await auth(request(app).get("/staff"), headTeacher)).status).toBe(200);
+    const opts = seen[0];
+    expect(opts.attributes.exclude).toEqual(expect.arrayContaining([...PAYROLL, "password"]));
+    expect(opts.include.map((i) => i.as)).toEqual(["class_"]);
+  });
+
+  it("Administrator: unchanged (payroll columns and the Salary row included)", async () => {
+    expect((await auth(request(app).get("/staff"), admin)).status).toBe(200);
+    const opts = seen[0];
+    for (const f of PAYROLL) expect(opts.attributes.exclude).not.toContain(f);
+    expect(opts.include.map((i) => i.as)).toEqual(["class_", "salary"]);
   });
 });

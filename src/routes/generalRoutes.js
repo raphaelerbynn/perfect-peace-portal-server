@@ -158,7 +158,7 @@ router.post("/close-term", ADMIN_ONLY, closeTerm);
 router.get("/promotion/rules", ACADEMIC_LEAD, fetchPromotionRules);
 router.put("/promotion/rules", ACADEMIC_LEAD, updatePromotionRules);
 router.get("/promotion/class-order", ACADEMIC_LEAD, fetchClassOrder);
-router.put("/promotion/class-order", ACADEMIC_LEAD, updateClassOrder);
+router.put("/promotion/class-order", ADMIN_ONLY, updateClassOrder);    // edits Class.nextClassId / isAlumni: class records
 router.get("/promotion/preview", ACADEMIC_LEAD, fetchPromotionPreview);
 router.post("/promotion/accept", ACADEMIC_LEAD, acceptClassPromotion);
 router.get("/promotion/status", ACADEMIC_LEAD, fetchPromotionStatus);

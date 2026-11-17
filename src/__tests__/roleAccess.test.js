@@ -298,7 +298,6 @@ const HEAD_TEACHER_ROUTES = [
   "GET /promotion/rules",
   "PUT /promotion/rules",
   "GET /promotion/class-order",
-  "PUT /promotion/class-order",
   "GET /promotion/preview",
   "POST /promotion/accept",
   "GET /promotion/status",
@@ -438,6 +437,7 @@ describe("live requests (gates only: 403 before any handler runs)", () => {
     ["post", "/students/7/photo"],
     ["delete", "/students/7/documents/1"],
     ["get", "/staff/2/documents"],
+    ["put", "/promotion/class-order"], // edits class records (B10 review)
   ])("Head Teacher: %s %s -> 403", async (method, path) => {
     const res = await request(app)[method](path).set("Authorization", `Bearer ${ht}`).send({});
     expect(res.status).toBe(403);

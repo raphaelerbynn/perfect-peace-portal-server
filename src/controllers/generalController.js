@@ -14,6 +14,7 @@ import {
   markClassAttendance,
   assertClassAccess,
   assertClassWrite,
+  assertAttendanceDateOpen,
   getTeacherClassName,
   VALID_STATUSES,
   removeAttendance,
@@ -183,7 +184,8 @@ const fetchAllStaff = async (req, res, next) => {
   try {
     // BE-20: pagination is opt-in via query params; no params => unchanged.
     const { page, limit } = req.query;
-    const data = await getStaff({ page, limit });
+    // B10 review: payroll/bank fields for the Administrator only.
+    const data = await getStaff({ page, limit, user: req.user });
     res.json(data);
   } catch (error) {
     console.log(error);
@@ -944,6 +946,8 @@ const markAttendance = async (req, res, next) => {
 
     // BE-5: a Class Teacher may only mark their own class, and only its pupils.
     await assertClassWrite(req.user, values.class, values.studentAttendance.map((m) => m.studentId));
+    // B10 review: a day of the open term only (Administrator: any day).
+    await assertAttendanceDateOpen(req.user, values.dateMarked);
 
     // BE-1/BE-2: atomic delete-then-upsert inside markClassAttendance.
     const results = await markClassAttendance({
@@ -1126,8 +1130,15 @@ const deleteResult = async (req, res, next) => {
 
   try {
     // BE-1: a Class Teacher may only delete results for their own class.
-    await assertClassAccess(req.user, values.class);
-    const data = await removeResult(values);
+    // B10 review: and, like the Head Teacher, only for its pupils in the open
+    // term. The term is resolved here (missing = the open term, as
+    // removeResult does) so the check and the delete use the same one.
+    const termId = values.termId || (await getTerm())?.termId;
+    if (termId == null || termId === "") {
+      throw new AppError("studentId, class and term are required to delete a result", 400);
+    }
+    await assertClassWrite(req.user, values.class, [values.studentId], termId);
+    const data = await removeResult({ ...values, termId });
     res.json(data);
   } catch (error) {
     next(error);
@@ -1287,6 +1298,8 @@ const deleteAttendance = async (req, res, next) => {
   try {
     // BE-5: a Class Teacher may only clear their own class's attendance.
     await assertClassAccess(req.user, values.class);
+    // B10 review: and only a day of the open term (Head Teacher too).
+    await assertAttendanceDateOpen(req.user, values.dateMarked);
     // BE-8: removeAttendance now hard-requires class + dateMarked (a missing
     // dateMarked used to wipe the whole class across every date).
     const data = await removeAttendance(values);

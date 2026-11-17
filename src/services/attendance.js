@@ -166,6 +166,30 @@ const removeAttendance = async (data, { transaction } = {}) => {
     return response;
 };
 
+// B10 review: a register can only be marked or cleared on a day of the open
+// term by anyone but the Administrator (Head Teacher: any class; Class Teacher:
+// own class). Past terms' registers are office (Administrator) only. A bound
+// the term doesn't have (live terms with no dates) isn't checked.
+const isoDay = (d) => {
+    if (d == null || d === "") return null;
+    if (d instanceof Date) return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+    const m = /^(\d{4}-\d{2}-\d{2})/.exec(String(d).trim());
+    return m ? m[1] : null;
+};
+
+const assertAttendanceDateOpen = async (user, dateMarked) => {
+    if (!user || isAdministrator(user)) return;
+    const day = isoDay(dateMarked);
+    if (!day) throw new AppError("A valid date (YYYY-MM-DD) is required", 400);
+    const term = await getTerm();
+    if (!term) throw new AppError("No term is open. Ask the administrator.", 403);
+    const start = isoDay(term.startDate);
+    const end = isoDay(term.endDate);
+    if ((start && day < start) || (end && day > end)) {
+        throw new AppError("You can only change attendance for days in the open term. Ask the administrator.", 403);
+    }
+};
+
 const getAttendance = async (data) => {
     if (!data?.class || !data?.date) {
         throw new AppError("class and date are required", 400);
@@ -293,6 +317,7 @@ export {
     markClassAttendance,
     assertClassAccess,
     assertClassWrite,
+    assertAttendanceDateOpen,
     getTeacherClassName,
     VALID_STATUSES,
     removeAttendance,
