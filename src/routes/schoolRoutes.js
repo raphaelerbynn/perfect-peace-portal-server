@@ -11,12 +11,13 @@ import {
 } from "../services/school.js";
 import { sendStoredFile, uploadOne } from "../services/storage.js";
 import { authenticateManagementUser, authorizeRoles } from "../utils/middlewares.js";
+import { ADMINISTRATOR } from "../utils/roles.js";
 
 // B18: school branding. Mounted early in index.js because GET /school and
 // GET /school/logo are PUBLIC (the sign-in screens show the school's name and
 // logo). Every other route here authenticates per route: office token +
 // Administrator. Only these paths are handled; anything else falls through.
-const ADMIN = [authenticateManagementUser, authorizeRoles("Administrator")];
+const ADMIN = [authenticateManagementUser, authorizeRoles(ADMINISTRATOR)];
 
 const wrap = (fn) => async (req, res, next) => {
   try {

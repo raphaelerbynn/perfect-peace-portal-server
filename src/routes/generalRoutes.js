@@ -96,6 +96,7 @@ import {
   updateStudentFee
 } from "../controllers/generalController.js";
 import { authenticateUser, authorizeRoles } from "../utils/middlewares.js";
+import { ACCOUNTANT, ADMINISTRATOR, CLASS_TEACHER, HEAD_TEACHER, OFFICE_ROLES } from "../utils/roles.js";
 import {
   fetchClass,
 } from "../controllers/onlyTeacherController.js";
@@ -124,12 +125,15 @@ import { fetchClassSubjectScores, saveClassSubjectScoresSheet } from "../control
 
 const router = Router();
 
-// Role helpers (mirrors docs/management-system-features.md §15).
-// Category literals: "Administrator", "Class Teacher", "Accountant".
-const ADMIN_ONLY = authorizeRoles("Administrator");
-const ALL_ROLES = authorizeRoles("Administrator", "Class Teacher", "Accountant");
-const ACADEMIC = authorizeRoles("Administrator", "Class Teacher");   // hidden for Accountant
-const FINANCE = authorizeRoles("Administrator", "Accountant");       // hidden for Class Teacher
+// Role helpers (mirrors docs/management-system-features.md §15). Role names
+// live in utils/roles.js. B10: the Head Teacher does every academic job for
+// every class (ACADEMIC, ACADEMIC_LEAD) but no money, settings or records
+// administration (ADMIN_ONLY, FINANCE).
+const ADMIN_ONLY = authorizeRoles(ADMINISTRATOR);
+const ALL_ROLES = authorizeRoles(...OFFICE_ROLES);
+const ACADEMIC = authorizeRoles(ADMINISTRATOR, CLASS_TEACHER, HEAD_TEACHER);   // hidden for Accountant
+const ACADEMIC_LEAD = authorizeRoles(ADMINISTRATOR, HEAD_TEACHER);              // school-wide academic work
+const FINANCE = authorizeRoles(ADMINISTRATOR, ACCOUNTANT);                      // hidden for Class Teacher, Head Teacher
 
 // --- Shared / dashboard reads (visible to everyone) ---
 // BE-D2 / BE-D9: dashboard data layer. Same access as the dashboard itself
@@ -149,20 +153,20 @@ router.get("/terms", ALL_ROLES, fetchTerms);
 // already calls POST and expects { message } on success.
 router.post("/close-term", ADMIN_ONLY, closeTerm);
 
-// --- B5: promotion. Moving pupils is Administrator only; close-term no
-// longer promotes (see services/term.js inactivateTerms).
-router.get("/promotion/rules", ADMIN_ONLY, fetchPromotionRules);
-router.put("/promotion/rules", ADMIN_ONLY, updatePromotionRules);
-router.get("/promotion/class-order", ADMIN_ONLY, fetchClassOrder);
-router.put("/promotion/class-order", ADMIN_ONLY, updateClassOrder);
-router.get("/promotion/preview", ADMIN_ONLY, fetchPromotionPreview);
-router.post("/promotion/accept", ADMIN_ONLY, acceptClassPromotion);
-router.get("/promotion/status", ADMIN_ONLY, fetchPromotionStatus);
+// --- B5: promotion. Moving pupils is Administrator + Head Teacher (B10);
+// close-term no longer promotes (see services/term.js inactivateTerms).
+router.get("/promotion/rules", ACADEMIC_LEAD, fetchPromotionRules);
+router.put("/promotion/rules", ACADEMIC_LEAD, updatePromotionRules);
+router.get("/promotion/class-order", ACADEMIC_LEAD, fetchClassOrder);
+router.put("/promotion/class-order", ADMIN_ONLY, updateClassOrder);    // edits Class.nextClassId / isAlumni: class records
+router.get("/promotion/preview", ACADEMIC_LEAD, fetchPromotionPreview);
+router.post("/promotion/accept", ACADEMIC_LEAD, acceptClassPromotion);
+router.get("/promotion/status", ACADEMIC_LEAD, fetchPromotionStatus);
 router.get("/promotion/history/:studentId", ACADEMIC, fetchPromotionHistory);            // mutating term state: Administrator
 
-// --- Staff (Administrator only) ---
+// --- Staff list (Administrator; B10: + Head Teacher, read only) ---
 // Authenticated replacement for the removed unauthenticated `app.get("/staff")`.
-router.get("/staff", ADMIN_ONLY, fetchAllStaff);
+router.get("/staff", ACADEMIC_LEAD, fetchAllStaff);
 
 // --- Students (hidden for Accountant) ---
 // All office roles: Accountants pick pupils when recording fees. Class Teachers
@@ -224,21 +228,21 @@ router.post("/add-extra-classes", FINANCE, addExtraClasses);
 router.post("/add-class-fee", FINANCE, addClassFee);       // BE-4: finance op (was ADMIN_ONLY) — Accountant manages fee amounts
 router.post("/add-student-fee", FINANCE, addStudentFee);   // BE-4: finance op (was ADMIN_ONLY)
 router.post("/add-term", ADMIN_ONLY, addTerm);
-router.post("/add-news", ADMIN_ONLY, addEvent);               // Events add: Administrator
+router.post("/add-news", ACADEMIC_LEAD, addEvent);               // Events add: Administrator, Head Teacher
 
-// B2: who teaches which subject in which class, per term (Administrator).
-router.get("/teaching-assignments", ADMIN_ONLY, fetchTeachingAssignments);
-router.post("/teaching-assignments", ADMIN_ONLY, upsertTeachingAssignment);
-router.post("/teaching-assignments/copy", ADMIN_ONLY, copyTermTeachingAssignments);
-router.delete("/teaching-assignments/:id", ADMIN_ONLY, deleteTeachingAssignment);
+// B2: who teaches which subject in which class, per term (Administrator, Head Teacher).
+router.get("/teaching-assignments", ACADEMIC_LEAD, fetchTeachingAssignments);
+router.post("/teaching-assignments", ACADEMIC_LEAD, upsertTeachingAssignment);
+router.post("/teaching-assignments/copy", ACADEMIC_LEAD, copyTermTeachingAssignments);
+router.delete("/teaching-assignments/:id", ACADEMIC_LEAD, deleteTeachingAssignment);
 
 // --- B8: grading scales. Everyone who enters results can read them (live
-// remark previews); only the Administrator changes them.
+// remark previews); the Administrator and Head Teacher change them.
 router.get("/grading-scales", ACADEMIC, fetchGradingScales);
 router.get("/grading-scales/for-class", ACADEMIC, fetchClassGrading);
-router.post("/grading-scales", ADMIN_ONLY, addGradingScale);
-router.put("/grading-scales/:id", ADMIN_ONLY, editGradingScale);
-router.delete("/grading-scales/:id", ADMIN_ONLY, removeGradingScale);
+router.post("/grading-scales", ACADEMIC_LEAD, addGradingScale);
+router.put("/grading-scales/:id", ACADEMIC_LEAD, editGradingScale);
+router.delete("/grading-scales/:id", ACADEMIC_LEAD, removeGradingScale);
 
 // --- B6: one subject for a whole class (Upload scores page). Class Teachers
 // are scoped to their own class in services/scoreSheet.js.
@@ -246,16 +250,16 @@ router.get("/class-subject-scores", ACADEMIC, fetchClassSubjectScores);
 router.post("/class-subject-scores", ACADEMIC, saveClassSubjectScoresSheet);
 
 // --- B3: timetable. Everyone in the office can read it; only the
-// Administrator builds it (TODO B3 Q4). Fixed paths before "/timetable/:id".
+// Administrator and Head Teacher build it (TODO B3 Q4, B10). Fixed paths before "/timetable/:id".
 router.get("/timetable/periods", ALL_ROLES, fetchPeriods);
-router.put("/timetable/periods", ADMIN_ONLY, savePeriods);
-router.post("/timetable/bulk", ADMIN_ONLY, addTimetableEntries);
-router.post("/timetable/copy", ADMIN_ONLY, copyTermTimetable);
-router.post("/timetable/sync-assignments", ADMIN_ONLY, syncTimetableAssignments);
+router.put("/timetable/periods", ACADEMIC_LEAD, savePeriods);
+router.post("/timetable/bulk", ACADEMIC_LEAD, addTimetableEntries);
+router.post("/timetable/copy", ACADEMIC_LEAD, copyTermTimetable);
+router.post("/timetable/sync-assignments", ACADEMIC_LEAD, syncTimetableAssignments);
 router.get("/timetable", ALL_ROLES, fetchTimetable);
-router.post("/timetable", ADMIN_ONLY, addTimetableEntry);
-router.put("/timetable/:id", ADMIN_ONLY, editTimetableEntry);
-router.delete("/timetable/:id", ADMIN_ONLY, removeTimetableEntry);
+router.post("/timetable", ACADEMIC_LEAD, addTimetableEntry);
+router.put("/timetable/:id", ACADEMIC_LEAD, editTimetableEntry);
+router.delete("/timetable/:id", ACADEMIC_LEAD, removeTimetableEntry);
 
 router.post("/mark-attendance", ACADEMIC, markAttendance);
 router.post("/delete-attendance", ACADEMIC, deleteAttendance);
@@ -268,7 +272,7 @@ router.put("/update-class-fee/:class_fee_id", FINANCE, updateClassFee);     // B
 router.put("/update-student-fee/:student_fee_id", FINANCE, updateStudentFee); // BE-4: finance op (was ADMIN_ONLY)
 router.put("/update-class/:class_id", ADMIN_ONLY, updateClass);
 router.put("/update-term/:term_id", ADMIN_ONLY, updateTerm);
-router.put("/update-news/:news_id", ADMIN_ONLY, updateEvent);
+router.put("/update-news/:news_id", ACADEMIC_LEAD, updateEvent);
 router.put("/update-salary/:salary_id", FINANCE, updateSalary);
 
 // --- Deletes ---
@@ -285,7 +289,7 @@ router.delete("/delete-salary-payment/:payment_id", FINANCE, deleteSalaryPayment
 router.delete("/delete-feeding/:feeding_id", FINANCE, deleteFeeding);
 router.delete("/delete-extra-classes/:extraclasses_id", FINANCE, deleteExtraClasses);
 router.delete("/delete-bus-fee/:busfee_id", FINANCE, deleteBusFee);
-router.delete("/delete-news/:news_id", ADMIN_ONLY, deleteEvent);
+router.delete("/delete-news/:news_id", ACADEMIC_LEAD, deleteEvent);
 
 
 //graph routes — Data Visualization accounting charts hidden for Class Teacher

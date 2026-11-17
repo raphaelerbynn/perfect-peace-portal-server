@@ -12,6 +12,7 @@ import {
 import { AppError } from "../utils/errorHandling.js";
 import { isKgSection } from "./teacherScope.js";
 import { assertClassAccess } from "./attendance.js";
+import { isSchoolWideAcademic } from "../utils/roles.js";
 import { recomputeStudentOwing, startFeePeriod } from "./fee.js";
 
 // ---------------------------------------------------------------------------
@@ -545,7 +546,7 @@ export const getStatus = async ({ termId } = {}) => {
 export const getHistory = async (studentId, user) => {
   const id = toInt(studentId, "studentId");
   // A Class Teacher office login sees only their own pupils (as with results).
-  if (user && user.category !== "Administrator") {
+  if (user && !isSchoolWideAcademic(user)) {
     const student = await Student.findOne({ where: { studentId: id }, attributes: ["class"], raw: true });
     if (!student) throw new AppError("Student not found", 404);
     try {

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import * as notify from "../services/notify.js";
 import { authenticateManagementUser, authenticateUser, authorizeRoles } from "../utils/middlewares.js";
+import { ADMINISTRATOR, CLASS_TEACHER, HEAD_TEACHER } from "../utils/roles.js";
 
 // B16: in-app notifications, for EVERY kind of login (portal pupils and
 // teachers, office logins). Each caller reads and marks only their own
@@ -32,11 +33,11 @@ const withRecipient = (req, res, next) =>
 const office = (...roles) => [authenticateManagementUser, authorizeRoles(...roles)];
 
 // Office actions first, so "/notifications/email-log" etc. are never taken as ids.
-router.get("/notification-settings", ...office("Administrator"), send(() => notify.getNotificationSettings()));
-router.put("/notification-settings", ...office("Administrator"), send((req) => notify.updateNotificationSettings(req.body, { username: req.user.username })));
-router.get("/notifications/email-log", ...office("Administrator"), send((req) => notify.listEmailLog(req.query)));
-router.post("/notifications/results-ready", ...office("Administrator", "Class Teacher"), send((req) => notify.sendResultsReady(req.body || {}, req.user)));
-router.post("/notifications/scores-reminder", ...office("Administrator"), send(() => notify.sendScoresReminder()));
+router.get("/notification-settings", ...office(ADMINISTRATOR), send(() => notify.getNotificationSettings()));
+router.put("/notification-settings", ...office(ADMINISTRATOR), send((req) => notify.updateNotificationSettings(req.body, { username: req.user.username })));
+router.get("/notifications/email-log", ...office(ADMINISTRATOR), send((req) => notify.listEmailLog(req.query)));
+router.post("/notifications/results-ready", ...office(ADMINISTRATOR, CLASS_TEACHER, HEAD_TEACHER), send((req) => notify.sendResultsReady(req.body || {}, req.user)));
+router.post("/notifications/scores-reminder", ...office(ADMINISTRATOR, HEAD_TEACHER), send(() => notify.sendScoresReminder()));
 
 // The caller's own.
 router.get("/notifications", withRecipient, send((req) => notify.listNotifications(req.recipient, req.query)));

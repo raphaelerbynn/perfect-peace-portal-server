@@ -1,4 +1,5 @@
 import { Op, fn, col, where } from "sequelize";
+import { isClassTeacher } from "../utils/roles.js";
 import sequelize from "../config/database.js";
 import { Class, ClassFee, Student, TeachingAssignment, Teacher, Term } from "../models/index.js";
 import { AppError } from "../utils/errorHandling.js";
@@ -41,7 +42,7 @@ const assignedClassIds = async (teacherId) => {
 const classes = async (user = null) => {
   const classFeeList = await ClassFee.findAll({ raw: true });
 
-  const scoped = user?.category === "Class Teacher";
+  const scoped = isClassTeacher(user);
   const onlyIds = scoped ? await assignedClassIds(user.teacherId) : null;
   if (scoped && onlyIds.length === 0) return [];
 

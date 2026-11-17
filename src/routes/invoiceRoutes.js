@@ -14,6 +14,7 @@ import {
   voidOneInvoice,
 } from "../controllers/invoiceController.js";
 import { authenticateUser, authorizeRoles } from "../utils/middlewares.js";
+import { ACCOUNTANT, ADMINISTRATOR } from "../utils/roles.js";
 
 // B14: invoices and credit notes.
 //   invoiceRouter: mounted in src/index.js behind authenticateManagementUser.
@@ -24,8 +25,8 @@ import { authenticateUser, authorizeRoles } from "../utils/middlewares.js";
 //   invoicePortalRouter: mounted at /portal/invoices before the management
 //     routers. Pupil (STU) tokens only (parents use the pupil login); their own
 //     issued invoices, by token id.
-const ADMIN_ONLY = authorizeRoles("Administrator");
-const FINANCE = authorizeRoles("Administrator", "Accountant");
+const ADMIN_ONLY = authorizeRoles(ADMINISTRATOR);
+const FINANCE = authorizeRoles(ADMINISTRATOR, ACCOUNTANT);
 
 const router = Router();
 

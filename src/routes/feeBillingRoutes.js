@@ -14,14 +14,15 @@ import {
   removeDiscountType,
 } from "../controllers/feeBillingController.js";
 import { authorizeRoles } from "../utils/middlewares.js";
+import { ACCOUNTANT, ADMINISTRATOR } from "../utils/roles.js";
 
 // B12: discounts, per-term billing (with arrears carried forward) and fee
 // statements. Mounted in src/index.js behind authenticateManagementUser.
 //   - Discount TYPES (what discounts exist, their amounts): Administrator.
 //   - Giving pupils discounts, billing a term, statements: Administrator and
 //     Accountant (the bursar) (default; client question B12.3).
-const ADMIN_ONLY = authorizeRoles("Administrator");
-const FINANCE = authorizeRoles("Administrator", "Accountant");
+const ADMIN_ONLY = authorizeRoles(ADMINISTRATOR);
+const FINANCE = authorizeRoles(ADMINISTRATOR, ACCOUNTANT);
 
 const router = Router();
 

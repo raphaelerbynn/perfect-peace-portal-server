@@ -2,11 +2,12 @@ import { Router } from "express";
 import { fetchStaffForSignup, resetForgottenPassword, sendStaffPasswordOTP, signin, signinManagement, signup, signupManagement } from "../controllers/authController.js";
 import { resetPin, updatePassword, verifyPin } from "../controllers/generalController.js";
 import { authenticateManagementUser, authorizeRoles } from "../utils/middlewares.js";
+import { ADMINISTRATOR } from "../utils/roles.js";
 
 // Office logins are created by an Administrator, not self-registered: open
 // sign-up let anyone create an Accountant (full fee access) or Class Teacher
 // login for any staff member (security review, 2026-11-08).
-const adminOnly = [authenticateManagementUser, authorizeRoles("Administrator")];
+const adminOnly = [authenticateManagementUser, authorizeRoles(ADMINISTRATOR)];
 
 
 const router = Router();
