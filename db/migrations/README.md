@@ -70,3 +70,7 @@ Comments inside the SQL files still use the old numbers. A database that applied
 ## AI-5 (2026-11-16)
 
 046 (AI-5 Monday briefing: `Ai_briefing`, one row per day with `run_key` UNIQUE, and `Ai_briefing_settings` with its one row, Mondays 06:00, email and WhatsApp off) was built on `feature/ai-5-work` from `feature/ai-work`. New tables only; no existing data changes. It needs 043 first and ships with 044 / 045 (AI-1, AI-3): **merge all of 043–046 into `feature/part-b` before migrating any database from it**, for the same reason as above. Until 046 is applied the API still starts: the briefing settings read as their defaults, and the briefing endpoints fail (the timer logs it and tries again the next minute).
+
+## AI-4 (2026-11-17)
+
+049 (AI-4 pupils-at-risk watchlist: `Ai_watchlist_entry`, primary key (student_id, term_id), foreign keys to `Student` and `Term` with ON DELETE CASCADE, status `HANDLING` / `DISMISSED` or NULL) was built on `feature/ai-4-work` from `feature/ai-work`; 047 and 048 are reserved for other AI branches. New table only; no existing data changes. It needs 043 first. **Merge 047 and 048 (if they exist) together with 049 into `feature/part-b` before migrating any database from it**, for the same reason as above (a database that got 049 first would refuse 047 / 048). Until 049 is applied the watchlist still lists pupils (no marks, no notes); marking or writing notes fails.

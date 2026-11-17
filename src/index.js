@@ -30,6 +30,7 @@ import { aiRouter } from "./routes/aiRoutes.js";
 import { paperOfficeRouter } from "./routes/paperRoutes.js"; // AI-3
 // AI-5
 import { briefingRouter } from "./routes/briefingRoutes.js";
+import { atRiskRouter } from "./routes/atRiskRoutes.js"; // AI-4
 import { startBriefingScheduler } from "./services/briefing/scheduler.js";
 
 dotenv.config();
@@ -169,6 +170,8 @@ app.use("/", aiRouter);
 app.use("/", paperOfficeRouter);
 // AI-5: Monday briefing (/ai/briefings*, Administrator). Auth per route.
 app.use("/", briefingRouter);
+// AI-4: pupils-at-risk watchlist (/ai/watchlist*), office tokens, auth per route.
+app.use("/", atRiskRouter);
 // B2: teacher portal tools (/teacher/*, STAFF tokens only).
 app.use("/", teacherRouter);
 // B14: a pupil's own invoices (STU tokens only; parents use the pupil login).

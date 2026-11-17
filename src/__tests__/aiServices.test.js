@@ -121,7 +121,7 @@ describe("settings", () => {
   it("a fresh database is off, with the documented defaults", async () => {
     const s = await getAiSettings();
     expect(s).toMatchObject({ enabled: false, monthlyCapGhs: 200, capFromEnv: true, tone: { formal: true, salutation: "Dear Parent/Guardian", britishSpelling: true } });
-    expect(s.featureToggles).toEqual({ ASK: true, PAPERS: true, BRIEFING: true, ANNOUNCEMENTS: true, REMARKS: false, AT_RISK: false, EXPLAIN: false, DOCUMENTS: false });
+    expect(s.featureToggles).toEqual({ ASK: true, PAPERS: true, BRIEFING: true, ANNOUNCEMENTS: true, AT_RISK: true, REMARKS: false, EXPLAIN: false, DOCUMENTS: false });
   });
 
   it("no table yet (migration 043 not applied) = off, not a 500", async () => {

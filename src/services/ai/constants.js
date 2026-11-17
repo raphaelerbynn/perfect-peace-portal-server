@@ -7,9 +7,9 @@ export const AI_FEATURES = Object.freeze({
   PAPERS: "PAPERS", // AI-3 question papers (teachers, portal)
   BRIEFING: "BRIEFING", // AI-5 Monday briefing
   ANNOUNCEMENTS: "ANNOUNCEMENTS", // AI-8 announcement drafts
+  AT_RISK: "AT_RISK", // AI-4 pupils-at-risk watchlist notes
   // Later (switches exist, off by default, no code yet).
   REMARKS: "REMARKS",
-  AT_RISK: "AT_RISK",
   EXPLAIN: "EXPLAIN",
   DOCUMENTS: "DOCUMENTS",
 });
@@ -61,10 +61,12 @@ export const AI_FEATURE_INFO = Object.freeze({
   },
   AT_RISK: {
     label: "Pupils at risk",
-    description: "Not built yet.",
-    defaultOn: false,
-    later: true,
-    office: ["Administrator"],
+    description: "A short note on each pupil on the at-risk watchlist (attendance, scores, fees): why they are on it and what to do first. The list itself works without AI.",
+    defaultOn: true,
+    // AI-4: the Class Teacher for their own class only (the watchlist routes
+    // check the class). A "Head Teacher" office role is coming on another branch:
+    // add it here when it lands.
+    office: ["Administrator", "Class Teacher"],
     portal: [],
   },
   EXPLAIN: {
