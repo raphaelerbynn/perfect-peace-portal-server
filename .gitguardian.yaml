@@ -1,0 +1,18 @@
+# GitGuardian (PR secret scan) settings.
+# Real credentials live only in .env (gitignored) and GitHub Actions secrets,
+# never in tracked files. What's excluded below are known test values.
+version: 2
+
+secret:
+  ignored_paths:
+    # Jest tests: made-up passwords and fake bcrypt strings as fixtures.
+    - "src/__tests__/**"
+    # The invented pupils/staff used by the data-move rehearsal.
+    - "scripts/data-move-rehearsal/**"
+
+  # The password of the throwaway local Postgres container that
+  # copy-live-to-local.sh / rehearse-*.sh start on this machine (localhost only).
+  # Only this value is ignored, so a real secret added to those scripts is still caught.
+  ignored_matches:
+    - name: local throwaway Postgres container password (scripts/*.sh)
+      match: pppw
