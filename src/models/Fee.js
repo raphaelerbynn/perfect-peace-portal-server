@@ -21,15 +21,15 @@ const _ = sequelize.define('fee', {
       field: 'class_id'
     },
     total: {
-      type: DataTypes.DECIMAL(18,0),
+      type: DataTypes.DECIMAL(18, 2),
       allowNull: true
     },
     paid: {
-      type: DataTypes.DECIMAL(18,0),
+      type: DataTypes.DECIMAL(18, 2),
       allowNull: true
     },
     remaining: {
-      type: DataTypes.DECIMAL(18,0),
+      type: DataTypes.DECIMAL(18, 2),
       allowNull: true
     },
     paymentMode: {
@@ -45,6 +45,13 @@ const _ = sequelize.define('fee', {
     term: {
       type: DataTypes.STRING(5),
       allowNull: true
+    },
+    // Migration 011: the term this payment counts toward (the open term when
+    // it was recorded; old payments matched by number + date).
+    termId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      field: 'term_id'
     },
     datePaid: {
       type: DataTypes.DATEONLY,

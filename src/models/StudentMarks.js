@@ -29,27 +29,27 @@ const _ = sequelize.define('studentMarks', {
       field: 'student_id'
     },
     examScore: {
-      type: DataTypes.DECIMAL(18,0),
+      type: DataTypes.DECIMAL(18, 2),
       allowNull: true,
       field: 'exam_score'
     },
     examScorePercentage: {
-      type: DataTypes.DECIMAL(18,0),
+      type: DataTypes.DECIMAL(18, 2),
       allowNull: true,
       field: 'exam_score_percentage'
     },
     classScore: {
-      type: DataTypes.DECIMAL(18,0),
+      type: DataTypes.DECIMAL(18, 2),
       allowNull: true,
       field: 'class_score'
     },
     classScorePercentage: {
-      type: DataTypes.DECIMAL(18,0),
+      type: DataTypes.DECIMAL(18, 2),
       allowNull: true,
       field: 'class_score_percentage'
     },
     totalScore: {
-      type: DataTypes.DECIMAL(18,0),
+      type: DataTypes.DECIMAL(18, 2),
       allowNull: true,
       field: 'total_score'
     },

@@ -21,16 +21,31 @@ const validatePayAmount = (amount, label = "amount") => {
     return num;
 };
 
+// Rows of { title, amount }. Taxes are stored with a `name` column, so `name`
+// is accepted as the label too. Fully blank rows (no label, no amount) are dropped.
 const validateRows = (rows, label) => {
     if (!Array.isArray(rows)) return [];
     return rows
-        .filter((r) => r && (r.title?.trim?.() || r.amount != null && r.amount !== ""))
+        .map((r) => (r ? { title: r.title ?? r.name, amount: r.amount } : r))
+        .filter((r) => r && (String(r.title ?? "").trim() || r.amount != null && r.amount !== ""))
         .map((r) => {
             if (!r.title || String(r.title).trim() === "") {
                 throw new AppError(`Each ${label} needs a title`, 400);
             }
-            return { title: String(r.title).trim(), amount: validatePayAmount(r.amount, `${label} amount`) };
+            const title = String(r.title).trim();
+            if (title.length > 50) throw new AppError(`${label} title must be 50 characters or fewer`, 400);
+            return { title, amount: validatePayAmount(r.amount, `${label} amount`) };
         });
+};
+
+// A8: net pay = gross + allowances − deductions − tax, and it can't go below zero.
+const computeNet = (gross, allowances, deductions, taxes) =>
+    gross + sumAmount(allowances) - sumAmount(deductions) - sumAmount(taxes);
+
+const assertNetNotNegative = (net) => {
+    if (net < 0) {
+        throw new AppError("Deductions and tax are more than the gross pay plus allowances (net pay would be below zero)", 400);
+    }
 };
 
 const sumAmount = (rows) => rows.reduce((acc, r) => acc + Number(r.amount || 0), 0);
@@ -48,17 +63,16 @@ const getSalaryStructure = async (salaryId, transaction = null) => {
     const salary = await Salary.findOne({ where: { salaryId, isDeleted: false }, ...opts });
     if (!salary) return null;
 
-    const [allowances, deductions, taxes] = await Promise.all([
-        Allowance.findAll({ where: { salaryId }, ...opts }),
-        Deductions.findAll({ where: { salaryId }, ...opts }),
-        Tax.findAll({ where: { salaryId }, ...opts }),
-    ]);
+    // One query at a time: inside a transaction they share one connection.
+    const allowances = await Allowance.findAll({ where: { salaryId }, ...opts });
+    const deductions = await Deductions.findAll({ where: { salaryId }, ...opts });
+    const taxes = await Tax.findAll({ where: { salaryId }, ...opts });
 
     const gross = Number(salary.amount || 0);
     const allowancesTotal = sumAmount(allowances);
     const deductionsTotal = sumAmount(deductions);
     const taxTotal = sumAmount(taxes);
-    const net = gross + allowancesTotal - deductionsTotal - taxTotal;
+    const net = computeNet(gross, allowances, deductions, taxes);
 
     return { salary, gross, allowances, deductions, taxes, allowancesTotal, deductionsTotal, taxTotal, net };
 };
@@ -185,57 +199,71 @@ const createSalaryPayment = async (data) => {
     return committed.payment;
 };
 
-// BE-2: create a salary structure + its allowances/deductions in ONE transaction
-// (was Promise.allSettled with no transaction → partial payroll reported as success).
+// BE-2: create a salary structure + its allowances/deductions/taxes (A8) in ONE
+// transaction (was Promise.allSettled with no transaction → partial payroll reported as success).
 const createFullSalary = async (data) => {
     const gross = validatePayAmount(data?.amount, "salary amount");
     const allowances = validateRows(data?.allowances, "allowance");
     const deductions = validateRows(data?.deductions, "deduction");
+    const taxes = validateRows(data?.taxes, "tax");
+    assertNetNotNegative(computeNet(gross, allowances, deductions, taxes));
 
     return await sequelize.transaction(async (t) => {
         const salary = await Salary.create(
             { title: data?.title, rank: data?.rank, amount: gross },
             { transaction: t }
         );
-        await Promise.all([
-            ...allowances.map((a) =>
-                Allowance.create({ salaryId: salary.salaryId, title: a.title, amount: a.amount }, { transaction: t })
-            ),
-            ...deductions.map((d) =>
-                Deductions.create({ salaryId: salary.salaryId, title: d.title, amount: d.amount }, { transaction: t })
-            ),
-        ]);
+        // One query at a time: inside a transaction they share one connection.
+        for (const a of allowances) {
+            await Allowance.create({ salaryId: salary.salaryId, title: a.title, amount: a.amount }, { transaction: t });
+        }
+        for (const d of deductions) {
+            await Deductions.create({ salaryId: salary.salaryId, title: d.title, amount: d.amount }, { transaction: t });
+        }
+        for (const x of taxes) {
+            await Tax.create({ salaryId: salary.salaryId, name: x.title, amount: x.amount }, { transaction: t });
+        }
         return salary;
     });
 };
 
 // BE-3: replace a salary's allowances/deductions atomically (delete + reinsert in
 // ONE transaction so a failed reinsert can't leave the structure wiped).
+// A8: taxes are replaced the same way, but only when the request carries a
+// `taxes` array — a client that doesn't know about taxes leaves them as they are.
 const updateFullSalary = async (data, id) => {
     const gross = validatePayAmount(data?.amount, "salary amount");
     const allowances = validateRows(data?.allowances, "allowance");
     const deductions = validateRows(data?.deductions, "deduction");
+    const replaceTaxes = Array.isArray(data?.taxes);
+    const newTaxes = replaceTaxes ? validateRows(data.taxes, "tax") : null;
 
     return await sequelize.transaction(async (t) => {
         const salary = await Salary.findOne({ where: { salaryId: id, isDeleted: false }, transaction: t });
         if (!salary) throw new AppError("Salary not found", 404);
 
+        const taxes = replaceTaxes ? newTaxes : await Tax.findAll({ where: { salaryId: id }, transaction: t });
+        assertNetNotNegative(computeNet(gross, allowances, deductions, taxes));
+
         await Salary.update(
             { title: data?.title, rank: data?.rank, amount: gross },
             { where: { salaryId: id }, transaction: t }
         );
-        await Promise.all([
-            Deductions.destroy({ where: { salaryId: id }, transaction: t }),
-            Allowance.destroy({ where: { salaryId: id }, transaction: t }),
-        ]);
-        await Promise.all([
-            ...allowances.map((a) =>
-                Allowance.create({ salaryId: id, title: a.title, amount: a.amount }, { transaction: t })
-            ),
-            ...deductions.map((d) =>
-                Deductions.create({ salaryId: id, title: d.title, amount: d.amount }, { transaction: t })
-            ),
-        ]);
+        // One query at a time: inside a transaction they share one connection.
+        await Deductions.destroy({ where: { salaryId: id }, transaction: t });
+        await Allowance.destroy({ where: { salaryId: id }, transaction: t });
+        for (const a of allowances) {
+            await Allowance.create({ salaryId: id, title: a.title, amount: a.amount }, { transaction: t });
+        }
+        for (const d of deductions) {
+            await Deductions.create({ salaryId: id, title: d.title, amount: d.amount }, { transaction: t });
+        }
+        if (replaceTaxes) {
+            await Tax.destroy({ where: { salaryId: id }, transaction: t });
+            for (const x of newTaxes) {
+                await Tax.create({ salaryId: id, name: x.title, amount: x.amount }, { transaction: t });
+            }
+        }
         return salary;
     });
 };

@@ -15,7 +15,7 @@ const _ = sequelize.define('feedingFee', {
       allowNull: true
     },
     class: {
-      type: DataTypes.STRING(10),
+      type: DataTypes.STRING(50),
       allowNull: true
     },
     amount: {

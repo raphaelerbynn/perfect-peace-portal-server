@@ -65,6 +65,26 @@ export const getStaff = async (options = {}) => {
   }
 
   const staff = await Teacher.findAll(queryOptions);
+
+  // The class a teacher looks after is named on the CLASS (Class.teacher_id),
+  // which is what the Classes page shows; live leaves Teacher.class_id empty
+  // for most staff. Prefer the class record, fall back to Teacher.class_id.
+  const ids = staff.map((t) => t.teacherId);
+  const owned = ids.length
+    ? await Class.findAll({
+        where: { teacherId: { [Op.in]: ids }, isDeleted: { [Op.not]: true } },
+        attributes: ["classId", "name", "teacherId"],
+        order: [["name", "ASC"]],
+        raw: true,
+      })
+    : [];
+  for (const t of staff) {
+    const mine = owned.filter((c) => Number(c.teacherId) === Number(t.teacherId));
+    if (!mine.length) continue;
+    const value = { name: mine.map((c) => String(c.name).trim()).join(", "), classId: mine[0].classId };
+    if (typeof t.setDataValue === "function") t.setDataValue("class_", value);
+    else t.class_ = value;
+  }
   return staff;
 };
 

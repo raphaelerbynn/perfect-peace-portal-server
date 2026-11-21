@@ -58,8 +58,25 @@ const getNews = async (options = {}) => {
         queryOptions.offset = (safePage - 1) * parsedLimit;
     }
 
-    return await Event.findAll(queryOptions);
+    const rows = await Event.findAll(queryOptions);
+    return rows.map((row) => {
+        const plain = typeof row?.toJSON === "function" ? row.toJSON() : { ...row };
+        plain.created_at = normalizeCreatedAt(plain.created_at);
+        return plain;
+    });
 }
+
+// `created_at` is a VARCHAR. The old code stored Date.now() as a string of
+// milliseconds ("1731568000000"); new rows store an ISO timestamp. Send ISO
+// either way, and null for anything unreadable.
+export const normalizeCreatedAt = (value) => {
+    if (value === null || value === undefined || value === "") return null;
+    const text = String(value).trim();
+    const date = /^\d{10,13}$/.test(text)
+        ? new Date(Number(text.length === 10 ? Number(text) * 1000 : text))
+        : new Date(text);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+};
 
 const createEvent = async (data) => {
     // BE-D7: validate before insert.
@@ -70,7 +87,7 @@ const createEvent = async (data) => {
         description: data?.description || null,
         date: data?.date || null,
         time: data?.time || null,
-        created_at: Date.now()
+        created_at: new Date().toISOString()
     });
 }
 

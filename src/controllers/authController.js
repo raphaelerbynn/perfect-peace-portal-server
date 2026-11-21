@@ -166,7 +166,9 @@ const signupManagement = async (req, res, next) => {
     }
 
     const result = await signUpManagementUser(data);
-    res.status(200).json({ message: result });
+    // Never send the password hash back (it used to be in the response).
+    const { password, ...account } = typeof result?.get === "function" ? result.get({ plain: true }) : result || {};
+    res.status(200).json({ message: "Login created", account });
   } catch (err) {
     next(err);
   }

@@ -9,6 +9,7 @@ import {
 } from "../models/index.js";
 import { AppError } from "../utils/errorHandling.js";
 import { getTerm } from "./term.js";
+import { round2 } from "../utils/money.js";
 
 // ---------------------------------------------------------------------------
 // Feature #8 — authoritative, non-destructive results engine.
@@ -81,10 +82,11 @@ const computeMarkFields = (subject, classScoreRaw, examScoreRaw) => {
   return {
     classScore: cs,
     examScore: es,
-    classScorePercentage: Math.round(classScorePercentage),
-    examScorePercentage: Math.round(examScorePercentage),
-    totalScore: Math.round(totalScore),
-    remarks: gradeRemark(totalScore),
+    // 2 decimal places (migration 012): 7.5/10 of 30% is 22.5, not 23.
+    classScorePercentage: round2(classScorePercentage),
+    examScorePercentage: round2(examScorePercentage),
+    totalScore: round2(totalScore),
+    remarks: gradeRemark(round2(totalScore)), // same total as stored
   };
 };
 
@@ -144,6 +146,14 @@ const upsertOneMark = async (data, termId, t) => {
 const recomputeStudentResult = async (scope, observations, t) => {
   const { studentId, class: className, term, termId } = scope;
 
+  // Lock the pupil first: two score sheets saving at once (Maths and English
+  // teachers) would otherwise each total the marks without the other's
+  // uncommitted subject, and the later write would drop it. With the lock the
+  // second waits, then reads the first's committed marks.
+  if (t) {
+    await Student.findOne({ where: { studentId }, attributes: ["studentId"], transaction: t, lock: t.LOCK?.UPDATE });
+  }
+
   const marks = await StudentMarks.findAll({
     where: { studentId, class: className, termId },
     raw: true,
@@ -163,7 +173,7 @@ const recomputeStudentResult = async (scope, observations, t) => {
     passRawScore = subjectIds.reduce((sum, sid) => sum + (passMap.get(sid) || 0), 0);
   }
 
-  const rawScore = Math.round(marks.reduce((sum, m) => sum + Number(m.totalScore || 0), 0));
+  const rawScore = round2(marks.reduce((sum, m) => sum + Number(m.totalScore || 0), 0));
   const totalRawScore = marks.length * 100;
   const classTotal = await Student.count({
     where: { class: className, isDeleted: { [Op.not]: true } },
@@ -365,11 +375,10 @@ const removeResult = async (data) => {
 
   return await sequelize.transaction(async (t) => {
     const scope = { studentId: data.studentId, class: data.class, termId };
-    const [marks, result, kg] = await Promise.all([
-      StudentMarks.destroy({ where: scope, transaction: t }),
-      StudentResult.destroy({ where: scope, transaction: t }),
-      KgAssessment.destroy({ where: scope, transaction: t }),
-    ]);
+    // One query at a time: inside a transaction they share one connection.
+    const marks = await StudentMarks.destroy({ where: scope, transaction: t });
+    const result = await StudentResult.destroy({ where: scope, transaction: t });
+    const kg = await KgAssessment.destroy({ where: scope, transaction: t });
     return { marks, result, kg };
   });
 };
@@ -452,20 +461,11 @@ const getKGResultByClassAndTerm = async (data) => {
   return response;
 };
 
+// The position must be ranked across the whole class: filtering by studentId
+// first made RANK() rank a single row (everyone was "1st").
 const getOneStudentResult = async (data) => {
-  const response = await StudentResult.findAll({
-    attributes: {
-      include: [
-        [sequelize.literal("RANK() OVER (ORDER BY raw_score DESC)"), "position"],
-      ],
-    },
-    where: {
-      class: data?.class,
-      termId: data?.termId,
-      studentId: data?.studentId,
-    },
-  });
-  return response;
+  const classRows = await getClassResult(data);
+  return classRows.filter((r) => Number(r.studentId ?? r.dataValues?.studentId) === Number(data?.studentId));
 };
 
 const getOneStudentMarks = async (data) => {
@@ -508,10 +508,15 @@ const getOneStudentMarks = async (data) => {
   return results;
 };
 
+// Old marks whose subject was deleted in the old system have subject_id NULL
+// (966 rows on the 2026-11 live copy, 2022-2025). The name can't be recovered,
+// so the portal gets a label instead of null.
+export const REMOVED_SUBJECT_LABEL = "Subject no longer listed";
+
 const getResults = async (indexNumber) => {
   const query = `
     SELECT
-    subj.name AS name1,
+    COALESCE(subj.name, :removedLabel) AS name1,
         sm.exam_score_percentage,
         sm.class_score_percentage,
         sm.total_score,
@@ -536,7 +541,7 @@ const getResults = async (indexNumber) => {
     ORDER BY sm.term_id DESC, sm.class ASC, year DESC, name1 ASC`;
 
   const results = await sequelize.query(query, {
-    replacements: { indexNumber },
+    replacements: { indexNumber, removedLabel: REMOVED_SUBJECT_LABEL },
     type: sequelize.QueryTypes.SELECT,
   });
   return results;
@@ -597,4 +602,5 @@ export {
   bulkCreateMarksResult,
   upsertMarksResult,
   saveResult,
+  computeMarkFields,
 };

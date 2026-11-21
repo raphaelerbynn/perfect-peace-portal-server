@@ -46,7 +46,7 @@ const _ = sequelize.define('student', {
       allowNull: true
     },
     class: {
-      type: DataTypes.STRING(20),
+      type: DataTypes.STRING(50),
       allowNull: true
     },
     dateRegistered: {
@@ -70,15 +70,23 @@ const _ = sequelize.define('student', {
       field: 'class_id'
     },
     feesPaid: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.DECIMAL(18, 2),
       allowNull: true,
+      defaultValue: 0, // migration 022: never NULL in the data
       field: 'fees_paid'
     },
     feesOwing: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.DECIMAL(18, 2),
       allowNull: true,
+      defaultValue: 0, // migration 022: never NULL in the data
       field: 'fees_owing'
     },
+    // Fee period (db/migrations/008_fee_periods.sql, services/fee.js).
+    feesOpeningBalance: { type: DataTypes.DECIMAL(18, 2), allowNull: false, defaultValue: 0, field: 'fees_opening_balance' },
+    feesBillAtStart: { type: DataTypes.DECIMAL(18, 2), allowNull: false, defaultValue: 0, field: 'fees_bill_at_start' },
+    feesPaidAtStart: { type: DataTypes.DECIMAL(18, 2), allowNull: false, defaultValue: 0, field: 'fees_paid_at_start' },
+    feesPeriodAfterFeeId: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0, field: 'fees_period_after_fee_id' },
+    feesPeriodStartedAt: { type: DataTypes.DATE, allowNull: true, field: 'fees_period_started_at' },
     // BE-S4/BE-S5: soft delete. The underlying `is_deleted` column is added by a
     // manual DB migration (see report). Archived students are excluded from every
     // read; deleteStudent flips this flag instead of destroying rows.

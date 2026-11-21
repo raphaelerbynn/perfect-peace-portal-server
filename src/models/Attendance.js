@@ -11,7 +11,7 @@ const attendance = sequelize.define('attendance', {
       field: 'attendance_id'
     },
     class: {
-      type: DataTypes.STRING(10),
+      type: DataTypes.STRING(50),
       allowNull: true
     },
     studentId: {

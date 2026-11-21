@@ -1,8 +1,8 @@
 /**
  * One-time, idempotent password backfill.
  *
- * Hashes any plaintext passwords still stored in the Teacher and User_account
- * tables. A row is skipped if its password already looks like a bcrypt hash
+ * Hashes any plaintext passwords still stored in the Student, Teacher and
+ * User_account tables (login compares bcrypt hashes for all three). A row is skipped if its password already looks like a bcrypt hash
  * (starts with "$2") or is empty/null, so the script is safe to re-run.
  *
  * Run with:  npm run hash-passwords
@@ -10,7 +10,7 @@
  */
 import bcrypt from "bcrypt";
 import sequelize from "../config/database.js";
-import { Teacher, UserAccount } from "../models/index.js";
+import { Student, Teacher, UserAccount } from "../models/index.js";
 
 const BCRYPT_ROUNDS = 10;
 
@@ -42,7 +42,6 @@ const backfillModel = async (Model, label, idField) => {
     row.password = hash;
     await row.save();
     hashed++;
-    console.log(`  [${label}] hashed password for ${idField}=${rowId}`);
   }
 
   console.log(`[${label}] done — hashed: ${hashed}, skipped (already hashed/empty): ${skipped}`);
@@ -55,6 +54,9 @@ const run = async () => {
 
     await backfillModel(Teacher, "Teacher", "teacherId");
     await backfillModel(UserAccount, "UserAccount", "username");
+    // Students log in with bcrypt.compare too (services/user.js getStudentUser);
+    // leaving them out locked every existing student out after the cutover.
+    await backfillModel(Student, "Student", "studentId");
 
     console.log("\nPassword backfill complete.");
     await sequelize.close();

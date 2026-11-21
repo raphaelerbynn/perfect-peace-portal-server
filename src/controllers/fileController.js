@@ -4,6 +4,8 @@ import { Readable } from "stream";
 import { uploadFileData } from '../services/upload.js';
 import { deleteAssignment, getAssignmentStudent, getAssignmentTeacher } from '../services/assignment.js';
 import { getStudentClass } from '../services/user.js';
+import { Assignment } from '../models/index.js';
+import { AppError } from '../utils/errorHandling.js';
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -57,10 +59,13 @@ const createReadableStream = (buffer) => {
 }
 
 
-const authCallback = async (req, res) => {
-    const authorizationCode = req.query.code;
+// One-off Drive setup (prints a refresh token to the server log). Off unless
+// DRIVE_SETUP=true, so nobody can trigger it on the live server.
+const driveSetupEnabled = () => process.env.DRIVE_SETUP === "true";
 
-    console.log("assss>>>>>>>>",authorizationCode)
+const authCallback = async (req, res) => {
+    if (!driveSetupEnabled()) return res.status(404).send("Not found");
+    const authorizationCode = req.query.code;
     try {
       await getTokens(authorizationCode);
       res.send('Authorization successful! Tokens retrieved.');
@@ -88,20 +93,20 @@ const files = async (req, res) => {
     }
 };
 
+// Security: the school's Drive account has full "drive" scope, so the server
+// must only touch files that are assignments in our database, and only the
+// teacher who uploaded one may delete it (checked BEFORE Drive is called).
 const fileDelete = async (req, res, next) => {
   const fileId = req.params.fileId;
   const { id } = req.user;
-  console.log(req.params)
 
   const drive = google.drive({ version: 'v3', auth: oauth2Client });
 
   try {
-    await Promise.all([
-      drive.files.delete({
-        fileId: fileId,
-      }),
-      deleteAssignment(id ,fileId)
-    ])
+    const own = await Assignment.findOne({ where: { teacherId: id, fileData: fileId }, raw: true });
+    if (!own) throw new AppError("Assignment not found", 404);
+    await drive.files.delete({ fileId });
+    await deleteAssignment(id, fileId);
 
     console.log('Assignment deleted successfully.');
     res.sendStatus(200);
@@ -119,6 +124,13 @@ const fileDownload = async (req, res, next) => {
     const drive = google.drive({ version: 'v3', auth: oauth2Client });
   
     try {
+        // Only assignment files; a pupil only their own class's.
+        const assignment = await Assignment.findOne({ where: { fileData: fileId }, raw: true });
+        if (!assignment) throw new AppError("File not found", 404);
+        if (req.user?.userRole === "STU") {
+          const studentClass = await getStudentClass(req.user.id);
+          if (String(studentClass?.[0]?.class ?? "") !== String(assignment.class ?? "")) throw new AppError("File not found", 404);
+        }
         const metadata = await drive.files.get({
             fileId: fileId,
             fields: 'name',
@@ -156,6 +168,7 @@ const fileDownload = async (req, res, next) => {
 }
 
 const redirectToAuth = (req, res) => {
+    if (!driveSetupEnabled()) return res.status(404).send("Not found");
     const authUrl = oauth2Client.generateAuthUrl({
       access_type: 'offline',
       scope: SCOPES,
@@ -167,7 +180,9 @@ const redirectToAuth = (req, res) => {
 const uploadFile =  async (req, res, next) => {
     const file = req.file;
     const drive = google.drive({ version: 'v3', auth: oauth2Client });
-    const fileData = req.body;
+    // The teacher comes from the token, never the form (anyone could post as anyone).
+    const fileData = { ...req.body, teacherId: req.user.id };
+    if (!file) return next(new AppError("Choose a file to upload", 400));
 
     const fileMetadata = {
       name: file?.originalname,

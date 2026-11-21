@@ -1,0 +1,49 @@
+# Production stack: API + PostgreSQL only.
+#
+# Differences from docker-compose.yml (local dev):
+#   - no pgAdmin (it ran with no login on a public port);
+#   - the database port is NOT published: only the API reaches it, on the
+#     internal network (use `docker compose exec db psql ...` for admin);
+#   - env from .env.production (never the dev .env.docker values);
+#   - the API port binds to 127.0.0.1: put the TLS reverse proxy (nginx /
+#     Apache) in front, and set TRUST_PROXY=1 in .env.production.
+#
+#   docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+#   docker compose -f docker-compose.prod.yml exec backend node dist/scripts/migrate.js
+#
+# Never use docker-compose.test-client.yml for production (tmpfs database,
+# seeds on every start).
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  backend:
+    build: .
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      SERVER_PORT: "5050"
+      NODE_ENV: production
+    ports:
+      - "127.0.0.1:${SERVER_PORT:-5050}:5050"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

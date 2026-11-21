@@ -12,15 +12,19 @@ const BCRYPT_ROUNDS = 10;
 const buildManagementIdentityWhere = (data) => {
     const identifiers = [];
 
+    // Case- and space-insensitive, as the live MySQL collation was: "Admin "
+    // and "admin" are the same account after the move to Postgres too.
+    const sameText = (column, value) =>
+        sequelize.where(sequelize.fn("lower", sequelize.fn("trim", sequelize.col(column))), String(value).trim().toLowerCase());
     if (data?.username) {
-        identifiers.push({ username: data.username });
-        const idFromIndex = data.username.split("/")?.[1];
-        if (idFromIndex) {
+        identifiers.push(sameText("username", data.username));
+        const idFromIndex = String(data.username).split("/")?.[1]?.trim();
+        if (idFromIndex && /^\d+$/.test(idFromIndex)) {
             identifiers.push({ teacherId: idFromIndex });
         }
     }
     if (data?.email) {
-        identifiers.push({ email: data.email });
+        identifiers.push(sameText("email", data.email));
     }
     if (data?.staffId) {
         identifiers.push({ teacherId: data.staffId });
@@ -97,6 +101,8 @@ const signUpManagementUser = async (data) => {
 //portal
 const getStudentDetails = async (indexNumber) => {
     const student = await Student.findOne({
+        // Never send the password hash to the browser (GET /user-details).
+        attributes: { exclude: ["password"] },
         include: [
             {
                 model: Parent,
