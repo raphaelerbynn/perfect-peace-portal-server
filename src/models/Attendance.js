@@ -11,7 +11,7 @@ const attendance = sequelize.define('attendance', {
       field: 'attendance_id'
     },
     class: {
-      type: DataTypes.STRING(10),
+      type: DataTypes.STRING(50),
       allowNull: true
     },
     studentId: {
@@ -45,6 +45,17 @@ const attendance = sequelize.define('attendance', {
       type: DataTypes.DATEONLY,
       allowNull: true,
       field: 'date_end'
+    },
+    // B2: who entered it (office username or the teacher's name); NULL on old rows.
+    enteredBy: {
+      type: DataTypes.STRING(100),
+      allowNull: true,
+      field: 'entered_by'
+    },
+    enteredByTeacherId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      field: 'entered_by_teacher_id'
     }
   }, {
     sequelize,

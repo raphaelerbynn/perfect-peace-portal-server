@@ -1,3 +1,4 @@
+import { viewerFromUser } from "../services/posts.js";
 import {
   createFeeding,
   createBusFee,
@@ -12,6 +13,9 @@ import {
 import {
   markClassAttendance,
   assertClassAccess,
+  assertClassWrite,
+  assertAttendanceDateOpen,
+  getTeacherClassName,
   VALID_STATUSES,
   removeAttendance,
   getAttendance,
@@ -32,9 +36,10 @@ import {
   createFee,
   getFeesData,
   getOneFee,
-  removeFee,
+  reverseFee,
 } from "../services/fee.js";
 import { sendSMSMessage } from "../services/messaging.js";
+import { notifyAbsences, notifyPasswordChanged, notifyPaymentRecorded } from "../services/notify.js";
 import {
   getNews,
   createEvent,
@@ -86,6 +91,7 @@ import {
   setTerm,
   inactivateTerms,
   getTerms,
+  getActiveTermDetails,
 } from "../services/term.js";
 import {
   createStudent,
@@ -104,6 +110,8 @@ import { getDashboardSummary, getStudentsOwing } from "../services/dashboard.js"
 import { composeMessage, transformReturningKGResult } from "../utils/func.js";
 import { absentee_template, present_template } from "../utils/messageTemplates.js";
 import { AppError } from "../utils/errorHandling.js";
+import { hasPermission, P } from "../utils/permissions.js";
+import { Student } from "../models/index.js";
 
 // BE-15: upper bound on bulk result payloads. A single student's report card
 // has at most a few dozen subjects; 200 is a generous ceiling that still rejects
@@ -113,7 +121,8 @@ const MAX_BULK_RESULTS = 200;
 // BE-D2: dashboard stat cards. Source for the dashboard's 4 numbers.
 const fetchDashboardSummary = async (req, res, next) => {
   try {
-    const data = await getDashboardSummary();
+    // ?include=39,40: graduated / left classes ticked on the dashboard.
+    const data = await getDashboardSummary({ include: req.query.include });
     res.json(data);
   } catch (error) {
     console.log(error);
@@ -124,7 +133,13 @@ const fetchDashboardSummary = async (req, res, next) => {
 // BE-D9: students with an outstanding balance, sorted by balance desc.
 const fetchStudentsOwing = async (req, res, next) => {
   try {
-    const data = await getStudentsOwing();
+    let data = await getStudentsOwing({ include: req.query.include });
+    // Security review: a login without academics.all_classes (a Class Teacher)
+    // sees only its own class's pupils (fees are otherwise hidden from it).
+    if (!hasPermission(req.user, P.ALL_CLASSES)) {
+      const own = String((await getTeacherClassName(req.user)) ?? "").trim().toLowerCase();
+      data = data.filter((r) => own && String(r.class ?? "").trim().toLowerCase() === own);
+    }
     res.json(data);
   } catch (error) {
     console.log(error);
@@ -139,8 +154,9 @@ const fetchAllStudents = async (req, res, next) => {
     // the response shape is the plain array (unchanged). BE-S1/BE-S11: search,
     // class/gender/age filtering and Class-Teacher scoping are enforced
     // server-side in getStudents.
-    const { page, limit, lite, search, classId, className, gender, minAge, maxAge } = req.query;
+    const { page, limit, lite, search, classId, className, gender, minAge, maxAge, excludeClassIds } = req.query;
     const data = await getStudents({
+      excludeClassIds,
       page,
       limit,
       lite,
@@ -152,8 +168,9 @@ const fetchAllStudents = async (req, res, next) => {
       maxAge,
       // BE-S1: authoritative scoping source — a Class Teacher is constrained to
       // their own class regardless of any client-supplied classId/search.
+      // B10: limited to the login's own class without academics.all_classes.
       requester: {
-        role: req.user?.category || req.user?.role,
+        ownClassOnly: !hasPermission(req.user, P.ALL_CLASSES),
         teacherId: req.user?.teacherId,
       },
     });
@@ -168,7 +185,8 @@ const fetchAllStaff = async (req, res, next) => {
   try {
     // BE-20: pagination is opt-in via query params; no params => unchanged.
     const { page, limit } = req.query;
-    const data = await getStaff({ page, limit });
+    // B10 review: payroll/bank fields for the Administrator only.
+    const data = await getStaff({ page, limit, user: req.user });
     res.json(data);
   } catch (error) {
     console.log(error);
@@ -238,7 +256,8 @@ const fetchOneFee = async (req, res, next) => {
 
 const fetchActiveTerm = async (req, res, next) => {
   try {
-    const data = await getTerm();
+    // B7: with the academic year's name for the dashboard badge.
+    const data = await getActiveTermDetails();
     res.json(data);
   } catch (error) {
     console.log(error);
@@ -277,8 +296,11 @@ const fetchClassResult = async (req, res, next) => {
   try {
     // BE-1: a Class Teacher may only read their own class's results.
     await assertClassAccess(req.user, values.class);
-    const results = await getClassResult(values);
-    const marks = await getClassMarks(values);
+    // View results sends the termId as `term`; the queries filter on termId
+    // (left undefined, Sequelize threw and the page showed nothing).
+    const query = { ...values, termId: values.termId ?? values.term };
+    const results = await getClassResult(query);
+    const marks = await getClassMarks(query);
 
 
     const data = results.map((result) => {
@@ -312,7 +334,7 @@ const fetchClassKGResult = async (req, res, next) => {
   try {
     // BE-1: Class Teacher scoped to their own class.
     await assertClassAccess(req.user, values.class);
-    const data = await getKGResultByClassAndTerm(values);
+    const data = await getKGResultByClassAndTerm({ ...values, termId: values.termId ?? values.term });
 
     const results = data.reduce((acc, item) => {
       const { studentId } = item;
@@ -351,7 +373,7 @@ const fetchOneKGStudentResult = async (req, res, next) => {
   try {
     // BE-1: Class Teacher scoped to their own class.
     await assertClassAccess(req.user, values.class);
-    const result = await getOneStudentKGResult(values);
+    const result = await getOneStudentKGResult({ ...values, termId: values.termId ?? values.term });
     const formattedData = transformReturningKGResult(result);
     res.json(formattedData);
   } catch (error) {
@@ -373,8 +395,10 @@ const fetchOneStudentResult = async (req, res, next) => {
   try {
     // BE-1: Class Teacher scoped to their own class.
     await assertClassAccess(req.user, values.class);
-    const result = await getOneStudentResult(values);
-    const marks = await getOneStudentMarks(values);
+    // The entry form sends the termId as `term` (see fetchClassResult).
+    const query = { ...values, termId: values.termId ?? values.term };
+    const result = await getOneStudentResult(query);
+    const marks = await getOneStudentMarks(query);
 
     res.json({
       ...result[0]?.dataValues,
@@ -498,6 +522,12 @@ const fetchEmployeeSalary = async (req, res, next) => {
 const fetchTotalStudentAttendance = async (req, res, next) => {
   const values = req.query;
   try {
+    // Security review: a Class Teacher only for pupils in their own class.
+    if (req.user?.category && !hasPermission(req.user, P.ALL_CLASSES)) {
+      const pupil = await Student.findOne({ where: { studentId: values.studentId }, attributes: ["class"], raw: true });
+      if (!pupil) throw new AppError("Student not found", 404);
+      await assertClassAccess(req.user, pupil.class);
+    }
     const data = await getTotalStudentAttendance({
       studentId: values.studentId,
       termId: values.termId,
@@ -522,7 +552,7 @@ const addStudent = async (req, res, next) => {
 const addStaff = async (req, res, next) => {
   const values = req.body;
   try {
-    const data = await createStaff(values);
+    const data = await createStaff(values, req.user); // B10 review: the caller's permissions
     res.json(data);
   } catch (error) {
     console.log(error);
@@ -533,7 +563,7 @@ const addStaff = async (req, res, next) => {
 const addClass = async (req, res, next) => {
   const values = req.body;
   try {
-    const data = await createClass(values);
+    const data = await createClass(values, req.user);
     res.json(data);
   } catch (error) {
     next(error);
@@ -567,7 +597,7 @@ const updateStudentFee = async (req, res, next) => {
 const addEvent = async (req, res, next) => {
   const values = req.body;
   try {
-    const data = await createEvent(values);
+    const data = await createEvent(values, req.user?.username || null);
     res.json(data);
   } catch (error) {
     console.log(error);
@@ -599,7 +629,8 @@ const addClassFee = async (req, res, next) => {
 const addFee = async (req, res, next) => {
   const values = req.body;
   try {
-    const data = await createFee(values);
+    // B13: the receipt records who took the money (management username).
+    const data = await createFee(values, { recordedBy: req.user?.username ?? null });
 
     // BE-3: confirmation SMS uses the SERVER-computed balance (data.owing),
     // not the forgeable/stale client-supplied `values.remaining`. SMS failure
@@ -613,12 +644,14 @@ const addFee = async (req, res, next) => {
       // (strip newlines/braces, clamp length) so they can't distort it.
       const clean = (v) => String(v ?? "").replace(/[\r\n{}]/g, " ").slice(0, 60);
       await sendSMSMessage(
-        `Hello, we have received your payment of GHc${data.paid} for ${clean(values.studentName)} via ${clean(values.paymentMode)}. Balance left for your ward is GHc${data.owing}. Fee ID #${data.feeId}. Thank you! - Perfect Peace`,
+        `Hello, we have received your payment of GHc${data.paid} for ${clean(values.studentName)} via ${clean(values.paymentMode)}. Balance left for your ward is GHc${data.owing}. Receipt ${data.receiptNo}. Thank you! - Perfect Peace`,
         parentSystemContact
       );
     } catch (smsError) {
       // payment is saved; notification is non-critical
     }
+    // B16: in-app (+ email when switched on); never throws.
+    await notifyPaymentRecorded({ studentId: data.studentId ?? values?.studentId, paid: data.paid, owing: data.owing, receiptNo: data.receiptNo, feeId: data.feeId });
 
     res.json(data);
   } catch (error) {
@@ -661,12 +694,13 @@ const addResult = async (req, res, next) => {
       );
     }
 
-    // BE-1: a Class Teacher may only write results for their own class.
-    await assertClassAccess(req.user, values.class);
+    // BE-1: a Class Teacher may only write results for their own class
+    // (and only their own pupils, in the open term).
+    await assertClassWrite(req.user, values.class, [values.studentId], values.termId);
 
     // BE-W2: marks + observations are saved in ONE transaction (saveResult),
     // as non-destructive upserts — a partial submit never wipes other subjects.
-    const result = await saveResult(values);
+    const result = await saveResult({ ...values, ...officeAuthor(req) });
 
     res.json(result);
   } catch (error) {
@@ -688,8 +722,8 @@ const addKGResult = async (req, res, next) => {
     if (!values?.studentId || !values?.class) {
       throw new AppError("studentId and class are required", 400);
     }
-    // BE-1: Class Teacher scoped to their own class.
-    await assertClassAccess(req.user, values.class);
+    // BE-1: Class Teacher scoped to their own class (and pupils, open term).
+    await assertClassWrite(req.user, values.class, [values.studentId], values.termId);
     const sections = {
       languageDevelopment: languageDevelopmentData,
       personalDevelopment: personalDevelopmentData,
@@ -856,6 +890,38 @@ const addExtraClasses = async (req, res, next) => {
   }
 };
 
+// B2: who typed a mark / register on the office side (from the token, never
+// the request body).
+const officeAuthor = (req) => ({ enteredBy: req.user?.username ?? null, enteredByTeacherId: null });
+
+// Notify parents of a marked register (best-effort; SMS failures must not fail
+// the mark since attendance is already committed). BE-13: notify EVERY marked
+// student's parent; messages are per-child personalized so they are sent
+// concurrently, not batched. Shared with the teacher portal register (B2).
+const notifyAttendanceParents = async (studentAttendance, dateMarked) => {
+  // B16: in-app notice for each pupil marked absent (once per day; never throws).
+  await notifyAbsences(studentAttendance, dateMarked);
+  try {
+    const parentPromiseResults = await Promise.all(
+      studentAttendance.map((mark) => getParentContact(mark.studentId, true, mark.status))
+    );
+    const parentContacts = parentPromiseResults.filter((data) => data?.contact);
+    await Promise.allSettled(
+      parentContacts.map((data) =>
+        sendSMSMessage(
+          composeMessage(
+            data,
+            String(data.status).toLowerCase() === "present" ? present_template : absentee_template
+          ),
+          [data.contact]
+        )
+      )
+    );
+  } catch (smsError) {
+    // swallow: attendance is saved; notification is non-critical
+  }
+};
+
 const markAttendance = async (req, res, next) => {
   const values = req.body;
 
@@ -879,43 +945,20 @@ const markAttendance = async (req, res, next) => {
       }
     }
 
-    // BE-5: a Class Teacher may only mark their own class.
-    await assertClassAccess(req.user, values.class);
+    // BE-5: a Class Teacher may only mark their own class, and only its pupils.
+    await assertClassWrite(req.user, values.class, values.studentAttendance.map((m) => m.studentId));
+    // B10 review: a day of the open term only (Administrator: any day).
+    await assertAttendanceDateOpen(req.user, values.dateMarked);
 
     // BE-1/BE-2: atomic delete-then-upsert inside markClassAttendance.
     const results = await markClassAttendance({
       className: values.class,
       dateMarked: values.dateMarked,
       studentAttendance: values.studentAttendance,
+      ...officeAuthor(req),
     });
 
-    // Notify parents (best-effort; SMS failures must not fail the mark since
-    // attendance is already committed). BE-13: notify EVERY marked student's
-    // parent (the old silent slice(0,5) dropped the rest); messages are
-    // per-child personalized so they are sent concurrently, not batched.
-    try {
-      const parentPromiseResults = await Promise.all(
-        values.studentAttendance.map((mark) =>
-          getParentContact(mark.studentId, true, mark.status)
-        )
-      );
-      const parentContacts = parentPromiseResults.filter((data) => data?.contact);
-      await Promise.allSettled(
-        parentContacts.map((data) =>
-          sendSMSMessage(
-            composeMessage(
-              data,
-              String(data.status).toLowerCase() === "present"
-                ? present_template
-                : absentee_template
-            ),
-            [data.contact]
-          )
-        )
-      );
-    } catch (smsError) {
-      // swallow: attendance is saved; notification is non-critical
-    }
+    await notifyAttendanceParents(values.studentAttendance, values.dateMarked);
 
     res.json(results);
   } catch (error) {
@@ -960,7 +1003,7 @@ const updateStaff = async (req, res, next) => {
   const teacher_id = req.params.teacher_id;
 
   try {
-    const data = await editStaff(values, teacher_id);
+    const data = await editStaff(values, teacher_id, req.user);
     res.json(data);
   } catch (error) {
     console.log(error);
@@ -977,7 +1020,7 @@ const updateClass = async (req, res, next) => {
   }
 
   try {
-    const data = await editClass(values, id);
+    const data = await editClass(values, id, req.user);
     res.json(data);
   } catch (error) {
     next(error);
@@ -1068,7 +1111,7 @@ const deleteStaff = async (req, res, next) => {
   const teacher_id = req.params.teacher_id;
 
   try {
-    const data = await removeStaff(teacher_id);
+    const data = await removeStaff(teacher_id, req.user);
     res.json(data);
   } catch (error) {
     console.log(error);
@@ -1088,18 +1131,50 @@ const deleteResult = async (req, res, next) => {
 
   try {
     // BE-1: a Class Teacher may only delete results for their own class.
-    await assertClassAccess(req.user, values.class);
-    const data = await removeResult(values);
+    // B10 review: and only for its pupils, in the open term (unless the role
+    // holds academics.edit_closed_terms). The term is resolved here (missing = the open term, as
+    // removeResult does) so the check and the delete use the same one.
+    const termId = values.termId || (await getTerm())?.termId;
+    if (termId == null || termId === "") {
+      throw new AppError("studentId, class and term are required to delete a result", 400);
+    }
+    await assertClassWrite(req.user, values.class, [values.studentId], termId);
+    const data = await removeResult({ ...values, termId });
     res.json(data);
   } catch (error) {
     next(error);
   }
 };
 
-const deleteFee = async (req, res, next) => {
+// B13: payments are never hard-deleted any more (receipt numbers and the audit
+// trail must survive). Old clients calling DELETE get a clear pointer.
+const deleteFee = async (req, res) => {
+  res.status(410).json({
+    message: "Payments can no longer be deleted. Reverse the payment instead (POST /fees/:fee_id/reverse).",
+  });
+};
+
+// B13: reverse a payment entered by mistake. Body: { reason, notifyParent }.
+const reverseFeePayment = async (req, res, next) => {
   const id = req.params.fee_id;
+  const { reason, notifyParent } = req.body || {};
   try {
-    const data = await removeFee(id);
+    const data = await reverseFee(id, { reason, reversedBy: req.user?.username ?? null });
+
+    if (notifyParent === true && data.studentId != null) {
+      // Payment is already reversed; an SMS failure must not undo or fail it.
+      try {
+        const contacts = await getParentContact(data.studentId);
+        await sendSMSMessage(
+          `Dear Parent, payment of GHc${Number(data.paid)} on receipt ${data.receiptNo} has been cancelled by the school office. Balance now GHc${data.owing}. Please contact the office with any questions. - Perfect Peace`,
+          contacts
+        );
+        data.parentNotified = true;
+      } catch (smsError) {
+        data.parentNotified = false;
+      }
+    }
+
     res.json(data);
   } catch (error) {
     next(error);
@@ -1224,6 +1299,8 @@ const deleteAttendance = async (req, res, next) => {
   try {
     // BE-5: a Class Teacher may only clear their own class's attendance.
     await assertClassAccess(req.user, values.class);
+    // B10 review: and only a day of the open term (unless academics.edit_closed_terms).
+    await assertAttendanceDateOpen(req.user, values.dateMarked);
     // BE-8: removeAttendance now hard-requires class + dateMarked (a missing
     // dateMarked used to wipe the whole class across every date).
     const data = await removeAttendance(values);
@@ -1238,7 +1315,11 @@ const fetchNews = async (req, res, next) => {
   try {
     // BE-20: pagination is opt-in via query params; no params => unchanged.
     const { page, limit } = req.query;
-    const data = await getNews({ page, limit });
+    // B15: only a news manager (news.manage, the Administrator) gets every row.
+    // Portal pupils/teachers get the published posts they may see; other office
+    // roles also their own drafts.
+    const viewer = hasPermission(req.user, P.NEWS_MANAGE) ? null : await viewerFromUser(req.user);
+    const data = await getNews({ page, limit, viewer });
     res.json(data);
   } catch (error) {
     console.log(error);
@@ -1331,6 +1412,8 @@ const updatePassword = async (req, res, next) => {
     } else {
       response = await changeStudentPassword(id, password);
     }
+    // B16: tell the account holder (in-app + email); never throws.
+    await notifyPasswordChanged({ type: userRole === "STAFF" ? "STAFF" : "STUDENT", id });
 
     res.json(response);
   } catch (error) {
@@ -1343,7 +1426,7 @@ const addSingleSubjectResult = async (req, res, next) => {
   const values = req.body;
   try {
     // BE-1: Class Teacher scoped to their own class.
-    await assertClassAccess(req.user, values.class);
+    await assertClassWrite(req.user, values.class, [values.studentId], values.termId);
     const result = await createMarksResult({
       ...values,
       studentId: values.studentId,
@@ -1351,6 +1434,7 @@ const addSingleSubjectResult = async (req, res, next) => {
       class: values.class,
       term: values.term,
       termId: values.termId,
+      ...officeAuthor(req),
     });
 
     res.json(result);
@@ -1364,7 +1448,7 @@ const upsertSingleSubjectResult = async (req, res, next) => {
   const values = req.body;
   try {
     // BE-1: Class Teacher scoped to their own class.
-    await assertClassAccess(req.user, values.class);
+    await assertClassWrite(req.user, values.class, [values.studentId], values.termId);
     const result = await upsertMarksResult({
       ...values,
       studentId: values.studentId,
@@ -1372,6 +1456,7 @@ const upsertSingleSubjectResult = async (req, res, next) => {
       class: values.class,
       term: values.term,
       termId: values.termId,
+      ...officeAuthor(req),
     });
 
     res.json(result);
@@ -1381,6 +1466,7 @@ const upsertSingleSubjectResult = async (req, res, next) => {
 };
 
 export {
+  notifyAttendanceParents,
   fetchDashboardSummary,
   fetchStudentsOwing,
   fetchAllStudents,
@@ -1432,6 +1518,7 @@ export {
   deleteStaff,
   deleteResult,
   deleteFee,
+  reverseFeePayment,
   deleteSalary,
   deleteSalaryPayment,
   deleteClass,

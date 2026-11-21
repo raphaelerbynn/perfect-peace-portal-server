@@ -9,6 +9,8 @@ import {
 } from "../models/index.js";
 import { AppError } from "../utils/errorHandling.js";
 import { getTerm } from "./term.js";
+import { round2 } from "../utils/money.js";
+import { DEFAULT_PRIMARY_BANDS, makeGrader, resolveGrade } from "./grading.js";
 
 // ---------------------------------------------------------------------------
 // Feature #8 — authoritative, non-destructive results engine.
@@ -28,16 +30,9 @@ import { getTerm } from "./term.js";
 
 const isBlank = (v) => v === "" || v === null || v === undefined;
 
-const gradeRemark = (mark) => {
-  const m = Number(mark);
-  if (!Number.isFinite(m)) return "---";
-  if (m < 40) return "Fail";
-  if (m < 50) return "Pass";
-  if (m < 60) return "Credit";
-  if (m < 70) return "Good";
-  if (m < 80) return "Very Good";
-  return "Excellent"; // <= 100
-};
+// The built-in remark (B8: saves use the class's grading scale instead, see
+// upsertOneMark; with the seeded scales the result is the same).
+const gradeRemark = (mark) => resolveGrade(mark, DEFAULT_PRIMARY_BANDS)?.remark ?? "---";
 
 // Recompute the per-subject weighted percentages + total from the subject config.
 // Authoritative: divides the raw score by the subject's actual total marks (the
@@ -81,15 +76,18 @@ const computeMarkFields = (subject, classScoreRaw, examScoreRaw) => {
   return {
     classScore: cs,
     examScore: es,
-    classScorePercentage: Math.round(classScorePercentage),
-    examScorePercentage: Math.round(examScorePercentage),
-    totalScore: Math.round(totalScore),
-    remarks: gradeRemark(totalScore),
+    // 2 decimal places (migration 012): 7.5/10 of 30% is 22.5, not 23.
+    classScorePercentage: round2(classScorePercentage),
+    examScorePercentage: round2(examScorePercentage),
+    totalScore: round2(totalScore),
+    remarks: gradeRemark(round2(totalScore)), // same total as stored
   };
 };
 
 // Upsert ONE subject mark (recomputed server-side). Returns the persisted row.
-const upsertOneMark = async (data, termId, t) => {
+// B8: the grade and remark come from the class's grading scale and are stamped
+// on the row (`grader` caches the scales for the whole save).
+const upsertOneMark = async (data, termId, t, grader = makeGrader({ transaction: t })) => {
   if (isBlank(data?.classMark) && isBlank(data?.examMark)) {
     return null; // nothing entered for this subject — skip, don't wipe
   }
@@ -108,6 +106,7 @@ const upsertOneMark = async (data, termId, t) => {
   if (!subject) throw new AppError("Subject not found", 404);
 
   const computed = computeMarkFields(subject, data.classMark, data.examMark);
+  const graded = await grader(computed.totalScore, data.class);
 
   const where = {
     studentId: data.studentId,
@@ -123,8 +122,14 @@ const upsertOneMark = async (data, termId, t) => {
     classScorePercentage: computed.classScorePercentage,
     examScorePercentage: computed.examScorePercentage,
     totalScore: computed.totalScore,
-    remarks: computed.remarks,
+    remarks: graded.remark,
+    grade: graded.grade,
     date: new Date(),
+    // B2: who typed it. Set by the server from the token, never from the body.
+    ...(data.enteredBy !== undefined && {
+      enteredBy: data.enteredBy,
+      enteredByTeacherId: data.enteredByTeacherId ?? null,
+    }),
   };
 
   const existing = await StudentMarks.findOne({ where, transaction: t });
@@ -143,6 +148,14 @@ const upsertOneMark = async (data, termId, t) => {
 // existing observation fields are preserved.
 const recomputeStudentResult = async (scope, observations, t) => {
   const { studentId, class: className, term, termId } = scope;
+
+  // Lock the pupil first: two score sheets saving at once (Maths and English
+  // teachers) would otherwise each total the marks without the other's
+  // uncommitted subject, and the later write would drop it. With the lock the
+  // second waits, then reads the first's committed marks.
+  if (t) {
+    await Student.findOne({ where: { studentId }, attributes: ["studentId"], transaction: t, lock: t.LOCK?.UPDATE });
+  }
 
   const marks = await StudentMarks.findAll({
     where: { studentId, class: className, termId },
@@ -163,7 +176,7 @@ const recomputeStudentResult = async (scope, observations, t) => {
     passRawScore = subjectIds.reduce((sum, sid) => sum + (passMap.get(sid) || 0), 0);
   }
 
-  const rawScore = Math.round(marks.reduce((sum, m) => sum + Number(m.totalScore || 0), 0));
+  const rawScore = round2(marks.reduce((sum, m) => sum + Number(m.totalScore || 0), 0));
   const totalRawScore = marks.length * 100;
   const classTotal = await Student.count({
     where: { class: className, isDeleted: { [Op.not]: true } },
@@ -242,6 +255,7 @@ const bulkCreateMarksResult = async (marksData, studentInfo) => {
   const termId = studentInfo?.termId || (await getTerm())?.termId;
   return await sequelize.transaction(async (t) => {
     const saved = [];
+    const grader = makeGrader({ transaction: t });
     for (const mark of marksData || []) {
       const row = await upsertOneMark(
         {
@@ -252,7 +266,8 @@ const bulkCreateMarksResult = async (marksData, studentInfo) => {
           termId,
         },
         termId,
-        t
+        t,
+        grader
       );
       if (row) saved.push(row);
     }
@@ -289,11 +304,21 @@ const createResult = async (data) => {
 const saveResult = async (data) => {
   const termId = await resolveTermId(data);
   return await sequelize.transaction(async (t) => {
+    const grader = makeGrader({ transaction: t });
     for (const mark of data?.results || []) {
       await upsertOneMark(
-        { ...mark, studentId: data.studentId, class: data.class, term: data.term, termId },
+        {
+          ...mark,
+          studentId: data.studentId,
+          class: data.class,
+          term: data.term,
+          termId,
+          enteredBy: data.enteredBy,
+          enteredByTeacherId: data.enteredByTeacherId,
+        },
         termId,
-        t
+        t,
+        grader
       );
     }
     return recomputeStudentResult(
@@ -365,12 +390,58 @@ const removeResult = async (data) => {
 
   return await sequelize.transaction(async (t) => {
     const scope = { studentId: data.studentId, class: data.class, termId };
-    const [marks, result, kg] = await Promise.all([
-      StudentMarks.destroy({ where: scope, transaction: t }),
-      StudentResult.destroy({ where: scope, transaction: t }),
-      KgAssessment.destroy({ where: scope, transaction: t }),
-    ]);
+    // One query at a time: inside a transaction they share one connection.
+    const marks = await StudentMarks.destroy({ where: scope, transaction: t });
+    const result = await StudentResult.destroy({ where: scope, transaction: t });
+    const kg = await KgAssessment.destroy({ where: scope, transaction: t });
     return { marks, result, kg };
+  });
+};
+
+// B2: one subject for a whole class (the teacher's score sheet), in ONE
+// transaction. Each entered row is upserted and that pupil's aggregate
+// recomputed; a row with both scores blank is skipped (never deletes a mark).
+// Caller has already checked the teacher's scope and that every studentId is
+// in the class. `checkBefore(t)` (optional; B6's office sheet uses it) runs
+// first inside the same transaction, e.g. to refuse a stale sheet.
+const saveClassSubjectScores = async ({
+  className,
+  subjectId,
+  term,
+  termId,
+  scores,
+  enteredBy,
+  enteredByTeacherId = null,
+  checkBefore = null,
+}) => {
+  if (termId == null) throw new AppError("No term is open", 409);
+  return await sequelize.transaction(async (t) => {
+    if (checkBefore) await checkBefore(t);
+    let saved = 0;
+    const grader = makeGrader({ transaction: t });
+    // Same order in every save, so two sheets locking pupils can't deadlock.
+    const ordered = [...(scores || [])].sort((a, b) => Number(a.studentId) - Number(b.studentId));
+    for (const row of ordered) {
+      const mark = await upsertOneMark(
+        {
+          studentId: row.studentId,
+          subjectId,
+          class: className,
+          term,
+          classMark: row.classScore,
+          examMark: row.examScore,
+          enteredBy,
+          enteredByTeacherId,
+        },
+        termId,
+        t,
+        grader
+      );
+      if (!mark) continue;
+      saved += 1;
+      await recomputeStudentResult({ studentId: row.studentId, class: className, term, termId }, null, t);
+    }
+    return { saved, skipped: (scores?.length || 0) - saved };
   });
 };
 
@@ -389,8 +460,10 @@ const getClassMarks = async (data) => {
       total_score AS "totalScore",
       class,
       remarks,
+      grade,
       term_id AS "termId",
       date,
+      entered_by AS "enteredBy",
       (
         SELECT COUNT(*) + 1
         FROM "dbo"."Student_marks" s
@@ -452,20 +525,11 @@ const getKGResultByClassAndTerm = async (data) => {
   return response;
 };
 
+// The position must be ranked across the whole class: filtering by studentId
+// first made RANK() rank a single row (everyone was "1st").
 const getOneStudentResult = async (data) => {
-  const response = await StudentResult.findAll({
-    attributes: {
-      include: [
-        [sequelize.literal("RANK() OVER (ORDER BY raw_score DESC)"), "position"],
-      ],
-    },
-    where: {
-      class: data?.class,
-      termId: data?.termId,
-      studentId: data?.studentId,
-    },
-  });
-  return response;
+  const classRows = await getClassResult(data);
+  return classRows.filter((r) => Number(r.studentId ?? r.dataValues?.studentId) === Number(data?.studentId));
 };
 
 const getOneStudentMarks = async (data) => {
@@ -481,9 +545,11 @@ const getOneStudentMarks = async (data) => {
       total_score AS "totalScore",
       class,
       remarks,
+      grade,
       term,
       term_id AS "termId",
       date,
+      entered_by AS "enteredBy",
       (
         SELECT COUNT(*) + 1
         FROM "dbo"."Student_marks" s
@@ -508,14 +574,20 @@ const getOneStudentMarks = async (data) => {
   return results;
 };
 
+// Old marks whose subject was deleted in the old system have subject_id NULL
+// (966 rows on the 2026-11 live copy, 2022-2025). The name can't be recovered,
+// so the portal gets a label instead of null.
+export const REMOVED_SUBJECT_LABEL = "Subject no longer listed";
+
 const getResults = async (indexNumber) => {
   const query = `
     SELECT
-    subj.name AS name1,
+    COALESCE(subj.name, :removedLabel) AS name1,
         sm.exam_score_percentage,
         sm.class_score_percentage,
         sm.total_score,
         sm.remarks,
+        sm.grade,
         sm.term,
         sm.class,
         to_char(sm.date, 'YYYY') AS year,
@@ -536,7 +608,7 @@ const getResults = async (indexNumber) => {
     ORDER BY sm.term_id DESC, sm.class ASC, year DESC, name1 ASC`;
 
   const results = await sequelize.query(query, {
-    replacements: { indexNumber },
+    replacements: { indexNumber, removedLabel: REMOVED_SUBJECT_LABEL },
     type: sequelize.QueryTypes.SELECT,
   });
   return results;
@@ -597,4 +669,6 @@ export {
   bulkCreateMarksResult,
   upsertMarksResult,
   saveResult,
+  saveClassSubjectScores,
+  computeMarkFields,
 };

@@ -23,6 +23,18 @@ const _class = sequelize.define('class_', {
       allowNull: true,
       field: 'teacher_id'
     },
+    // B5: promotion ladder (db/migrations/026_promotion.sql).
+    nextClassId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      field: 'next_class_id'
+    },
+    isAlumni: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+      field: 'is_alumni'
+    },
     capacity: {
       type: DataTypes.INTEGER,
       allowNull: true

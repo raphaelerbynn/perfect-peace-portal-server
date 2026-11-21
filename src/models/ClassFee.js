@@ -25,7 +25,7 @@ const classFee = sequelize.define(
       },
     },
     amount: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.DECIMAL(18, 2),
       allowNull: true,
     },
   },

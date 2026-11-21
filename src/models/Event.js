@@ -1,7 +1,12 @@
 import sequelize from "../config/database.js";
 import { DataTypes } from "sequelize";
 
-
+// B15: the "Event" table is the school's post table (news, events, polls).
+// It keeps the old name and columns so the old /news, /events, /add-news ...
+// calls and the MySQL -> Postgres move keep working (migration 037):
+//   name = post title, description = body, date = event (start) date,
+//   time = free-text event time.
+// imageKey is internal: it is never sent to the browser.
 const event = sequelize.define('event', {
     eventId: {
       autoIncrement: true,
@@ -11,7 +16,7 @@ const event = sequelize.define('event', {
       field: 'event_id'
     },
     name: {
-      type: DataTypes.STRING(50),
+      type: DataTypes.STRING(255), // the app allows 150 (posts.js); live MySQL has 255
       allowNull: false
     },
     description: {
@@ -29,7 +34,20 @@ const event = sequelize.define('event', {
     created_at: {
       type: DataTypes.STRING,
       allowNull: true
-    }
+    },
+    postType: { type: DataTypes.STRING(10), allowNull: false, defaultValue: "NEWS", field: "post_type" },
+    status: { type: DataTypes.STRING(10), allowNull: false, defaultValue: "PUBLISHED", field: "status" },
+    isPinned: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false, field: "is_pinned" },
+    audience: { type: DataTypes.STRING(10), allowNull: false, defaultValue: "ALL", field: "audience" },
+    audienceClassIds: { type: DataTypes.ARRAY(DataTypes.INTEGER), allowNull: true, field: "audience_class_ids" },
+    commentsEnabled: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true, field: "comments_enabled" },
+    imageKey: { type: DataTypes.STRING(120), allowNull: true, field: "image_key" },
+    eventEndDate: { type: DataTypes.DATEONLY, allowNull: true, field: "event_end_date" },
+    location: { type: DataTypes.STRING(200), allowNull: true, field: "location" },
+    pollClosesAt: { type: DataTypes.DATE, allowNull: true, field: "poll_closes_at" },
+    createdBy: { type: DataTypes.STRING(100), allowNull: true, field: "created_by" },
+    publishedAt: { type: DataTypes.DATE, allowNull: true, field: "published_at" },
+    updatedAt: { type: DataTypes.DATE, allowNull: true, field: "updated_at" },
   }, {
     sequelize,
     tableName: 'Event',
@@ -43,6 +61,8 @@ const event = sequelize.define('event', {
           { name: "event_id" },
         ]
       },
+      { name: "idx_event_feed", fields: ["status", "is_pinned", "published_at"] },
+      { name: "idx_event_date", fields: ["date"] },
     ]
   });
 

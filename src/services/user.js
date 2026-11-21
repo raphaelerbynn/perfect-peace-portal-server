@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import sequelize from "../config/database.js";
 import { Class, ClassFee, Parent, Student, StudentFee, Teacher, UserAccount } from "../models/index.js";
 import { calculateAge } from "../utils/func.js";
+import { AppError } from "../utils/errorHandling.js";
 
 const BCRYPT_ROUNDS = 10;
 
@@ -12,15 +13,19 @@ const BCRYPT_ROUNDS = 10;
 const buildManagementIdentityWhere = (data) => {
     const identifiers = [];
 
+    // Case- and space-insensitive, as the live MySQL collation was: "Admin "
+    // and "admin" are the same account after the move to Postgres too.
+    const sameText = (column, value) =>
+        sequelize.where(sequelize.fn("lower", sequelize.fn("trim", sequelize.col(column))), String(value).trim().toLowerCase());
     if (data?.username) {
-        identifiers.push({ username: data.username });
-        const idFromIndex = data.username.split("/")?.[1];
-        if (idFromIndex) {
+        identifiers.push(sameText("username", data.username));
+        const idFromIndex = String(data.username).split("/")?.[1]?.trim();
+        if (idFromIndex && /^\d+$/.test(idFromIndex)) {
             identifiers.push({ teacherId: idFromIndex });
         }
     }
     if (data?.email) {
-        identifiers.push({ email: data.email });
+        identifiers.push(sameText("email", data.email));
     }
     if (data?.staffId) {
         identifiers.push({ teacherId: data.staffId });
@@ -52,22 +57,38 @@ const findManagementUser = async (data) => {
 // bcrypt. Never put the password in the WHERE clause.
 // BE-A13: never hand the bcrypt hash back to the caller — return a sanitized
 // plain object with the password stripped after the compare.
+// B10: one office login form. Without a category the account is found by
+// username / email / staff/<id> across every role. An exact username wins; a
+// staff member with several office logins whose password matches more than
+// one is asked for the username (409). Old clients still send a category,
+// which narrows the search as before.
+const norm = (v) => String(v ?? "").trim().toLowerCase();
+const MAX_CANDIDATES = 10;
+
 const getManagementUser = async (data) => {
-    const user = await findManagementUser(data);
-    if (!user) {
+    const where = buildManagementIdentityWhere(data);
+    if (!where[Op.or] || !data?.password) {
+        return null;
+    }
+    const rows = await UserAccount.findAll({ where, limit: MAX_CANDIDATES });
+    if (!rows.length) {
+        return null;
+    }
+    const exact = rows.filter((r) => norm(r.username) === norm(data.username));
+    const candidates = exact.length ? exact : rows;
+
+    const matches = [];
+    for (const row of candidates) {
+        if (row.password && (await bcrypt.compare(data.password, row.password))) matches.push(row);
+    }
+    if (matches.length > 1) {
+        throw new AppError("This staff member has more than one office login. Sign in with the username instead.", 409);
+    }
+    if (!matches.length) {
         return null;
     }
 
-    if (!user.password || !data?.password) {
-        return null;
-    }
-
-    const passwordMatches = await bcrypt.compare(data.password, user.password);
-    if (!passwordMatches) {
-        return null;
-    }
-
-    const { password, ...safe } = user.get({ plain: true });
+    const { password, ...safe } = matches[0].get({ plain: true });
     return safe;
 }
 
@@ -82,6 +103,7 @@ const managementUserExistsForStaff = async (staffId) => {
     return Boolean(user);
 }
 
+// B10: roleId is the login's role; category is kept equal to the role's name.
 const signUpManagementUser = async (data) => {
     const hashedPassword = await bcrypt.hash(data.password, BCRYPT_ROUNDS);
     return await UserAccount.create({
@@ -89,7 +111,8 @@ const signUpManagementUser = async (data) => {
         email: data?.email || "",
         password: hashedPassword,
         teacherId: data.staffId,
-        category: data.category
+        category: data.category,
+        roleId: data.roleId ?? null,
     })
 }
 
@@ -97,6 +120,8 @@ const signUpManagementUser = async (data) => {
 //portal
 const getStudentDetails = async (indexNumber) => {
     const student = await Student.findOne({
+        // Never send the password hash to the browser (GET /user-details).
+        attributes: { exclude: ["password", "photoKey", "photoThumbKey"] }, // B17: no storage keys
         include: [
             {
                 model: Parent,

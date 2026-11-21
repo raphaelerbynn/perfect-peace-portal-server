@@ -5,16 +5,46 @@ import { generalRouter } from "./routes/generalRoutes.js";
 import { studentRouter } from "./routes/onlyStudentRoutes.js";
 import { authRouter } from "./routes/authRoutes.js";
 import { fileRouter } from "./routes/fileRoutes.js";
+import { portalRouter } from "./routes/portalRoutes.js";
+import { teacherRouter } from "./routes/teacherRoutes.js";
 import { errorHandler } from "./utils/errorHandling.js";
-import { authenticateManagementUser, authorizeRoles, undefinedEndpoint } from "./utils/middlewares.js";
+import { authenticateManagementUser, undefinedEndpoint } from "./utils/middlewares.js";
 import dotenv from "dotenv";
 import cors from "cors";
 import sequelize from "./config/database.js";
 import { accountRouter } from "./routes/accountRoutes.js";
 import { communicationRouter } from "./routes/communicationRoutes.js";
+import { academicYearRouter } from "./routes/academicYearRoutes.js";
+import { feeBillingRouter } from "./routes/feeBillingRoutes.js";
+import { mediaRouter } from "./routes/mediaRoutes.js";
+import { initStorage } from "./services/storage.js";
+import { schoolRouter } from "./routes/schoolRoutes.js";
+import { staffAttendanceRouter } from "./routes/staffAttendanceRoutes.js";
+import { newsRouter } from "./routes/newsRoutes.js";
+import { academicReportRouter } from "./routes/academicReportRoutes.js"; // B11
+import { notificationRouter } from "./routes/notificationRoutes.js";
+// B14
+import { invoicePortalRouter, invoiceRouter } from "./routes/invoiceRoutes.js";
+// AI-0
+import { aiRouter } from "./routes/aiRoutes.js";
+import { paperOfficeRouter } from "./routes/paperRoutes.js"; // AI-3
+// AI-5
+import { briefingRouter } from "./routes/briefingRoutes.js";
+import { atRiskRouter } from "./routes/atRiskRoutes.js"; // AI-4
+import { startBriefingScheduler } from "./services/briefing/scheduler.js";
+// B10
+import { roleRouter } from "./routes/roleRoutes.js";
 
 dotenv.config();
 const app = express();
+
+// Behind a reverse proxy (nginx, Apache/Passenger, a load balancer) set
+// TRUST_PROXY to the number of proxy hops (usually 1), so req.ip - used by the
+// sign-in rate limits - is the real client, not the proxy.
+if (process.env.TRUST_PROXY) {
+    const hops = Number(process.env.TRUST_PROXY);
+    app.set("trust proxy", Number.isFinite(hops) ? hops : process.env.TRUST_PROXY);
+}
 
 const PORT = process.env.SERVER_PORT || 5050;
 
@@ -22,12 +52,31 @@ const PORT = process.env.SERVER_PORT || 5050;
 // (the authRouter) rather than applied globally, so normal authenticated app
 // traffic is not throttled. 20 requests / 10 min / IP is generous for a human
 // logging in or resetting a PIN but blocks credential-stuffing / OTP abuse.
+//
+// Go-live review: per IP alone, a school computer lab (one NAT address) or any
+// reverse proxy (every request comes from the proxy's IP) shares 20 attempts
+// between EVERYONE, locking the school out after 20 sign-ins. So:
+//   - limit per account (index number / username / phone), 20 per 10 min;
+//   - plus a wide per-IP ceiling (TRUST_PROXY makes req.ip the real client).
+const accountKey = (req) => {
+    const b = req.body || {};
+    const who = b.indexNumber ?? b.username ?? b.email ?? b.phone ?? b.contact ?? b.staffId ?? "";
+    return `${req.ip}|${String(who).trim().toLowerCase()}`;
+};
 const authLimiter = rateLimit({
     windowMs: 10 * 60 * 1000, // 10 minutes
     max: 20,
+    keyGenerator: accountKey,
     standardHeaders: true,
     legacyHeaders: false,
-    message: { message: "Too many requests from this IP, please try again later." },
+    message: { message: "Too many attempts for this account. Please wait a few minutes and try again." },
+});
+const authIpCeiling = rateLimit({
+    windowMs: 10 * 60 * 1000,
+    max: Number(process.env.AUTH_IP_LIMIT) || 300,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { message: "Too many sign-in attempts from this network, please try again later." },
 });
 
 // BE-13: CORS allowlist driven by env (CORS_ORIGINS, comma-separated). Defaults
@@ -101,21 +150,62 @@ const AUTH_LIMITED_PATHS = [
     "/update-pin",
     "/verify-pin",
 ];
-app.use(AUTH_LIMITED_PATHS, authLimiter);
+app.use(AUTH_LIMITED_PATHS, authIpCeiling, authLimiter); // body already parsed (express.json above)
 app.use("/", authRouter);
+// B18: GET /school and /school/logo are public; the rest authenticate per route.
+app.use("/", schoolRouter);
 app.use("/", studentRouter);
 app.use("/", fileRouter);
+// Portal (STU/STAFF) reads on paths shared with generalRouter. Must be mounted
+// BEFORE the management router; management tokens fall through untouched.
+app.use("/", portalRouter);
+// B15: news feed, polls, events calendar (/posts*, /events?month=), for portal
+// AND office tokens; audience-filtered per caller. A plain /events falls through.
+app.use("/", newsRouter);
+// B16: notifications (/notifications*, /notification-settings) for portal AND
+// office tokens; each caller sees only their own. Office actions role-checked per route.
+app.use("/", notificationRouter);
+// AI-0: shared AI endpoints (/ai/status for every login; /ai/settings, /ai/usage,
+// /ai/suggestions* for the Administrator). Auth per route.
+app.use("/", aiRouter);
+// AI-3: the head teacher's read-only view of question papers (/question-papers*, Administrator). Auth per route.
+app.use("/", paperOfficeRouter);
+// AI-5: Monday briefing (/ai/briefings*, Administrator). Auth per route.
+app.use("/", briefingRouter);
+// AI-4: pupils-at-risk watchlist (/ai/watchlist*), office tokens, auth per route.
+app.use("/", atRiskRouter);
+// B2: teacher portal tools (/teacher/*, STAFF tokens only).
+app.use("/", teacherRouter);
+// B14: a pupil's own invoices (STU tokens only; parents use the pupil login).
+app.use("/portal/invoices", invoicePortalRouter);
 
 // --- Management (admin portal) routers: token required at mount time ---
+// B10: authenticateManagementUser loads the login's role and permissions from
+// the database; every route below checks a permission (requirePermission),
+// never a role name. src/__tests__/roleAccess.test.js walks them all.
 // NOTE: the standalone unauthenticated `app.get("/staff", fetchAllStaff)` route
 // was removed previously — it leaked all staff records. The authenticated,
-// Administrator-only `/staff` route is wired into generalRouter below.
+// authenticated `/staff` route (staff.view) is wired into generalRouter below.
 app.use("/", authenticateManagementUser, generalRouter);
-// Accounting/Fees domain: hidden for Class Teacher (Administrator + Accountant only).
-app.use("/", authenticateManagementUser, authorizeRoles("Administrator", "Accountant"), accountRouter);
+// B7: academic years (reads: all office roles; changes: Administrator).
+app.use("/", authenticateManagementUser, academicYearRouter);
+// B12: discounts, term billing and statements (roles per route).
+app.use("/", authenticateManagementUser, feeBillingRouter);
+// B17: pupil / staff photos and documents (office tokens, role + class scoped).
+app.use("/", authenticateManagementUser, mediaRouter);
+// B9: staff attendance.
+app.use("/", authenticateManagementUser, staffAttendanceRouter);
+// B11: academic reports (school-wide, or one class: own class without academics.all_classes).
+app.use("/", authenticateManagementUser, academicReportRouter);
+// B14: invoices and credit notes (roles per route).
+app.use("/", authenticateManagementUser, invoiceRouter);
+// B10: roles and permissions, office logins' roles, the caller's own access.
+app.use("/", authenticateManagementUser, roleRouter);
+// Accounting (income, expenses): accounting.view / accounting.manage per route.
+app.use("/", authenticateManagementUser, accountRouter);
 
-// Messaging (SMS): Administrator only.
-app.use("/communication", authenticateManagementUser, authorizeRoles("Administrator"), communicationRouter);
+// Messaging (SMS): sms.send.
+app.use("/communication", authenticateManagementUser, communicationRouter);
 
 // BE-23: debug routes `/test` (dumped student list unauthenticated) and
 // `/requestCount` have been removed.
@@ -130,16 +220,24 @@ const start = async () => {
   try {
     await sequelize.authenticate();
     console.log("Connection has been established successfully.");
+    // B17: local disk or the object store (MinIO); a bad STORAGE_DRIVER
+    // setting stops the start, an object store still booting is retried.
+    await initStorage();
 
     app.listen(PORT, () =>
       console.log(`📡 server running on port ${PORT}`)
     );
+    // AI-5: the briefing timer (not when AI is off on the server).
+    startBriefingScheduler();
   } catch (err) {
-    console.error("Unable to connect to the database. Refusing to start:", err);
+    console.error("Unable to start (database or storage setting). Refusing to start:", err);
     process.exit(1);
   }
 };
 
-start();
+// Tests import the app without opening a DB connection or a port.
+if (process.env.NODE_ENV !== "test") {
+  start();
+}
 
 export default app;

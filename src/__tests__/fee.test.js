@@ -1,4 +1,4 @@
-// Feature #10 (Fees): owing is recomputed from source rows and CLAMPED at 0,
+// Feature #10 (Fees): owing is recomputed from source rows (a credit stays negative),
 // and a payment that exceeds the outstanding balance is rejected (400).
 // Models are mocked so no DB is required.
 
@@ -12,9 +12,14 @@ jest.mock("../models/index.js", () => ({
   __esModule: true,
   ClassFee: { findAll: jest.fn() },
   StudentFee: { findAll: jest.fn() },
-  Fee: { findAll: jest.fn(), create: jest.fn(), findOne: jest.fn() },
+  Fee: { findAll: jest.fn(), create: jest.fn(), findOne: jest.fn(), update: jest.fn() },
+  Class: { findOne: jest.fn() },
   FeeCheck: { findOne: jest.fn() },
+  Term: { findOne: jest.fn(async () => ({ termId: 15, term: "1" })) },
   Student: { findOne: jest.fn(), update: jest.fn() },
+  // B14: no invoices or credit notes in these tests.
+  Invoice: { findAll: jest.fn(async () => []) },
+  CreditNote: { findAll: jest.fn(async () => []) },
 }));
 
 import { recomputeStudentOwing, createFee } from "../services/fee.js";
@@ -41,14 +46,14 @@ describe("recomputeStudentOwing", () => {
     );
   });
 
-  it("clamps owing at 0 when the student has over-paid (no negative balance)", async () => {
+  it("keeps a credit (negative owing) when the pupil has over-paid", async () => {
     Student.findOne.mockResolvedValue({ studentId: 2, classId: 10 });
     billed([300], []); // billed = 300
     paid([500]); // paid = 500 (over-collection)
     Student.update.mockResolvedValue([1]);
 
     const result = await recomputeStudentOwing(2);
-    expect(result.owing).toBe(0); // clamped, not -200
+    expect(result.owing).toBe(-200); // GH₵200 in credit; clamping to 0 lost it
     expect(result.paid).toBe(500); // true total paid still visible
   });
 

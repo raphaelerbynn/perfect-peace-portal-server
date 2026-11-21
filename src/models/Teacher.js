@@ -92,6 +92,9 @@ const _ = sequelize.define('teacher', {
       allowNull: true,
       field: 'date_registered'
     },
+    // B17: current photo (storage key, migration 033).
+    photoKey: { type: DataTypes.STRING(120), allowNull: true, field: 'photo_key' },
+    photoThumbKey: { type: DataTypes.STRING(120), allowNull: true, field: 'photo_thumb_key' },
     // BE-T3: soft delete. Archived staff are excluded from listings and login.
     // The underlying `is_deleted` column is added by a manual migration.
     isDeleted: {
