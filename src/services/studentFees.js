@@ -5,6 +5,7 @@ import sequelize from "../config/database.js";
 // truth and ignored payments / class fees).
 import { recomputeStudentOwing } from "./fee.js";
 import { AppError } from "../utils/errorHandling.js";
+import { isPesewaAmount } from "../utils/money.js";
 
 // BE-S6: validate amount BEFORE any DB write. Must be a finite number > 0.
 const validateAmount = (amount) => {
@@ -14,6 +15,9 @@ const validateAmount = (amount) => {
   }
   if (num <= 0) {
     throw new AppError("Amount must be a positive number", 400);
+  }
+  if (!isPesewaAmount(num)) {
+    throw new AppError("Amount can have at most 2 decimal places (cedis and pesewas)", 400);
   }
 };
 

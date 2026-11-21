@@ -15,6 +15,11 @@ describe("parseIndexNumber", () => {
     expect(parseIndexNumber("STU/123")).toEqual({ role: "STU", id: "123" });
   });
 
+  it("accepts lower case and spaces, as the live login did", () => {
+    expect(parseIndexNumber(" stu/12 ")).toEqual({ role: "STU", id: "12" });
+    expect(parseIndexNumber("Staff/7")).toEqual({ role: "STAFF", id: "7" });
+  });
+
   it("parses a valid STAFF index number and trims the id", () => {
     expect(parseIndexNumber("STAFF/ 42 ")).toEqual({ role: "STAFF", id: "42" });
   });

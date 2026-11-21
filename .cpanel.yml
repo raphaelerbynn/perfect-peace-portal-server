@@ -6,7 +6,8 @@ deployment:
     - /bin/cp .babelrc $DEPLOYPATH
     - /bin/cp .env $DEPLOYPATH 2>/dev/null || true
     - cd $DEPLOYPATH
-    - npm install --production=false
+    # exact versions from the committed package-lock.json
+    - npm ci --include=dev
     - npm run build
     - npm prune --production
     - touch tmp/restart.txt

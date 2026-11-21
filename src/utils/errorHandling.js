@@ -36,6 +36,12 @@ const errorHandler = (err, req, res, next) => {
     // Always log the full error (incl. stack / SQL internals) server-side.
     console.error(err);
 
+    // Two people saving the same thing at the same moment: a unique index
+    // refused the second write. Say so instead of a generic 500.
+    if (err?.name === "SequelizeUniqueConstraintError") {
+        return res.status(409).json({ message: "Someone else saved this at the same moment. Reload and try again." });
+    }
+
     const code = resolveStatusCode(err, res);
 
     // For client errors (4xx) the message is safe and useful to return.

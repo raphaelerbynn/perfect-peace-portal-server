@@ -20,7 +20,7 @@ const _ = sequelize.define('studentResult', {
       field: 'student_id'
     },
     rawScore: {
-      type: DataTypes.DECIMAL(18,0),
+      type: DataTypes.DECIMAL(18, 2),
       allowNull: true,
       field: 'raw_score'
     },

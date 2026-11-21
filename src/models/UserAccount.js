@@ -16,9 +16,18 @@ const _ = sequelize.define('userAccount', {
       type: DataTypes.STRING(80),
       allowNull: true
     },
+    // The role's name, kept in step with roleId (old tokens and old code read
+    // it). Before B10 this alone was the role.
     category: {
       type: DataTypes.STRING(50),
       allowNull: true
+    },
+    // B10 (migration 050): the login's role (dbo.Role). Empty = the system
+    // role named by category (rows the data sync adds before go-live).
+    roleId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      field: 'role_id'
     },
     password: {
       type: DataTypes.STRING(255),
