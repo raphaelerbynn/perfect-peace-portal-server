@@ -41,6 +41,10 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      # src/config/auth.js exits without a key; tests only need any value
+      # (locally it comes from the gitignored .env). Not a real secret.
+      JWT_KEY: ci-test-only-not-a-secret
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
