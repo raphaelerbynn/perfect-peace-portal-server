@@ -95,7 +95,7 @@ q() { docker exec -i "$DB_CT" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=
 echo "  stopping the API ($API_CT)"; docker stop "$API_CT" >/dev/null
 docker cp -q live-copy.dump "$DB_CT":/tmp/live-copy.dump
 echo "  replacing the database"
-q -c "DROP SCHEMA IF EXISTS dbo CASCADE"
+q -c "SET client_min_messages = warning; DROP SCHEMA IF EXISTS dbo CASCADE"
 if ! docker exec "$DB_CT" pg_restore -U "$DB_USER" -d "$DB_NAME" --no-owner --no-privileges /tmp/live-copy.dump; then
   echo "  The restore failed; the API is started again on what is there now."
   docker start "$API_CT" >/dev/null; exit 1
