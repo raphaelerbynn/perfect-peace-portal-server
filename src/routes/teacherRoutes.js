@@ -9,6 +9,7 @@ import {
   updateScores,
 } from "../controllers/teacherController.js";
 import { authenticateUser } from "../utils/middlewares.js";
+import { paperTeacherRouter } from "./paperRoutes.js"; // AI-3
 
 // B2: teacher portal routes. Portal STAFF tokens only; every handler also
 // checks the teacher's scope (services/teacherScope.js). Office users keep
@@ -34,5 +35,7 @@ router.post("/teacher/scores", updateScores);
 // KG / nursery: the report card's development ratings, one pupil at a time.
 router.get("/teacher/kg-ratings", fetchKgRatings);
 router.post("/teacher/kg-ratings", updateKgRatings);
+// AI-3: question papers (/teacher/papers*).
+router.use(paperTeacherRouter);
 
 export { router as teacherRouter, staffToken };

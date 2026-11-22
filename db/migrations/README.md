@@ -55,6 +55,26 @@ Comments inside the SQL files still use the old numbers. A database that applied
 
 042 (B14 invoices and credit notes) was built alongside 040 (B16) and 041 (reserved for B11, if it needs one). **It ships with 036 / 037 / 039 on `feature/part-b`: merge 040 (and 041, if it exists) together with 042 into `feature/part-b` before migrating any database from it**, for the same reason as above (a database that got 042 first would refuse 040 and 041). 042 creates empty tables and changes no balance. **Apply 042 before starting the B14 code:** every balance change now reads `Invoice` / `Credit_note`, so the API's payments, reversals and billing fail until the tables exist.
 
+## AI-0 (2026-11-16)
+
+043 (AI-0 shared AI infrastructure: `Ai_usage_log`, `Ai_suggestion`, `Ai_settings` with its one row, switched off) was built on `feature/ai-work` from `feature/part-b`. 044–046 are reserved for the AI features built on it (AI-1, AI-3, AI-5 / AI-8). It creates new tables only and changes no existing data. **Merge 043 into `feature/part-b` before 044–046, and before migrating any database from it**, for the same reason as above. Until 043 is applied the API still starts: AI reads as switched off.
+
+## AI-1 (2026-11-16)
+
+044 (AI-1 Ask the school: `Ai_conversation`, `Ai_message`) was built on `feature/ai-1-work` from `feature/ai-work`, alongside AI-3 / AI-5 / AI-8 (045–046). It creates new tables only and changes no existing data. It needs 043 first. **Merge 044 together with 045–046 into `feature/part-b` before migrating any database from it**, for the same reason as above (a database that got 045 or 046 first would refuse 044).
+
+## AI-3 (2026-11-16)
+
+045 (AI-3 question papers: `Question_paper`, `Question`) was built on `feature/ai-3-work` from `feature/ai-work`, alongside 044 / 046 (reserved for AI-1 / AI-5 / AI-8). It creates new tables only (foreign keys to `Teacher`, `Subject`, `Class`, `Term`; questions are deleted with their paper) and changes no existing data. AI drafts of a section live in `Ai_suggestion` (043), so **043 must be applied first**. Merge 044–046 into `feature/part-b` together before migrating any database from it, for the same reason as above.
+
+## AI-5 (2026-11-16)
+
+046 (AI-5 Monday briefing: `Ai_briefing`, one row per day with `run_key` UNIQUE, and `Ai_briefing_settings` with its one row, Mondays 06:00, email and WhatsApp off) was built on `feature/ai-5-work` from `feature/ai-work`. New tables only; no existing data changes. It needs 043 first and ships with 044 / 045 (AI-1, AI-3): **merge all of 043–046 into `feature/part-b` before migrating any database from it**, for the same reason as above. Until 046 is applied the API still starts: the briefing settings read as their defaults, and the briefing endpoints fail (the timer logs it and tries again the next minute).
+
+## AI-4 (2026-11-17)
+
+049 (AI-4 pupils-at-risk watchlist: `Ai_watchlist_entry`, primary key (student_id, term_id), foreign keys to `Student` and `Term` with ON DELETE CASCADE, status `HANDLING` / `DISMISSED` or NULL) was built on `feature/ai-4-work` from `feature/ai-work`; 047 and 048 are reserved for other AI branches. New table only; no existing data changes. It needs 043 first. **Merge 047 and 048 (if they exist) together with 049 into `feature/part-b` before migrating any database from it**, for the same reason as above (a database that got 049 first would refuse 047 / 048). Until 049 is applied the watchlist still lists pupils (no marks, no notes); marking or writing notes fails.
+
 ## B10 (2026-11-17)
 
 050 (B10 roles and permissions: `Role`, `Role_permission`, `User_account.role_id`) was numbered after the AI branch's 043–046 and 049 (047 and 048 are unused). It seeds the three system roles with fixed ids 1–3 and backfills `role_id` from `category` (exact names only); their permissions live in code (`src/utils/permissions.js`), custom roles' in `Role_permission`. **Apply 050 before starting the B10 code:** sign-in and every office request read `User_account.role_id`. The runner refuses a pending file numbered below one already applied, so **a database that applies 050 before the AI branch's 043–046 / 049 would refuse them**: merge the AI branch first, or keep any database that applied 050 off the AI migrations until it is rebuilt. `npm run sync-data` re-points logins on a system role at live's category (`LOGIN_ROLE_SQL`).

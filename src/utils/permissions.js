@@ -46,6 +46,7 @@ export const MODULES = [
   { key: "settings", label: "School settings" },
   { key: "users", label: "Office logins" },
   { key: "roles", label: "Roles & permissions" },
+  { key: "ai", label: "AI assistant" },
 ];
 
 // [key, plain-English label]. The module is the part before the dot.
@@ -134,6 +135,16 @@ const CATALOGUE_ROWS = [
 
   ["users.manage", "Create office logins and change which role a login has"],
   ["roles.manage", "Create and edit roles and their permissions"],
+
+  // AI assistant. Each feature also needs AI switched on (Settings -> AI) and
+  // the monthly budget; the keys only say who may use it.
+  ["ai.settings", "AI settings: switch AI and each AI feature on or off, the monthly GH₵ budget, tone, usage and what AI has cost"],
+  ["ai.suggestions.review", "See, edit, approve and discard AI drafts (announcement drafts become a news post or SMS text only when approved)"],
+  ["ai.ask", "Ask the school: questions answered from the school's records, only on what the role may already see (fees with fee payments, income and expenses with accounting, registers and results with every class, staff with the staff list)"],
+  ["ai.papers.view_all", "See every teacher's question papers (read-only)"],
+  ["ai.briefing", "The Monday briefing: read it, run it, set its days and delivery, and get it in the office app"],
+  ["ai.announcements", "Draft news posts and SMS messages with AI (turning a draft into a news post also needs managing all news)"],
+  ["ai.at_risk", "Pupils at risk: the watchlist, its AI notes and the handled / dismissed marks (own class only without “Every class”)"],
 ];
 
 const moduleOf = (key) => key.slice(0, key.indexOf("."));
@@ -153,6 +164,14 @@ export const P = Object.freeze({
   NEWS_MANAGE: "news.manage",
   USERS_MANAGE: "users.manage",
   ROLES_MANAGE: "roles.manage",
+  // AI assistant (services/ai, routes/ai*.js)
+  AI_SETTINGS: "ai.settings",
+  AI_SUGGESTIONS_REVIEW: "ai.suggestions.review",
+  AI_ASK: "ai.ask",
+  AI_PAPERS_VIEW_ALL: "ai.papers.view_all",
+  AI_BRIEFING: "ai.briefing",
+  AI_ANNOUNCEMENTS: "ai.announcements",
+  AI_AT_RISK: "ai.at_risk",
 });
 
 // ------------------------------------------------------------------ system roles
@@ -184,6 +203,8 @@ const CLASS_TEACHER_PERMISSIONS = [
   "reports.academic_class",
   "news.view",
   "news.post",
+  // AI-4: the at-risk watchlist for their own class (as before B10).
+  "ai.at_risk",
 ];
 
 const ACCOUNTANT_PERMISSIONS = [
@@ -208,6 +229,8 @@ const ACCOUNTANT_PERMISSIONS = [
   "payroll.view",
   "payroll.manage",
   "news.view",
+  // AI-1: Ask the school; fees.view / accounting.view limit it to the finance tools (as before B10).
+  "ai.ask",
 ];
 
 export const SYSTEM_ROLES = Object.freeze([

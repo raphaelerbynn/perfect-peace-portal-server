@@ -60,7 +60,22 @@ import GradingScaleSection from "./GradingScaleSection.js";
 // B14: invoices and credit notes (migration 042).
 import Invoice from "./Invoice.js";
 import InvoiceLine from "./InvoiceLine.js";
+// AI-0: shared AI infrastructure (migration 043).
+import AiUsageLog from "./AiUsageLog.js";
+import AiSuggestion from "./AiSuggestion.js";
+import AiSettings from "./AiSettings.js";
+// AI-1: Ask the school conversations (migration 044).
+import AiConversation from "./AiConversation.js";
+import AiMessage from "./AiMessage.js";
 import CreditNote from "./CreditNote.js";
+// AI-3
+import QuestionPaper from "./QuestionPaper.js";
+import Question from "./Question.js";
+// AI-5: Monday briefing (migration 046).
+import AiBriefing from "./AiBriefing.js";
+import AiBriefingSettings from "./AiBriefingSettings.js";
+// AI-4: pupils-at-risk watchlist marks and notes (migration 049).
+import AiWatchlistEntry from "./AiWatchlistEntry.js";
 
 Allowance.belongsTo(Salary, { as: "salary", foreignKey: "salaryId" });
 Salary.hasMany(Allowance, { as: "allowances", foreignKey: "salaryId" });
@@ -191,6 +206,13 @@ Student.hasMany(Fee, {
   as: "fee",
 });
 
+// AI-3: question papers. constraints: false: migration 045 owns the foreign
+// key (question_paper_fk, ON DELETE CASCADE); without it a database built with
+// sync() (move-data) would get a second, Sequelize-named one as well.
+// (Ai_message -> Ai_conversation, migration 044, has no association.)
+QuestionPaper.hasMany(Question, { as: "questions", foreignKey: "paperId", constraints: false });
+Question.belongsTo(QuestionPaper, { as: "paper", foreignKey: "paperId", constraints: false });
+
 export {
   Allowance,
   Assignment,
@@ -253,4 +275,19 @@ export {
   Invoice,
   InvoiceLine,
   CreditNote,
+  // AI-0
+  AiUsageLog,
+  AiSuggestion,
+  AiSettings,
+  // AI-1
+  AiConversation,
+  AiMessage,
+  // AI-3
+  QuestionPaper,
+  Question,
+  // AI-5
+  AiBriefing,
+  AiBriefingSettings,
+  // AI-4
+  AiWatchlistEntry,
 };

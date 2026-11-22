@@ -3,8 +3,9 @@
 //
 // BEFORE is what the three original roles reached before B10 (snapshot taken
 // from feature/part-b on 2026-11-17, before any role work), plus the B10
-// review fixes (PUT /promotion/class-order Administrator only) and the new
-// B10 routes. The system roles' permission sets (utils/permissions.js) must
+// review fixes (PUT /promotion/class-order Administrator only), the new
+// B10 routes and the AI routes as the AI branch had them before B10
+// (feature/ai-work 6e1cee7: authorizeRoles / the AI role table). The system roles' permission sets (utils/permissions.js) must
 // reproduce it route by route. A new route fails here until it is added on
 // purpose.
 //   A = Administrator, CT = Class Teacher, Acc = Accountant,
@@ -15,7 +16,7 @@ process.env.NODE_ENV = "test";
 
 import jwt from "jsonwebtoken";
 import request from "supertest";
-import { accessTable, collectRoutes, passes, reachableRoutes } from "../testSupport/routeAccess.js";
+import { accessTable, collectRoutes, passes, permissionTable, reachableRoutes } from "../testSupport/routeAccess.js";
 import { P, PERMISSION_KEYS, SYSTEM_ROLES, systemRoleByName } from "../utils/permissions.js";
 
 // Handlers answer 200 at once: the live requests below test the gates only.
@@ -295,6 +296,65 @@ const BEFORE = {
   "DELETE /roles/:id": "A",
   "GET /office-logins": "A",
   "PUT /office-logins/:username/role": "A",
+  // AI (feature/ai-work, before B10): status for any signed-in user; settings,
+  // usage, drafts, announcements, briefings and the papers view Administrator
+  // only; Ask Administrator + Accountant; the watchlist Administrator + Class
+  // Teacher (own class, checked in the service). The portal's /teacher/papers*
+  // sit inside teacherRouter (STAFF tokens) and are not office routes.
+  "GET /ai/status": "*",
+  "GET /ai/settings": "A",
+  "PUT /ai/settings": "A",
+  "GET /ai/usage": "A",
+  "GET /ai/suggestions": "A",
+  "GET /ai/suggestions/:id": "A",
+  "PATCH /ai/suggestions/:id": "A",
+  "POST /ai/suggestions/:id/accept": "A",
+  "POST /ai/suggestions/:id/reject": "A",
+  "POST /ai/announcements/draft": "A",
+  "POST /ai/chat": "A Acc",
+  "GET /ai/conversations": "A Acc",
+  "GET /ai/conversations/:id": "A Acc",
+  "DELETE /ai/conversations/:id": "A Acc",
+  "GET /question-papers": "A",
+  "GET /question-papers/:id": "A",
+  "GET /ai/briefings/latest": "A",
+  "GET /ai/briefings/settings": "A",
+  "PUT /ai/briefings/settings": "A",
+  "POST /ai/briefings/run": "A",
+  "GET /ai/briefings": "A",
+  "GET /ai/briefings/:id": "A",
+  "GET /ai/watchlist": "A CT",
+  "POST /ai/watchlist/notes": "A CT",
+  "PUT /ai/watchlist/:studentId/status": "A CT",
+};
+
+// Every AI route and the one permission that gates it (on purpose: a new AI
+// route fails here until it is added).
+const AI_GATES = {
+  "GET /ai/settings": "ai.settings",
+  "PUT /ai/settings": "ai.settings",
+  "GET /ai/usage": "ai.settings",
+  "GET /ai/suggestions": "ai.suggestions.review",
+  "GET /ai/suggestions/:id": "ai.suggestions.review",
+  "PATCH /ai/suggestions/:id": "ai.suggestions.review",
+  "POST /ai/suggestions/:id/accept": "ai.suggestions.review",
+  "POST /ai/suggestions/:id/reject": "ai.suggestions.review",
+  "POST /ai/announcements/draft": "ai.announcements",
+  "POST /ai/chat": "ai.ask",
+  "GET /ai/conversations": "ai.ask",
+  "GET /ai/conversations/:id": "ai.ask",
+  "DELETE /ai/conversations/:id": "ai.ask",
+  "GET /question-papers": "ai.papers.view_all",
+  "GET /question-papers/:id": "ai.papers.view_all",
+  "GET /ai/briefings/latest": "ai.briefing",
+  "GET /ai/briefings/settings": "ai.briefing",
+  "PUT /ai/briefings/settings": "ai.briefing",
+  "POST /ai/briefings/run": "ai.briefing",
+  "GET /ai/briefings": "ai.briefing",
+  "GET /ai/briefings/:id": "ai.briefing",
+  "GET /ai/watchlist": "ai.at_risk",
+  "POST /ai/watchlist/notes": "ai.at_risk",
+  "PUT /ai/watchlist/:studentId/status": "ai.at_risk",
 };
 
 const now = accessTable(app, SYSTEM);
@@ -317,7 +377,8 @@ describe("router walk: every route has a permission", () => {
     expect(ungated.sort()).toEqual([...OPEN].sort());
     // and none of those is an office route but the caller's own access
     const office = OPEN.filter((k) => !/^(GET|POST) \/(signin|signup|send-otp|reset-password|get-pin|update-pin|verify-pin|school|result|nursery-result|feecheck|last-fee-paid|auth|oauth|download|files|get-assignment|upload|delete-file|user-details|news|class|subject|portal|events|posts|notifications|teacher|\?\$)/.test(k) && !/^(PUT|PATCH|DELETE) \/(posts|notifications|delete-file)/.test(k));
-    expect(office).toEqual(["GET /my-access"]);
+    // ...and the caller's own AI status (any signed-in user, portal too; it lists only what they may use)
+    expect(office).toEqual(["GET /my-access", "GET /ai/status"]);
   });
 
   it("every gate names catalogue keys only", () => {
@@ -333,6 +394,28 @@ describe("router walk: every route has a permission", () => {
   it("the Administrator role holds every permission; the system roles hold catalogue keys only", () => {
     expect([...SYSTEM.A].sort()).toEqual([...PERMISSION_KEYS].sort());
     for (const r of SYSTEM_ROLES) for (const k of r.permissions) expect(PERMISSION_KEYS).toContain(k);
+  });
+});
+
+describe("router walk: AI routes (B10 permissions)", () => {
+  const table = permissionTable(app);
+
+  it("every AI office route is gated by its one AI permission", () => {
+    const aiRoutes = routes.map((r) => r.key).filter((k) => /^\w+ \/(ai\/|question-papers)/.test(k) && k !== "GET /ai/status");
+    expect(aiRoutes.sort()).toEqual(Object.keys(AI_GATES).sort());
+    for (const [k, key] of Object.entries(AI_GATES)) expect([k, table[k]]).toEqual([k, key]);
+  });
+
+  it("the system roles hold the AI keys they had as roles before B10", () => {
+    const ai = (perms) => [...perms].filter((k) => k.startsWith("ai.")).sort();
+    expect(ai(SYSTEM.A)).toEqual(PERMISSION_KEYS.filter((k) => k.startsWith("ai.")).sort());
+    expect(ai(SYSTEM.Acc)).toEqual(["ai.ask"]);
+    expect(ai(SYSTEM.CT)).toEqual(["ai.at_risk"]);
+  });
+
+  it("a custom role with ai.ask + fees.view reaches Ask and nothing else of AI", () => {
+    const ai = reachableRoutes(app, ["ai.ask", "fees.view"]).filter((k) => / \/(ai|question-papers)/.test(k));
+    expect(ai.sort()).toEqual(["POST /ai/chat", "GET /ai/conversations", "GET /ai/conversations/:id", "DELETE /ai/conversations/:id"].sort());
   });
 });
 

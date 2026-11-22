@@ -289,3 +289,20 @@ describe("giving a login a role", () => {
     await expect(roles.roleToGive({ category: "Head Teacher" }, admin)).rejects.toMatchObject({ statusCode: 400 });
   });
 });
+
+describe("loginsHolding (AI-5: who gets the briefing)", () => {
+  it("active logins whose role holds the key: system roles from code (role_id or category), custom from rows", async () => {
+    db.roles.push({ roleId: 7, name: "Deputy head", isSystem: false }, { roleId: 8, name: "Clerk", isSystem: false });
+    db.grants.push({ roleId: 7, permissionKey: "ai.briefing" }, { roleId: 8, permissionKey: "fees.view" });
+    db.accounts.push(
+      { username: "admin2", roleId: null, category: "Administrator", isDeleted: false }, // not backfilled: counts by category
+      { username: "gone", roleId: 1, category: "Administrator", isDeleted: true }, // archived
+      { username: "deputy", roleId: 7, category: "Deputy head", isDeleted: false },
+      { username: "clerk", roleId: 8, category: "Clerk", isDeleted: false }
+    );
+    expect((await roles.loginsHolding("ai.briefing")).sort()).toEqual(["admin", "admin2", "deputy"]);
+    // the Class Teacher's ai.at_risk; the Accountant (category only) for ai.ask
+    expect((await roles.loginsHolding("ai.at_risk")).sort()).toEqual(["admin", "admin2", "ct"]);
+    expect((await roles.loginsHolding("ai.ask")).sort()).toEqual(["admin", "admin2", "bursar"]);
+  });
+});
