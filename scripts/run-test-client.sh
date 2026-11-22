@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# Spin up the TEST-CLIENT stack: a temporary (ephemeral) Postgres + the backend
-# API on port 5040, seeded with EXACTLY ONE user - the admin.
+# Spin up the TEST-CLIENT stack: Postgres (data kept in the pp_test_pgdata
+# volume) + the backend API on port 5040. An empty database gets EXACTLY ONE
+# user - the admin; a copy of the live data (scripts/push-copy-to-vps.sh) keeps
+# its own logins.
 #
 # Usage:
 #   ./scripts/run-test-client.sh              # build locally + run on :5040
 #   ./scripts/run-test-client.sh --pull       # pull the registry image (VPS path)
-#   ./scripts/run-test-client.sh --down        # tear the stack down
+#   ./scripts/run-test-client.sh --down       # stop the stack (data kept)
+#   ./scripts/run-test-client.sh --wipe       # stop it and delete the database
 #   ADMIN_USERNAME=boss ADMIN_PASSWORD='S3cret!' ./scripts/run-test-client.sh
 #
 # If ADMIN_USERNAME/ADMIN_PASSWORD aren't set and the shell is interactive,
@@ -19,10 +22,19 @@ PORT="5040"
 
 compose() { docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"; }
 
-# --down: tear everything down (and wipe the temp db, which is tmpfs anyway).
+# --down: stop the stack; the database volume (and any live copy in it) is kept.
 if [ "${1:-}" = "--down" ]; then
+  compose down
+  echo "✅ test-client stack stopped (data kept; --wipe deletes it)."
+  exit 0
+fi
+
+# --wipe: stop the stack AND delete the database volume (the live copy too).
+if [ "${1:-}" = "--wipe" ]; then
+  read -r -p "Delete the test-client database volume and everything in it? Type yes: " ans
+  [ "$ans" = "yes" ] || { echo "Stopped. Nothing deleted."; exit 0; }
   compose down -v
-  echo "✅ test-client stack stopped."
+  echo "✅ test-client stack stopped and its database deleted."
   exit 0
 fi
 
