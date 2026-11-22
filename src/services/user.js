@@ -47,7 +47,7 @@ const buildManagementIdentityWhere = (data) => {
 const findManagementUser = async (data) => {
     const where = buildManagementIdentityWhere(data);
     if (!where[Op.or]) {
-        // No usable identifier supplied — treat as "not found".
+        // No usable identifier supplied - treat as "not found".
         return null;
     }
     return await UserAccount.findOne({ where });
@@ -55,7 +55,7 @@ const findManagementUser = async (data) => {
 
 // Login: look the user up by identifier only, then verify the password with
 // bcrypt. Never put the password in the WHERE clause.
-// BE-A13: never hand the bcrypt hash back to the caller — return a sanitized
+// BE-A13: never hand the bcrypt hash back to the caller - return a sanitized
 // plain object with the password stripped after the compare.
 // B10: one office login form. Without a category the account is found by
 // username / email / staff/<id> across every role. An exact username wins; a
@@ -94,7 +94,7 @@ const getManagementUser = async (data) => {
 
 // BE-A1: confirm a management UserAccount EXISTS for a given staff/teacher id,
 // without involving the password. Used by the OTP flow to decide whether to
-// actually send an SMS (the HTTP response stays generic either way — BE-A9).
+// actually send an SMS (the HTTP response stays generic either way - BE-A9).
 const managementUserExistsForStaff = async (staffId) => {
     if (!staffId) {
         return false;
@@ -159,7 +159,7 @@ const getStudentDetails = async (indexNumber) => {
     //     }
     // }
 
-    //calculate age (real date diff — BE-25)
+    //calculate age (real date diff - BE-25)
     student.age = calculateAge(student?.dob);
 
     return student;

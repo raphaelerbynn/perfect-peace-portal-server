@@ -13,16 +13,16 @@ import { round2 } from "../utils/money.js";
 import { DEFAULT_PRIMARY_BANDS, makeGrader, resolveGrade } from "./grading.js";
 
 // ---------------------------------------------------------------------------
-// Feature #8 — authoritative, non-destructive results engine.
+// Feature #8 - authoritative, non-destructive results engine.
 //
 // Design (locked decisions):
 //  - Every save is an UPSERT keyed by (student, subject, class, termId) for marks
-//    and (student, class, termId) for the aggregate — NEVER destroy-then-create,
+//    and (student, class, termId) for the aggregate - NEVER destroy-then-create,
 //    so a partial save can never wipe other subjects' marks. All multi-row writes
 //    run inside a single transaction.
 //  - The SERVER recomputes every percentage / total / aggregate from the Subject
 //    config (examTotalMarks / classTotalMarks / examPercentage / classPercentage /
-//    passMarks — Feature #6) and the persisted marks. Client-supplied derived
+//    passMarks - Feature #6) and the persisted marks. Client-supplied derived
 //    numbers are ignored. Teacher judgement fields (conduct/attitude/interest/
 //    remarks/status/promotion) are preserved as entered.
 //  - A score of 0 is a VALID score (the old code dropped it as "no data").
@@ -89,7 +89,7 @@ const computeMarkFields = (subject, classScoreRaw, examScoreRaw) => {
 // on the row (`grader` caches the scales for the whole save).
 const upsertOneMark = async (data, termId, t, grader = makeGrader({ transaction: t })) => {
   if (isBlank(data?.classMark) && isBlank(data?.examMark)) {
-    return null; // nothing entered for this subject — skip, don't wipe
+    return null; // nothing entered for this subject - skip, don't wipe
   }
   if (isBlank(data?.classMark) || isBlank(data?.examMark)) {
     throw new AppError("Both class and exam marks are required for a subject", 400);
@@ -249,7 +249,7 @@ const upsertMarksResult = async (data) => {
 // /add-single-subject-result now routes to the safe upsert (no destroy-recreate).
 const createMarksResult = async (data) => upsertMarksResult(data);
 
-// Multi-subject upsert (no observations) — used by the bulk path; never deletes
+// Multi-subject upsert (no observations) - used by the bulk path; never deletes
 // subjects that aren't in the payload.
 const bulkCreateMarksResult = async (marksData, studentInfo) => {
   const termId = studentInfo?.termId || (await getTerm())?.termId;
@@ -336,7 +336,7 @@ const saveResult = async (data) => {
   });
 };
 
-// KG assessment upsert — scoped per (student, termId, class, category, assessment)
+// KG assessment upsert - scoped per (student, termId, class, category, assessment)
 // so the parallel per-key saves NEVER wipe each other (the old code destroyed ALL
 // of the student's KG rows for the term on every call). 0 scores are valid.
 const createKGResult = async (data) => {
@@ -616,7 +616,7 @@ const getResults = async (indexNumber) => {
 
 const getNurseryResults = async (indexNumber) => {
   // Postgres: extract the year with to_char (was MySQL DATE_FORMAT, before that
-  // MSSQL FORMAT — both invalid on Postgres).
+  // MSSQL FORMAT - both invalid on Postgres).
   const results = await KgAssessment.findAll({
     where: {
       student_id: indexNumber,

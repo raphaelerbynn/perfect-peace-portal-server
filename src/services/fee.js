@@ -114,7 +114,7 @@ export const recomputeStudentOwing = async (studentId, { transaction = null } = 
 /**
  * Start a new fee period (promotion / start of a new year): what is still owed
  * carries over as arrears, the new class's bill is then added in full, and
- * "paid" counts from now — the live system's behaviour on a class change, but
+ * "paid" counts from now - the live system's behaviour on a class change, but
  * keeping arrears instead of dropping them. Call BEFORE moving the pupil, then
  * recomputeStudentOwing after the move.
  */

@@ -3,7 +3,7 @@ import { DataTypes } from "sequelize";
 
 // Unified, secure store for short-lived password-reset codes used by BOTH
 // reset flows (admin-portal OTP + parent-app PIN). The plaintext code is NEVER
-// persisted — only its bcrypt hash. Expiry, attempt-capping and single-use are
+// persisted - only its bcrypt hash. Expiry, attempt-capping and single-use are
 // all enforced server-side on read (see services/resetCode.js). There is no
 // import-time `.sync()` (Feature #1 removed those); create the table with the
 // migration documented in the task report.

@@ -34,7 +34,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  # ghcr.io/<owner>/<repo>  — must be lowercase (it already is here).
+  # ghcr.io/<owner>/<repo>  - must be lowercase (it already is here).
   IMAGE: ghcr.io/${{ github.repository }}
   TAG: test-client
 
@@ -118,7 +118,7 @@ jobs:
             # GitHub secrets if it does NOT already exist, so a hand-edited
             # .env.test-client on the VPS is never overwritten by a deploy.
             if [ ! -f .env.test-client ]; then
-            echo "No .env.test-client found — writing one from GitHub secrets."
+            echo "No .env.test-client found - writing one from GitHub secrets."
             cat > .env.test-client <<EOF
             DB_NAME=perfectpeace_test
             DB_USERNAME=perfectpeace
@@ -143,14 +143,14 @@ jobs:
             echo "Using the existing .env.test-client in /opt/projects/perfect_peace."
             fi
 
-            # Always deploy the image this run just built — a shell env var wins
+            # Always deploy the image this run just built - a shell env var wins
             # over any (stale/missing) BACKEND_IMAGE in the env file for Compose
             # interpolation, so we never accidentally pull an old tag.
             export BACKEND_IMAGE="${{ env.IMAGE }}:${{ env.TAG }}"
 
             # Log in to GHCR to pull the (possibly private) image.
             echo "${GHCR_TOKEN:-}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin || \
-              echo "No GHCR_TOKEN provided — assuming the package is public."
+              echo "No GHCR_TOKEN provided - assuming the package is public."
 
             docker compose -f docker-compose.test-client.yml --env-file .env.test-client pull
             docker compose -f docker-compose.test-client.yml --env-file .env.test-client up -d

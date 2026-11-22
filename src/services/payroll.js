@@ -230,7 +230,7 @@ const createFullSalary = async (data) => {
 // BE-3: replace a salary's allowances/deductions atomically (delete + reinsert in
 // ONE transaction so a failed reinsert can't leave the structure wiped).
 // A8: taxes are replaced the same way, but only when the request carries a
-// `taxes` array — a client that doesn't know about taxes leaves them as they are.
+// `taxes` array - a client that doesn't know about taxes leaves them as they are.
 const updateFullSalary = async (data, id) => {
     const gross = validatePayAmount(data?.amount, "salary amount");
     const allowances = validateRows(data?.allowances, "allowance");
@@ -270,7 +270,7 @@ const updateFullSalary = async (data, id) => {
 
 // BE-4: soft-delete a salary structure (it may be referenced by historical
 // payslips, which now carry their own snapshot). Archive it and null any
-// Teacher.salaryId pointing at it — all in one transaction.
+// Teacher.salaryId pointing at it - all in one transaction.
 const removeSalary = async (id) => {
     return await sequelize.transaction(async (t) => {
         const salary = await Salary.findOne({ where: { salaryId: id, isDeleted: false }, transaction: t });

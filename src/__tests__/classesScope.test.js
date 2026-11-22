@@ -17,6 +17,7 @@ jest.mock("../models/index.js", () => ({
 
 import { Class, ClassFee, Student, TeachingAssignment, Teacher, Term } from "../models/index.js";
 import { classes } from "../services/classes.js";
+import { fetchClass } from "../controllers/onlyTeacherController.js";
 import { officeUser } from "../testSupport/officeUser.js";
 
 const row = (classId, name) => ({ classId, name, dataValues: {} });
@@ -64,4 +65,25 @@ it("a class with no teacher on its record shows the one teacher whose staff reco
   const out = await classes(officeUser("Administrator"));
   expect(out.find((c) => c.classId === 5).dataValues.teacherId).toBe(11);
   expect(out.find((c) => c.classId === 7).dataValues.teacherId).toBeUndefined();
+});
+
+it("each class carries its teacher's name (the Classes page has no staff list for a Class Teacher)", async () => {
+  ALL[0].teacherId = 54;
+  Teacher.findAll.mockImplementation(async ({ attributes }) =>
+    attributes.includes("fName") ? [{ teacherId: 54, fName: "Desmond", lName: "Assabil" }] : []
+  );
+  const out = await classes(officeUser("Administrator"));
+  delete ALL[0].teacherId;
+  expect(out.find((c) => c.classId === 3).dataValues.teacherName).toBe("Desmond Assabil");
+  expect(out.find((c) => c.classId === 5).dataValues.teacherName).toBeNull();
+});
+
+it("GET /class?scope=all lists every class for a Class Teacher; plain /class stays their own", async () => {
+  const call = async (query) => {
+    const res = { json: jest.fn() };
+    await fetchClass({ user: officeUser("Class Teacher", { teacherId: 54 }), query }, res, jest.fn());
+    return res.json.mock.calls[0][0].map((c) => c.classId);
+  };
+  expect(await call({})).toEqual([3]);
+  expect(await call({ scope: "all" })).toEqual([3, 5, 7]);
 });
