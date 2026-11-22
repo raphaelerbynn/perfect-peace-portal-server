@@ -11,11 +11,9 @@ jest.mock("../models/index.js", () => ({
   ClassFee: { findAll: jest.fn() },
   Student: { count: jest.fn() },
   Teacher: { findOne: jest.fn(), findAll: jest.fn() },
-  Term: { findOne: jest.fn() },
-  TeachingAssignment: { findAll: jest.fn() },
 }));
 
-import { Class, ClassFee, Student, TeachingAssignment, Teacher, Term } from "../models/index.js";
+import { Class, ClassFee, Student, Teacher } from "../models/index.js";
 import { classes } from "../services/classes.js";
 
 const row = (classId, name) => ({ classId, name, dataValues: {} });
@@ -26,9 +24,7 @@ beforeEach(() => {
   lastWhere = undefined;
   ClassFee.findAll.mockResolvedValue([]);
   Student.count.mockResolvedValue([]);
-  Term.findOne.mockResolvedValue({ termId: 15 });
   Teacher.findOne.mockResolvedValue({ classId: null });
-  TeachingAssignment.findAll.mockResolvedValue([]);
   Teacher.findAll.mockResolvedValue([]);
   Class.findAll.mockImplementation(async ({ where, attributes }) => {
     if (attributes) return where.teacherId === 54 ? [{ classId: 3 }] : []; // class-teacher lookup
@@ -45,12 +41,6 @@ it("Administrator and portal callers get every class", async () => {
 
 it("a Class Teacher gets only the class they are class teacher of", async () => {
   expect((await classes({ category: "Class Teacher", teacherId: 54 })).map((c) => c.classId)).toEqual([3]);
-});
-
-it("…plus classes where they teach a subject in the open term", async () => {
-  TeachingAssignment.findAll.mockResolvedValue([{ classId: 7 }, { classId: 7 }]);
-  expect((await classes({ category: "Class Teacher", teacherId: 54 })).map((c) => c.classId)).toEqual([3, 7]);
-  expect(TeachingAssignment.findAll.mock.calls[0][0].where).toEqual({ teacherId: 54, termId: 15 });
 });
 
 it("a Class Teacher with nothing assigned sees no classes (not all of them)", async () => {

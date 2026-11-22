@@ -23,7 +23,8 @@ const countedWhere = (alumniIds, include) => {
 };
 
 // BE-D2: dashboard stat cards, all COUNTs in SQL.
-// { totalStudents, activeStudents, students, boys, girls, alumniClasses, totalStaff, totalClasses }
+// { totalStudents, activeStudents, students, boys, girls, alumniClasses, totalStaff, totalClasses,
+//   classCounts: [{ classId, name, totalStudents, isAlumni }] }
 //   students / boys / girls = active + the ticked graduated / left classes.
 export const getDashboardSummary = async ({ include } = {}) => {
   const alumni = await Class.findAll({ where: { classId: ALUMNI_CLASS_IDS, isDeleted: { [Op.not]: true } }, attributes: ["classId", "name"], raw: true });
@@ -43,7 +44,14 @@ export const getDashboardSummary = async ({ include } = {}) => {
   }
   const totalStaff = await Teacher.count({ where: { isDeleted: false } });
   const totalClasses = await Class.count({ where: { isDeleted: false } });
-  return { totalStudents, activeStudents, students, boys, girls, alumniClasses, totalStaff, totalClasses };
+  // "Students per class" chart: EVERY class, for everyone who sees the dashboard.
+  // The /class list is cut to a Class Teacher's own class, so the chart can't use
+  // it. Names and pupil counts only (like the totals above), no pupil details.
+  const classRows = await Class.findAll({ where: { isDeleted: { [Op.not]: true } }, attributes: ["classId", "name"], order: [["classId", "ASC"]], raw: true });
+  const perClass = await Student.count({ where: { isDeleted: { [Op.not]: true } }, group: ["classId"] });
+  const countOf = new Map((Array.isArray(perClass) ? perClass : []).map((r) => [r.classId, Number(r.count)]));
+  const classCounts = classRows.map((c) => ({ classId: c.classId, name: c.name, totalStudents: countOf.get(c.classId) || 0, isAlumni: alumniIds.includes(c.classId) }));
+  return { totalStudents, activeStudents, students, boys, girls, alumniClasses, totalStaff, totalClasses, classCounts };
 };
 
 // BE-D9: students with an outstanding balance only. Filter (feesOwing > 0),

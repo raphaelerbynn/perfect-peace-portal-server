@@ -101,6 +101,22 @@ describe("dashboard tick boxes", () => {
     expect(ids(w[Op.or])).not.toContain(39);
     expect(ids(w[Op.or])).toContain(40);
   });
+  it("chart: every class with its pupil count, alumni flagged (not limited to a teacher's class)", async () => {
+    Class.findAll
+      .mockResolvedValueOnce([{ classId: 39, name: "Guaduants" }]) // the alumni classes
+      .mockResolvedValueOnce([{ classId: 5, name: "CLASS 6" }, { classId: 7, name: "K.G 1" }, { classId: 39, name: "Guaduants" }]);
+    Student.count.mockImplementation(async (opts) =>
+      opts?.group ? [{ classId: 5, count: "31" }, { classId: 39, count: 4 }] : 1
+    );
+    const s = await getDashboardSummary({ include: "none" });
+    expect(s.classCounts).toEqual([
+      { classId: 5, name: "CLASS 6", totalStudents: 31, isAlumni: false },
+      { classId: 7, name: "K.G 1", totalStudents: 0, isAlumni: false },
+      { classId: 39, name: "Guaduants", totalStudents: 4, isAlumni: true },
+    ]);
+    const grouped = Student.count.mock.calls.find(([o]) => o?.group)[0];
+    expect(grouped.where.classId).toBeUndefined(); // no class filter
+  });
   it("owing list: everyone without the parameter (other screens), filtered with it", async () => {
     Student.findAll.mockResolvedValue([]);
     await getStudentsOwing();

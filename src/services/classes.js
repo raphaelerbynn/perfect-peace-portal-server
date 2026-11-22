@@ -1,6 +1,6 @@
 import { Op, fn, col, where } from "sequelize";
 import sequelize from "../config/database.js";
-import { Class, ClassFee, Student, TeachingAssignment, Teacher, Term } from "../models/index.js";
+import { Class, ClassFee, Student, Teacher } from "../models/index.js";
 import { AppError } from "../utils/errorHandling.js";
 import { recomputeStudentOwing } from "./fee.js";
 import { isPesewaAmount } from "../utils/money.js";
@@ -23,17 +23,14 @@ const recomputeClassStudentsOwing = async (classId, transaction = null) => {
 };
 
 // The classes a Class Teacher office login is assigned to: the class(es) they
-// are class teacher of (Class.teacher_id; Teacher.class_id as a fallback) and
-// those where they teach a subject in the open term (Subjects & teachers).
+// are class teacher of (Class.teacher_id; Teacher.class_id as a fallback).
+// (Part B's B2 adds the classes they teach a subject in; TeachingAssignment
+// doesn't exist on Part A.)
 const assignedClassIds = async (teacherId) => {
   if (!teacherId) return [];
   const own = await Class.findAll({ where: { teacherId, isDeleted: { [Op.not]: true } }, attributes: ["classId"], raw: true });
   const teacher = await Teacher.findOne({ where: { teacherId }, attributes: ["classId"], raw: true });
-  const term = await Term.findOne({ where: { active: true }, attributes: ["termId"], raw: true });
-  const taught = term
-    ? await TeachingAssignment.findAll({ where: { teacherId, termId: term.termId }, attributes: ["classId"], raw: true })
-    : [];
-  return [...new Set([...own, ...(teacher?.classId != null ? [teacher] : []), ...taught].map((r) => Number(r.classId)))];
+  return [...new Set([...own, ...(teacher?.classId != null ? [teacher] : [])].map((r) => Number(r.classId)))];
 };
 
 // `user`: a Class Teacher office login sees only the classes assigned to them
