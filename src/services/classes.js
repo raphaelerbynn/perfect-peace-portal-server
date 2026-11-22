@@ -3,8 +3,9 @@ import sequelize from "../config/database.js";
 import { Class, ClassFee, Student, Teacher } from "../models/index.js";
 import { AppError } from "../utils/errorHandling.js";
 import { recomputeStudentOwing } from "./fee.js";
+import { isPesewaAmount } from "../utils/money.js";
 
-// Recompute cached owing for EVERY (non-archived) student in a class — a class
+// Recompute cached owing for EVERY (non-archived) student in a class - a class
 // fee change shifts the bill for the whole class (parity with the studentFees
 // hardening from Feature #4). Runs inside the caller's transaction.
 const recomputeClassStudentsOwing = async (classId, transaction = null) => {
@@ -12,6 +13,7 @@ const recomputeClassStudentsOwing = async (classId, transaction = null) => {
   const students = await Student.findAll({
     attributes: ["studentId"],
     where: { classId, isDeleted: { [Op.not]: true } },
+    order: [["studentId", "ASC"]], // same lock order as everywhere else
     raw: true,
     transaction,
   });
@@ -20,12 +22,30 @@ const recomputeClassStudentsOwing = async (classId, transaction = null) => {
   }
 };
 
-const classes = async () => {
+// The classes a Class Teacher office login is assigned to: the class(es) they
+// are class teacher of (Class.teacher_id; Teacher.class_id as a fallback).
+// (Part B's B2 adds the classes they teach a subject in; TeachingAssignment
+// doesn't exist on Part A.)
+const assignedClassIds = async (teacherId) => {
+  if (!teacherId) return [];
+  const own = await Class.findAll({ where: { teacherId, isDeleted: { [Op.not]: true } }, attributes: ["classId"], raw: true });
+  const teacher = await Teacher.findOne({ where: { teacherId }, attributes: ["classId"], raw: true });
+  return [...new Set([...own, ...(teacher?.classId != null ? [teacher] : [])].map((r) => Number(r.classId)))];
+};
+
+// `user`: a Class Teacher office login sees only the classes assigned to them
+// (every class picker). Other callers, and GET /class?scope=all (the read-only
+// Classes page list), get every class.
+const classes = async (user = null) => {
   const classFeeList = await ClassFee.findAll({ raw: true });
+
+  const scoped = user?.category === "Class Teacher";
+  const onlyIds = scoped ? await assignedClassIds(user.teacherId) : null;
+  if (scoped && onlyIds.length === 0) return [];
 
   // BE-V1: never list archived classes.
   const allClasses = await Class.findAll({
-    where: { isDeleted: { [Op.not]: true } },
+    where: { isDeleted: { [Op.not]: true }, ...(scoped && { classId: { [Op.in]: onlyIds } }) },
   });
 
   // BE-19: single grouped count instead of per-class N+1. BE-V10: exclude
@@ -40,22 +60,50 @@ const classes = async () => {
     countRows.map((row) => [row.classId, row.count])
   );
 
+  // A class with no teacher on its own record, but exactly one teacher whose
+  // staff record names it (live: KG 2 / Gloria): show that teacher, so the
+  // Classes and Staff pages agree. Saving the class then stores the link.
+  const teachersByClass = new Map();
+  const linked = await Teacher.findAll({
+    where: { classId: { [Op.not]: null }, isDeleted: { [Op.not]: true } },
+    attributes: ["teacherId", "classId"],
+    raw: true,
+  });
+  for (const t of linked) teachersByClass.set(t.classId, [...(teachersByClass.get(t.classId) || []), t.teacherId]);
+
   const classData = allClasses.map((classItem) => {
     const classId = classItem.classId;
+    const fallback = teachersByClass.get(classId);
+    if (classItem.teacherId == null && fallback?.length === 1) {
+      classItem.dataValues.teacherId = fallback[0];
+    }
     const feeList = classFeeList.filter((fee) => fee.classId === classId);
     classItem.dataValues.totalStudents = countByClassId.get(classId) || 0;
     classItem.dataValues.feeList = feeList;
     return classItem;
   });
 
+  // The class teacher's name, so the Classes page can show it without the staff
+  // list (Administrator-only). Name only, nothing else from the staff record.
+  const teacherOf = (c) => c.dataValues.teacherId ?? c.teacherId;
+  const teacherIds = [...new Set(classData.map(teacherOf).filter((id) => id != null))];
+  const named = teacherIds.length
+    ? await Teacher.findAll({ where: { teacherId: { [Op.in]: teacherIds } }, attributes: ["teacherId", "fName", "lName"], raw: true })
+    : [];
+  const nameOf = new Map((Array.isArray(named) ? named : []).map((t) => [t.teacherId, [t.fName, t.lName].filter(Boolean).join(" ").trim()]));
+  for (const c of classData) c.dataValues.teacherName = nameOf.get(teacherOf(c)) || null;
+
   return classData;
 };
 
 // BE-V5: validate + reject duplicate (case-insensitive) class names; guard the
 // teacher assignment; maintain the two-way Class<->Teacher link in a transaction.
+const MAX_CLASS_NAME = 50;
+
 const createClass = async (data) => {
   const name = data?.name?.trim?.();
   if (!name) throw new AppError("Class name is required", 400);
+  if (name.length > MAX_CLASS_NAME) throw new AppError(`Keep the class name to ${MAX_CLASS_NAME} characters or fewer`, 400);
 
   return await sequelize.transaction(async (t) => {
     const duplicate = await Class.findOne({
@@ -129,6 +177,9 @@ const createClassFee = async (data) => {
   if (!Number.isFinite(amount) || amount <= 0) {
     throw new AppError("Fee amount must be a positive number", 400);
   }
+  if (!isPesewaAmount(amount)) {
+    throw new AppError("Fee amount can have at most 2 decimal places (cedis and pesewas)", 400);
+  }
   if (classId == null) throw new AppError("classId is required", 400);
 
   return await sequelize.transaction(async (t) => {
@@ -169,6 +220,9 @@ const editClassFee = async (data, id) => {
   if (!Number.isFinite(amount) || amount <= 0) {
     throw new AppError("Fee amount must be a positive number", 400);
   }
+  if (!isPesewaAmount(amount)) {
+    throw new AppError("Fee amount can have at most 2 decimal places (cedis and pesewas)", 400);
+  }
 
   return await sequelize.transaction(async (t) => {
     const existing = await ClassFee.findOne({
@@ -205,6 +259,7 @@ const editClass = async (data, id) => {
     const previousTeacherId = existingClass.teacherId || null;
     const newName = data?.name?.trim?.() || existingClass.name;
     const nameChanged = newName !== existingClass.name;
+    if (newName.length > MAX_CLASS_NAME) throw new AppError(`Keep the class name to ${MAX_CLASS_NAME} characters or fewer`, 400);
 
     // Duplicate-name guard (case-insensitive, excluding this class).
     if (nameChanged) {
@@ -253,11 +308,27 @@ const editClass = async (data, id) => {
     );
 
     // BE-V4: keep the students' denormalized class-name string in sync.
+    // Marks, results, KG assessments and registers are keyed by the class NAME
+    // too: rename them with it, or the class's score sheets, register, report
+    // cards and promotion would show empty under the new name. Legacy pupils
+    // with no classId follow by name.
     if (nameChanged) {
+      const oldName = existingClass.name;
       await Student.update(
         { class: newName },
-        { where: { classId: id }, transaction: t }
+        { where: { [Op.or]: [{ classId: id }, { classId: null, class: oldName }] }, transaction: t }
       );
+      for (const table of ["Student_marks", "Student_result", "KG_assessment", "Attendance"]) {
+        await sequelize.query(`UPDATE "dbo"."${table}" SET class = :newName WHERE class = :oldName`, {
+          replacements: { newName, oldName },
+          transaction: t,
+        });
+      }
+      // Teachers' "promoted to" recommendations name classes too.
+      await sequelize.query(`UPDATE "dbo"."Student_result" SET promoted_to = :newName WHERE promoted_to = :oldName`, {
+        replacements: { newName, oldName },
+        transaction: t,
+      });
     }
 
     // Two-way Class<->Teacher sync.
@@ -325,8 +396,8 @@ const removeClassFee = async (id) => {
   });
 };
 
-// Resolves a class id by exact name. Returns null when not found (callers such
-// as promoteStudents rely on null to skip), but a blank input is a 400. Excludes
+// Resolves a class id by exact name. Returns null when not found, but a blank
+// input is a 400. Excludes
 // archived classes so promotion can't target a retired class.
 const getClassIdByName = async (name, transaction = null) => {
   if (!name) {

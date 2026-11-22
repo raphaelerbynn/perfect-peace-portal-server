@@ -6,7 +6,7 @@ import { AppError } from "./errorHandling.js";
 
 const PORTAL_ROLES = ["STU", "STAFF"];
 const PASSWORD_MIN_LENGTH = 8;
-// Pragmatic email check — not RFC-perfect, just enough to reject obvious junk.
+// Pragmatic email check - not RFC-perfect, just enough to reject obvious junk.
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Parse + validate a portal index number of the form `ROLE/ID` where ROLE is
@@ -17,11 +17,13 @@ const parseIndexNumber = (indexNumber) => {
   if (!indexNumber || typeof indexNumber !== "string") {
     throw new AppError("Index number is required.", 400);
   }
-  const parts = indexNumber.split("/");
+  // Forgiving like the live MySQL login was: " stu/12 " works as "STU/12".
+  const parts = indexNumber.trim().split("/");
   if (parts.length !== 2) {
     throw new AppError("Invalid index number format. Expected ROLE/ID.", 400);
   }
-  const [role, id] = parts;
+  const role = parts[0].trim().toUpperCase();
+  const id = parts[1].trim();
   if (!PORTAL_ROLES.includes(role)) {
     throw new AppError("Invalid index number role.", 400);
   }

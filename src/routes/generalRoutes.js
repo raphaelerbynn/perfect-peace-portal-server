@@ -104,7 +104,7 @@ router.get("/subject", ACADEMIC, fetchSubject);               // Subjects view: 
 router.get("/events", ALL_ROLES, fetchNews);
 router.get("/active-term", ALL_ROLES, fetchActiveTerm);       // term metadata: shared
 router.get("/terms", ALL_ROLES, fetchTerms);
-// BE-D4: close-term promotes students AND deactivates the active term — a
+// BE-D4: close-term promotes students AND deactivates the active term - a
 // state-mutating, non-idempotent operation that must NOT be a GET. Frontend
 // already calls POST and expects { message } on success.
 router.post("/close-term", ADMIN_ONLY, closeTerm);            // mutating term state: Administrator
@@ -114,7 +114,9 @@ router.post("/close-term", ADMIN_ONLY, closeTerm);            // mutating term s
 router.get("/staff", ADMIN_ONLY, fetchAllStaff);
 
 // --- Students (hidden for Accountant) ---
-router.get("/students", ACADEMIC, fetchAllStudents);
+// All office roles: Accountants pick pupils when recording fees. Class Teachers
+// are scoped to their class in getStudents.
+router.get("/students", ALL_ROLES, fetchAllStudents);
 
 // --- Student Reports / Results (hidden for Accountant) ---
 router.get("/student-results", ACADEMIC, fetchClassResult);
@@ -126,7 +128,8 @@ router.get("/student-kg-results", ACADEMIC, fetchClassKGResult);
 router.get("/student-attendance", ACADEMIC, fetchAttendance);
 router.get("/student-attendance-count", ACADEMIC, fetchAttendanceCount);
 router.get("/student-total-attendance", ACADEMIC, fetchTotalStudentAttendance);
-router.get("/calculate-term-attendance", ACADEMIC, calculateTotalAttendance);
+// Rolls up AND deletes the term's daily registers: Administrator only.
+router.get("/calculate-term-attendance", ADMIN_ONLY, calculateTotalAttendance);
 
 // --- Fees (hidden for Class Teacher) ---
 router.get("/fees", FINANCE, fetchFees);
@@ -158,7 +161,7 @@ router.post("/add-salary-payment", FINANCE, addSalaryPayment);
 router.post("/add-feeding", FINANCE, addFeeding);
 router.post("/add-bus-fee", FINANCE, addBusFee);
 router.post("/add-extra-classes", FINANCE, addExtraClasses);
-router.post("/add-class-fee", FINANCE, addClassFee);       // BE-4: finance op (was ADMIN_ONLY) — Accountant manages fee amounts
+router.post("/add-class-fee", FINANCE, addClassFee);       // BE-4: finance op (was ADMIN_ONLY) - Accountant manages fee amounts
 router.post("/add-student-fee", FINANCE, addStudentFee);   // BE-4: finance op (was ADMIN_ONLY)
 router.post("/add-term", ADMIN_ONLY, addTerm);
 router.post("/add-news", ADMIN_ONLY, addEvent);               // Events add: Administrator
@@ -194,7 +197,7 @@ router.delete("/delete-bus-fee/:busfee_id", FINANCE, deleteBusFee);
 router.delete("/delete-news/:news_id", ADMIN_ONLY, deleteEvent);
 
 
-//graph routes — Data Visualization accounting charts hidden for Class Teacher
+//graph routes - Data Visualization accounting charts hidden for Class Teacher
 router.get("/expense-graph", FINANCE, fetchExpenseGraph);
 router.get("/income-graph", FINANCE, fetchIncomeGraph);
 router.get("/fees-graph", FINANCE, fetchFeesGraph);

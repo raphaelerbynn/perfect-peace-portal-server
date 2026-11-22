@@ -36,7 +36,7 @@ const validateEventFields = (data, { partial = false } = {}) => {
 // behaviour and shape (full array). limit/offset only applied when supplied.
 //
 // BE-21: both `/news` and `/events` map here (Event.findAll). In this system
-// "news" and "events" are the SAME underlying concept — a single `Event` table
+// "news" and "events" are the SAME underlying concept - a single `Event` table
 // backs both the parent-app news feed and the admin events list. There is no
 // separate News model. The two route paths are kept as aliases for frontend
 // compatibility (the portal app calls /news, the admin portal uses events).
@@ -58,8 +58,25 @@ const getNews = async (options = {}) => {
         queryOptions.offset = (safePage - 1) * parsedLimit;
     }
 
-    return await Event.findAll(queryOptions);
+    const rows = await Event.findAll(queryOptions);
+    return rows.map((row) => {
+        const plain = typeof row?.toJSON === "function" ? row.toJSON() : { ...row };
+        plain.created_at = normalizeCreatedAt(plain.created_at);
+        return plain;
+    });
 }
+
+// `created_at` is a VARCHAR. The old code stored Date.now() as a string of
+// milliseconds ("1731568000000"); new rows store an ISO timestamp. Send ISO
+// either way, and null for anything unreadable.
+export const normalizeCreatedAt = (value) => {
+    if (value === null || value === undefined || value === "") return null;
+    const text = String(value).trim();
+    const date = /^\d{10,13}$/.test(text)
+        ? new Date(Number(text.length === 10 ? Number(text) * 1000 : text))
+        : new Date(text);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+};
 
 const createEvent = async (data) => {
     // BE-D7: validate before insert.
@@ -70,12 +87,12 @@ const createEvent = async (data) => {
         description: data?.description || null,
         date: data?.date || null,
         time: data?.time || null,
-        created_at: Date.now()
+        created_at: new Date().toISOString()
     });
 }
 
 const editEvent = async (data, eventId) => {
-    // BE-D7: validate (partial — only enforce fields that are present), then
+    // BE-D7: validate (partial - only enforce fields that are present), then
     // explicitly whitelist the updatable columns instead of spreading the whole
     // request body (prevents mass-assignment of eventId / created_at / etc.).
     validateEventFields(data, { partial: true });

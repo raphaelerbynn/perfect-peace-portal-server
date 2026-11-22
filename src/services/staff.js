@@ -7,7 +7,7 @@ import { isValidPhoneNumber } from "../utils/func.js";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // BE-T6: validate required/format fields and surface clean 400s instead of raw
-// Sequelize 500s / DB truncation errors. On edit we validate "partially" — only
+// Sequelize 500s / DB truncation errors. On edit we validate "partially" - only
 // the fields actually present in the payload are checked.
 const validateStaffInput = (data, { partial = false } = {}) => {
   const present = (k) =>
@@ -34,7 +34,7 @@ const validateStaffInput = (data, { partial = false } = {}) => {
 // behaviour and shape as before (full array). limit/offset only applied when
 // pagination params are supplied.
 export const getStaff = async (options = {}) => {
-  // BE-D6: do NOT swallow DB errors — let them propagate to the central
+  // BE-D6: do NOT swallow DB errors - let them propagate to the central
   // errorHandler. Success-path shape is unchanged.
   const { page, limit } = options;
 
@@ -65,11 +65,31 @@ export const getStaff = async (options = {}) => {
   }
 
   const staff = await Teacher.findAll(queryOptions);
+
+  // The class a teacher looks after is named on the CLASS (Class.teacher_id),
+  // which is what the Classes page shows; live leaves Teacher.class_id empty
+  // for most staff. Prefer the class record, fall back to Teacher.class_id.
+  const ids = staff.map((t) => t.teacherId);
+  const owned = ids.length
+    ? await Class.findAll({
+        where: { teacherId: { [Op.in]: ids }, isDeleted: { [Op.not]: true } },
+        attributes: ["classId", "name", "teacherId"],
+        order: [["name", "ASC"]],
+        raw: true,
+      })
+    : [];
+  for (const t of staff) {
+    const mine = owned.filter((c) => Number(c.teacherId) === Number(t.teacherId));
+    if (!mine.length) continue;
+    const value = { name: mine.map((c) => String(c.name).trim()).join(", "), classId: mine[0].classId };
+    if (typeof t.setDataValue === "function") t.setDataValue("class_", value);
+    else t.class_ = value;
+  }
   return staff;
 };
 
 // Public, minimal staff list for the PRE-LOGIN signup picker only.
-// Returns id + name exclusively — never password, contact, bank or other PII —
+// Returns id + name exclusively - never password, contact, bank or other PII -
 // so it is safe to expose unauthenticated. Throws on error so the controller
 // can forward via next(). Excludes archived staff.
 export const getStaffForSignup = async () => {
@@ -118,7 +138,7 @@ export const removeStaff = async (id) => {
 };
 
 // BE-T1/BE-T5/BE-T2: createStaff now accepts the same keys the edit path uses
-// (`class`, `salaryId`) — previously it read `data.class_id` and never read
+// (`class`, `salaryId`) - previously it read `data.class_id` and never read
 // salaryId, so class assignment and salary/rank were silently dropped on add.
 // Wrapped in a transaction; maintains the Class.teacherId back-link; validates;
 // detects duplicates; does not swallow errors.
@@ -195,7 +215,7 @@ export const createStaff = async (data) => {
 };
 
 // BE-T2/BE-T4/BE-T8/BE-T9: transactional; only updates fields actually present
-// (so an edit that omits a field no longer nulls it — salaryId in particular was
+// (so an edit that omits a field no longer nulls it - salaryId in particular was
 // being wiped on every edit); rejects an already-assigned class with a real 409;
 // errors propagate.
 export const editStaff = async (data, id) => {

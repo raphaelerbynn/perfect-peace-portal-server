@@ -41,7 +41,7 @@ const _ = sequelize.define('subject', {
     },
     // BE-U: soft-delete / archive flag (mirrors Student/Teacher). The matching
     // `is_deleted` column + the unique index on `name` are added by a MANUAL
-    // migration (see service notes) — we only DECLARE the attribute here. The
+    // migration (see service notes) - we only DECLARE the attribute here. The
     // model's sync() is intentionally left commented out; nothing here triggers
     // a schema sync at import time.
     isDeleted: {

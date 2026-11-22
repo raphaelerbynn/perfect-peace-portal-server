@@ -36,7 +36,7 @@ const foc = async (Model, where, defaults = {}) => {
 
 const run = async () => {
   await sequelize.authenticate();
-  console.log(`Connected to ${sequelize.getDatabaseName()} — seeding…`);
+  console.log(`Connected to ${sequelize.getDatabaseName()} - seeding…`);
 
   const adminHash = await bcrypt.hash(ADMIN_PASSWORD, ROUNDS);
   const studentHash = await bcrypt.hash(STUDENT_PASSWORD, ROUNDS);

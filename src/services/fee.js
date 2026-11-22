@@ -1,7 +1,8 @@
-import { ClassFee, Fee, FeeCheck, Student, StudentFee } from "../models/index.js";
+import { ClassFee, Fee, FeeCheck, Student, StudentFee, Term } from "../models/index.js";
 import { Op } from "sequelize";
 import sequelize from "../config/database.js";
 import { AppError } from "../utils/errorHandling.js";
+import { isPesewaAmount, round2, sumMoney } from "../utils/money.js";
 
 // BE-1: a payment amount must be a finite number > 0. (Mirrors
 // studentFees.validateAmount; defined locally to avoid a circular import.)
@@ -13,7 +14,12 @@ const validatePaymentAmount = (amount) => {
   if (num <= 0) {
     throw new AppError("Payment amount must be a positive number", 400);
   }
-  return num;
+  // Cedis and pesewas (migration 012: NUMERIC(18,2)). A third decimal place
+  // would be rounded by the database, so refuse it instead.
+  if (!isPesewaAmount(num)) {
+    throw new AppError("Enter the payment with at most 2 decimal places (cedis and pesewas).", 400);
+  }
+  return round2(num);
 };
 
 // BE-4: a payment must reference an existing, non-archived student.
@@ -23,7 +29,10 @@ const ensureStudentExists = async (studentId, transaction = null) => {
   }
   const student = await Student.findOne({
     where: { studentId, isDeleted: false },
-    ...(transaction ? { transaction } : {}),
+    // Lock the student row for the rest of the payment transaction, so two
+    // payments recorded at the same moment are checked one after the other
+    // (otherwise both pass the "not more than the balance" check together).
+    ...(transaction ? { transaction, lock: transaction.LOCK?.UPDATE } : {}),
   });
   if (!student) {
     throw new AppError("Student not found", 400);
@@ -31,61 +40,51 @@ const ensureStudentExists = async (studentId, transaction = null) => {
   return student;
 };
 
-// BE-D3: single authoritative recomputation of a student's denormalized
-// `feesPaid` / `feesOwing` columns, derived from the underlying rows. Every fee
-// mutation (Fee create/delete, StudentFee create/edit/delete, student class
-// change) must call this INSIDE its surrounding transaction so the cached
-// columns can never drift from the source rows.
+// Single authoritative recomputation of a pupil's cached `feesPaid` /
+// `feesOwing`, from the underlying rows, inside the caller's transaction.
 //
-// FORMULA (matches the existing intent in services/test.js#editStudent, the
-// most explicit pre-existing computation in the codebase):
-//   billed = sum(ClassFee.amount for the student's current class)
-//          + sum(StudentFee.amount for the student)
-//   paid   = sum(Fee.paid for the student)   // each Fee row is one payment receipt
-//   feesPaid  = paid
-//   feesOwing = billed - paid
-//
-// ASSUMPTIONS (flagged for the later Fees-feature review):
-//   1. NO arrears carry-over beyond the current class bill. editStudent already
-//      drops arrears on class change ("arrears are lost on class change"), so the
-//      denormalized owing is purely (current bill - total paid). If the business
-//      actually wants historical arrears to persist across class/term changes,
-//      this helper (and editStudent) need a dedicated arrears column — there is
-//      none today.
-//   2. `Fee.paid` is the amount of THAT single payment (createFee writes
-//      `paid: currentPaid`), so summing it gives lifetime paid. The legacy
-//      `Fee.total` / `Fee.remaining` columns are receipt snapshots and are NOT
-//      used to derive the balance.
-//   3. Billing is not term-scoped here (ClassFee/StudentFee carry no term), so
-//      owing is a running lifetime figure, same as before.
+// FEE PERIODS (migration 008): balances carry over from the live system.
+//   bill            = sum(ClassFee for the pupil's current class) + sum(StudentFee)
+//   paidInPeriod    = payments with fee_id > feesPeriodAfterFeeId
+//   feesOwing       = feesOpeningBalance + (bill - feesBillAtStart) - paidInPeriod
+//                     (below 0 = the pupil is in credit; live has such pupils,
+//                     and the credit must carry over, not vanish on recompute)
+//   feesPaid        = feesPaidAtStart + paidInPeriod
+// So at go-live nothing changes (opening = live balance, bill_at_start = the
+// bill then); a class fee added later adds to what pupils owe; correcting a
+// pupil's class swaps the old bill for the new one; promotion starts a new
+// period (startFeePeriod). Owing never goes below 0 (overpayment is refused).
 export const recomputeStudentOwing = async (studentId, { transaction = null } = {}) => {
   if (studentId == null) return null;
 
+  // Lock the pupil (inside a transaction) so a payment, deletion or fee change
+  // happening at the same moment can't be left out of the balance.
   const student = await Student.findOne({
     where: { studentId },
-    attributes: ["studentId", "classId"],
+    attributes: ["studentId", "classId", "feesOpeningBalance", "feesBillAtStart", "feesPaidAtStart", "feesPeriodAfterFeeId"],
     raw: true,
     transaction,
+    ...(transaction?.LOCK ? { lock: transaction.LOCK.UPDATE } : {}),
   });
   if (!student) return null;
 
-  const [classFees, studentFees, fees] = await Promise.all([
+  const after = Number(student.feesPeriodAfterFeeId) || 0;
+  // One query at a time: inside a transaction they share one connection.
+  const classFees =
     student.classId != null
-      ? ClassFee.findAll({ where: { classId: student.classId }, attributes: ["amount"], raw: true, transaction })
-      : Promise.resolve([]),
-    StudentFee.findAll({ where: { studentId }, attributes: ["amount"], raw: true, transaction }),
-    Fee.findAll({ where: { studentId }, attributes: ["paid"], raw: true, transaction }),
-  ]);
+      ? await ClassFee.findAll({ where: { classId: student.classId }, attributes: ["amount"], raw: true, transaction })
+      : [];
+  const studentFees = await StudentFee.findAll({ where: { studentId }, attributes: ["amount"], raw: true, transaction });
+  // Only this period's payments.
+  const fees = await Fee.findAll({ where: { studentId, feeId: { [Op.gt]: after } }, attributes: ["paid"], raw: true, transaction });
 
-  const classFeeTotal = classFees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
-  const studentFeeTotal = studentFees.reduce((sum, f) => sum + Number(f.amount || 0), 0);
-  const billed = classFeeTotal + studentFeeTotal;
-  const paid = fees.reduce((sum, f) => sum + Number(f.paid || 0), 0);
-  // BE-7: owing is clamped at 0 — the system rejects overpayment (createFee),
-  // so a negative balance is never a valid "credit"; the owing list and parent
-  // app both assume owing >= 0. (feesPaid keeps the true total paid, so an
-  // over-collection is still visible as paid > billed.)
-  const owing = Math.max(0, billed - paid);
+  // Summed to the pesewa (amounts can have decimals since migration 012).
+  const billed = round2(sumMoney(classFees, "amount") + sumMoney(studentFees, "amount"));
+  const paidInPeriod = sumMoney(fees, "paid");
+  const opening = Number(student.feesOpeningBalance) || 0;
+  const billAtStart = Number(student.feesBillAtStart) || 0;
+  const owing = round2(opening + (billed - billAtStart) - paidInPeriod); // < 0 = in credit, kept
+  const paid = round2((Number(student.feesPaidAtStart) || 0) + paidInPeriod);
 
   await Student.update(
     { feesPaid: paid, feesOwing: owing },
@@ -93,6 +92,30 @@ export const recomputeStudentOwing = async (studentId, { transaction = null } = 
   );
 
   return { billed, paid, owing };
+};
+
+/**
+ * Start a new fee period (promotion / start of a new year): what is still owed
+ * carries over as arrears, the new class's bill is then added in full, and
+ * "paid" counts from now - the live system's behaviour on a class change, but
+ * keeping arrears instead of dropping them. Call BEFORE moving the pupil, then
+ * recomputeStudentOwing after the move.
+ */
+export const startFeePeriod = async (studentId, { transaction = null } = {}) => {
+  const now = await recomputeStudentOwing(studentId, { transaction });
+  if (!now) return null;
+  const [[{ maxId }]] = await sequelize.query(`SELECT COALESCE(MAX(fee_id), 0) AS "maxId" FROM "dbo"."Fee"`, { transaction });
+  await Student.update(
+    {
+      feesOpeningBalance: now.owing,
+      feesBillAtStart: 0,
+      feesPaidAtStart: 0,
+      feesPeriodAfterFeeId: Number(maxId) || 0,
+      feesPeriodStartedAt: new Date(),
+    },
+    { where: { studentId }, transaction }
+  );
+  return { arrears: now.owing, afterFeeId: Number(maxId) || 0 };
 };
 
 const createFee = async (data) => {
@@ -117,18 +140,21 @@ const createFee = async (data) => {
       );
     }
 
+    // The payment counts toward the open term (Fees page totals by term).
+    const openTerm = await Term.findOne({ where: { active: true }, attributes: ["termId", "term"], raw: true, transaction: t });
     const response = await Fee.create(
       {
+        termId: openTerm?.termId ?? null,
         studentId: data?.studentId,
         classId: data?.classId,
         total: data?.total,
         paid: amount,
         // BE-2: store the server-computed remaining, not the client's value.
-        remaining: owing - amount,
+        remaining: round2(owing - amount),
         paymentMode: data?.paymentMode,
         amountInWords: data?.amountInWords,
         datePaid: data?.datePaid,
-        term: data?.term,
+        term: data?.term ?? openTerm?.term ?? null,
       },
       { transaction: t }
     );
@@ -146,18 +172,48 @@ const createFee = async (data) => {
 
 const removeFee = async (id) => {
   // BE-D3: deleting a payment must RESTORE the balance. Read the row first to
-  // know which student to reconcile, delete, then recompute — all atomically.
+  // know which student to reconcile, delete, then recompute - all atomically.
+  if (!/^\d+$/.test(String(id ?? ""))) throw new AppError("Fee payment not found", 404);
   return await sequelize.transaction(async (t) => {
     const existing = await Fee.findOne({ where: { feeId: id }, transaction: t });
-    // BE-5: distinguish "deleted" from "didn't exist" — 404 instead of a silent
+    // BE-5: distinguish "deleted" from "didn't exist" - 404 instead of a silent
     // 200/0 with no recompute.
     if (!existing) {
       throw new AppError("Fee payment not found", 404);
     }
     const studentId = existing.studentId;
+    // Lock the pupil like createFee does, so a payment recorded at the same
+    // moment can't be left out of the recomputed balance.
+    const p = studentId != null
+      ? await Student.findOne({
+          where: { studentId },
+          attributes: ["studentId", "feesPeriodAfterFeeId", "feesOpeningBalance", "feesPaidAtStart"],
+          raw: true,
+          transaction: t,
+          lock: t.LOCK?.UPDATE,
+        })
+      : null;
 
     const response = await Fee.destroy({ where: { feeId: id }, transaction: t });
+    // Someone deleted it between our read and now (double click, two people):
+    // the balance was already corrected once. Nothing more to do.
+    if (response === 0) {
+      throw new AppError("Fee payment not found", 404);
+    }
 
+    // A payment from before the pupil's current fee period (e.g. paid on the
+    // live system before go-live) is inside the opening balance, not the
+    // period's payments: deleting it puts the money back on what is owed.
+    if (p && Number(existing.feeId) <= (Number(p.feesPeriodAfterFeeId) || 0)) {
+      const amount = Number(existing.paid) || 0;
+      await Student.update(
+        {
+          feesOpeningBalance: round2((Number(p.feesOpeningBalance) || 0) + amount),
+          feesPaidAtStart: Math.max(0, round2((Number(p.feesPaidAtStart) || 0) - amount)),
+        },
+        { where: { studentId }, transaction: t }
+      );
+    }
     if (studentId != null) {
       await recomputeStudentOwing(studentId, { transaction: t });
     }

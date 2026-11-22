@@ -9,18 +9,19 @@ import {
 } from "../models/index.js";
 import { AppError } from "../utils/errorHandling.js";
 import { getTerm } from "./term.js";
+import { round2 } from "../utils/money.js";
 
 // ---------------------------------------------------------------------------
-// Feature #8 — authoritative, non-destructive results engine.
+// Feature #8 - authoritative, non-destructive results engine.
 //
 // Design (locked decisions):
 //  - Every save is an UPSERT keyed by (student, subject, class, termId) for marks
-//    and (student, class, termId) for the aggregate — NEVER destroy-then-create,
+//    and (student, class, termId) for the aggregate - NEVER destroy-then-create,
 //    so a partial save can never wipe other subjects' marks. All multi-row writes
 //    run inside a single transaction.
 //  - The SERVER recomputes every percentage / total / aggregate from the Subject
 //    config (examTotalMarks / classTotalMarks / examPercentage / classPercentage /
-//    passMarks — Feature #6) and the persisted marks. Client-supplied derived
+//    passMarks - Feature #6) and the persisted marks. Client-supplied derived
 //    numbers are ignored. Teacher judgement fields (conduct/attitude/interest/
 //    remarks/status/promotion) are preserved as entered.
 //  - A score of 0 is a VALID score (the old code dropped it as "no data").
@@ -81,17 +82,18 @@ const computeMarkFields = (subject, classScoreRaw, examScoreRaw) => {
   return {
     classScore: cs,
     examScore: es,
-    classScorePercentage: Math.round(classScorePercentage),
-    examScorePercentage: Math.round(examScorePercentage),
-    totalScore: Math.round(totalScore),
-    remarks: gradeRemark(totalScore),
+    // 2 decimal places (migration 012): 7.5/10 of 30% is 22.5, not 23.
+    classScorePercentage: round2(classScorePercentage),
+    examScorePercentage: round2(examScorePercentage),
+    totalScore: round2(totalScore),
+    remarks: gradeRemark(round2(totalScore)), // same total as stored
   };
 };
 
 // Upsert ONE subject mark (recomputed server-side). Returns the persisted row.
 const upsertOneMark = async (data, termId, t) => {
   if (isBlank(data?.classMark) && isBlank(data?.examMark)) {
-    return null; // nothing entered for this subject — skip, don't wipe
+    return null; // nothing entered for this subject - skip, don't wipe
   }
   if (isBlank(data?.classMark) || isBlank(data?.examMark)) {
     throw new AppError("Both class and exam marks are required for a subject", 400);
@@ -144,6 +146,14 @@ const upsertOneMark = async (data, termId, t) => {
 const recomputeStudentResult = async (scope, observations, t) => {
   const { studentId, class: className, term, termId } = scope;
 
+  // Lock the pupil first: two score sheets saving at once (Maths and English
+  // teachers) would otherwise each total the marks without the other's
+  // uncommitted subject, and the later write would drop it. With the lock the
+  // second waits, then reads the first's committed marks.
+  if (t) {
+    await Student.findOne({ where: { studentId }, attributes: ["studentId"], transaction: t, lock: t.LOCK?.UPDATE });
+  }
+
   const marks = await StudentMarks.findAll({
     where: { studentId, class: className, termId },
     raw: true,
@@ -163,7 +173,7 @@ const recomputeStudentResult = async (scope, observations, t) => {
     passRawScore = subjectIds.reduce((sum, sid) => sum + (passMap.get(sid) || 0), 0);
   }
 
-  const rawScore = Math.round(marks.reduce((sum, m) => sum + Number(m.totalScore || 0), 0));
+  const rawScore = round2(marks.reduce((sum, m) => sum + Number(m.totalScore || 0), 0));
   const totalRawScore = marks.length * 100;
   const classTotal = await Student.count({
     where: { class: className, isDeleted: { [Op.not]: true } },
@@ -236,7 +246,7 @@ const upsertMarksResult = async (data) => {
 // /add-single-subject-result now routes to the safe upsert (no destroy-recreate).
 const createMarksResult = async (data) => upsertMarksResult(data);
 
-// Multi-subject upsert (no observations) — used by the bulk path; never deletes
+// Multi-subject upsert (no observations) - used by the bulk path; never deletes
 // subjects that aren't in the payload.
 const bulkCreateMarksResult = async (marksData, studentInfo) => {
   const termId = studentInfo?.termId || (await getTerm())?.termId;
@@ -311,7 +321,7 @@ const saveResult = async (data) => {
   });
 };
 
-// KG assessment upsert — scoped per (student, termId, class, category, assessment)
+// KG assessment upsert - scoped per (student, termId, class, category, assessment)
 // so the parallel per-key saves NEVER wipe each other (the old code destroyed ALL
 // of the student's KG rows for the term on every call). 0 scores are valid.
 const createKGResult = async (data) => {
@@ -365,11 +375,10 @@ const removeResult = async (data) => {
 
   return await sequelize.transaction(async (t) => {
     const scope = { studentId: data.studentId, class: data.class, termId };
-    const [marks, result, kg] = await Promise.all([
-      StudentMarks.destroy({ where: scope, transaction: t }),
-      StudentResult.destroy({ where: scope, transaction: t }),
-      KgAssessment.destroy({ where: scope, transaction: t }),
-    ]);
+    // One query at a time: inside a transaction they share one connection.
+    const marks = await StudentMarks.destroy({ where: scope, transaction: t });
+    const result = await StudentResult.destroy({ where: scope, transaction: t });
+    const kg = await KgAssessment.destroy({ where: scope, transaction: t });
     return { marks, result, kg };
   });
 };
@@ -452,20 +461,11 @@ const getKGResultByClassAndTerm = async (data) => {
   return response;
 };
 
+// The position must be ranked across the whole class: filtering by studentId
+// first made RANK() rank a single row (everyone was "1st").
 const getOneStudentResult = async (data) => {
-  const response = await StudentResult.findAll({
-    attributes: {
-      include: [
-        [sequelize.literal("RANK() OVER (ORDER BY raw_score DESC)"), "position"],
-      ],
-    },
-    where: {
-      class: data?.class,
-      termId: data?.termId,
-      studentId: data?.studentId,
-    },
-  });
-  return response;
+  const classRows = await getClassResult(data);
+  return classRows.filter((r) => Number(r.studentId ?? r.dataValues?.studentId) === Number(data?.studentId));
 };
 
 const getOneStudentMarks = async (data) => {
@@ -508,10 +508,15 @@ const getOneStudentMarks = async (data) => {
   return results;
 };
 
+// Old marks whose subject was deleted in the old system have subject_id NULL
+// (966 rows on the 2026-11 live copy, 2022-2025). The name can't be recovered,
+// so the portal gets a label instead of null.
+export const REMOVED_SUBJECT_LABEL = "Subject no longer listed";
+
 const getResults = async (indexNumber) => {
   const query = `
     SELECT
-    subj.name AS name1,
+    COALESCE(subj.name, :removedLabel) AS name1,
         sm.exam_score_percentage,
         sm.class_score_percentage,
         sm.total_score,
@@ -536,7 +541,7 @@ const getResults = async (indexNumber) => {
     ORDER BY sm.term_id DESC, sm.class ASC, year DESC, name1 ASC`;
 
   const results = await sequelize.query(query, {
-    replacements: { indexNumber },
+    replacements: { indexNumber, removedLabel: REMOVED_SUBJECT_LABEL },
     type: sequelize.QueryTypes.SELECT,
   });
   return results;
@@ -544,7 +549,7 @@ const getResults = async (indexNumber) => {
 
 const getNurseryResults = async (indexNumber) => {
   // Postgres: extract the year with to_char (was MySQL DATE_FORMAT, before that
-  // MSSQL FORMAT — both invalid on Postgres).
+  // MSSQL FORMAT - both invalid on Postgres).
   const results = await KgAssessment.findAll({
     where: {
       student_id: indexNumber,
@@ -597,4 +602,5 @@ export {
   bulkCreateMarksResult,
   upsertMarksResult,
   saveResult,
+  computeMarkFields,
 };

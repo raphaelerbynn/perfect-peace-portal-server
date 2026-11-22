@@ -1,7 +1,10 @@
 name: Deploy test-client
 
-# Builds the backend image on every push to `test-client`, pushes it to GHCR,
-# then SSHes into the Contabo VPS and brings up the temp-DB + API (:5040) stack.
+# Every PR into `test-client` and every push to it: run the Jest suite and the
+# Babel build on Node 20 (the `test` job). On a push to `test-client` (or a
+# manual run), and only if the tests pass, build the backend image, push it to
+# GHCR, then SSH into the Contabo VPS and bring up the temp-DB + API (:5040)
+# stack. PRs never deploy.
 #
 # Required repo secrets (Settings -> Secrets and variables -> Actions):
 #   VPS_HOST        Contabo VPS hostname / IP
@@ -20,15 +23,43 @@ name: Deploy test-client
 on:
   push:
     branches: [test-client]
+  pull_request:
+    branches: [test-client]
   workflow_dispatch:
 
+# A newer push to the same PR cancels its older test run; deploys queue instead
+# of being cancelled halfway.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
-  # ghcr.io/<owner>/<repo>  — must be lowercase (it already is here).
+  # ghcr.io/<owner>/<repo>  - must be lowercase (it already is here).
   IMAGE: ghcr.io/${{ github.repository }}
   TAG: test-client
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      # src/config/auth.js exits without a key; tests only need any value
+      # (locally it comes from the gitignored .env). Not a real secret.
+      JWT_KEY: ci-test-only-not-a-secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Tests (Jest, models mocked, no DB)
+        run: npm test -- --ci
+      - name: Build (Babel src -> dist)
+        run: npm run build
+
   build-and-push:
+    needs: test
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -87,7 +118,7 @@ jobs:
             # GitHub secrets if it does NOT already exist, so a hand-edited
             # .env.test-client on the VPS is never overwritten by a deploy.
             if [ ! -f .env.test-client ]; then
-            echo "No .env.test-client found — writing one from GitHub secrets."
+            echo "No .env.test-client found - writing one from GitHub secrets."
             cat > .env.test-client <<EOF
             DB_NAME=perfectpeace_test
             DB_USERNAME=perfectpeace
@@ -112,14 +143,14 @@ jobs:
             echo "Using the existing .env.test-client in /opt/projects/perfect_peace."
             fi
 
-            # Always deploy the image this run just built — a shell env var wins
+            # Always deploy the image this run just built - a shell env var wins
             # over any (stale/missing) BACKEND_IMAGE in the env file for Compose
             # interpolation, so we never accidentally pull an old tag.
             export BACKEND_IMAGE="${{ env.IMAGE }}:${{ env.TAG }}"
 
             # Log in to GHCR to pull the (possibly private) image.
             echo "${GHCR_TOKEN:-}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin || \
-              echo "No GHCR_TOKEN provided — assuming the package is public."
+              echo "No GHCR_TOKEN provided - assuming the package is public."
 
             docker compose -f docker-compose.test-client.yml --env-file .env.test-client pull
             docker compose -f docker-compose.test-client.yml --env-file .env.test-client up -d

@@ -21,13 +21,16 @@ const studentFee = sequelize.define(
       field: "student_id",
     },
     amount: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.DECIMAL(18, 2),
       allowNull: true,
     },
   },
   {
     sequelize,
     tableName: "StudentFee",
+    // Every other table lives in "dbo"; without this the table was created in
+    // "public" and the data move (which loads into dbo) could not find it.
+    schema: "dbo",
     timestamps: false,
   }
 );

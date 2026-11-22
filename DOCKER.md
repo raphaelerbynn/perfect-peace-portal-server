@@ -35,6 +35,32 @@ docker compose exec db psql -U "$DB_USERNAME" -d "$DB_NAME" -f /path/in/containe
 `db/init/01-create-schema.sql` runs ONCE on first volume init and only does
 `CREATE SCHEMA IF NOT EXISTS dbo;`. Everything else (tables + data) is your script.
 
+## Moving the live MySQL data (use the tool)
+
+`npm run move-data` does everything in the checklist below for you. It is tested by `./scripts/rehearse-data-move.sh`.
+
+```bash
+# 1. Rehearse with throwaway Docker databases. With no argument it uses fake data;
+#    pass a real mysqldump to rehearse with live data:
+./scripts/rehearse-data-move.sh /path/to/live-dump.sql
+
+# 2. For real, into an EMPTY Postgres (DB_* env vars), reading live MySQL:
+SOURCE_MYSQL_URL=mysql://user:pass@host:3306/dbo npm run move-data -- --dry-run
+SOURCE_MYSQL_URL=mysql://user:pass@host:3306/dbo npm run move-data
+npm run migrate          # unique indexes etc. Fix any duplicates the move reported first.
+```
+
+The tool:
+- creates the tables from the models
+- copies every table in one transaction
+- converts booleans and zero dates
+- **bcrypt-hashes plaintext passwords** (Student, Teacher, User_account)
+- fills new NOT NULL columns with their defaults
+- resets id sequences
+- reports orphan rows, duplicates and row-count mismatches, and writes a JSON report to `db/move-reports/`
+
+Use Node 20 (`.nvmrc`). On Node ≥ 25, `jsonwebtoken` fails to load.
+
 ## ⚠️ What your data-move script MUST produce (so the ORM + raw queries work)
 
 The Sequelize models are pinned to **`schema: 'dbo'`**, and Postgres is
@@ -49,7 +75,7 @@ The Sequelize models are pinned to **`schema: 'dbo'`**, and Postgres is
    `Notification`, `Event`, `FeeCheck`, `FeedingFee`, `BusFee`, `ExtraClasses`,
    `Password_reset_code`. (Verify each against `src/models/*.js` `tableName`.)
 3. **Column names** are the snake_case `field:` mappings in the models
-   (`student_id`, `is_deleted`, `date_paid`, `salary_snapshot`, …) — case-sensitive.
+   (`student_id`, `is_deleted`, `date_paid`, `salary_snapshot`, …) - case-sensitive.
 4. **Booleans:** `is_deleted`, `Term.active`, etc. must be Postgres `BOOLEAN`
    (MySQL `TINYINT(1)` → `BOOLEAN`). The ORM passes real `true/false`.
 5. **Auto-increment PKs:** use `GENERATED ... AS IDENTITY` / `SERIAL`, and after
@@ -60,7 +86,7 @@ The Sequelize models are pinned to **`schema: 'dbo'`**, and Postgres is
 7. **Re-create the composite UNIQUE indexes** from the feature work (see the
    deploy/cutover notes): `uniq_marks`, `uniq_result`, `uniq_kg`,
    `uniq_attendance`, `uniq_total_attendance`, `uniq_subject_name`, and the
-   `Password_reset_code` index — in Postgres syntax.
+   `Password_reset_code` index - in Postgres syntax.
 
 ## What changed in the code for Postgres
 - `src/config/database.js`: dialect `postgres`, added `DB_PORT` (default 5432).
@@ -70,7 +96,7 @@ The Sequelize models are pinned to **`schema: 'dbo'`**, and Postgres is
   `Number()`-coerced because Postgres has no implicit numeric=text compare).
 - `src/services/account.js`: feeding/extra-classes/bus-fee date filters → the
   parameterized `buildDateWhere` range (removed MySQL `CONVERT(...)`).
-- `src/services/results.js` + `src/services/user.js`: raw SQL ported —
+- `src/services/results.js` + `src/services/user.js`: raw SQL ported -
   `` `dbo.Table` `` (MySQL) → `"dbo"."Table"` with table aliases (Postgres rejects
   `schema.table.column`), camelCase output aliases double-quoted to preserve case,
   and `DATE_FORMAT(date,'%Y')` → `to_char(date,'YYYY')`.
@@ -78,4 +104,4 @@ The Sequelize models are pinned to **`schema: 'dbo'`**, and Postgres is
 
 > The raw-SQL endpoints (student marks/results detail, nursery results, teacher
 > details) and the chart endpoints should be smoke-tested once real data is
-> loaded — raw SQL couldn't be validated against an empty schema.
+> loaded - raw SQL couldn't be validated against an empty schema.

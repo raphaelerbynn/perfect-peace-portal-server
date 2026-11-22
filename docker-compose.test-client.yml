@@ -1,7 +1,7 @@
-# TEST-CLIENT stack — a throwaway environment for a client to try the API.
+# TEST-CLIENT stack - a throwaway environment for a client to try the API.
 #
 #   * Temp PostgreSQL: data lives in tmpfs (RAM), so every restart is a CLEAN
-#     slate — there is NO persistent volume. This is intentional ("temp db").
+#     slate - there is NO persistent volume. This is intentional ("temp db").
 #   * Backend: pulled from the registry image built by CI (GitHub Actions), or
 #     built locally with `--build`. On boot it creates the schema and seeds
 #     EXACTLY ONE user (the admin), then starts the API on port 5040.
@@ -26,7 +26,7 @@ services:
       POSTGRES_DB: ${DB_NAME:-perfectpeace_test}
       POSTGRES_USER: ${DB_USERNAME:-perfectpeace}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-perfectpeace_test_pw}
-    # Ephemeral storage — wiped on every container recreation ("temp" DB).
+    # Ephemeral storage - wiped on every container recreation ("temp" DB).
     tmpfs:
       - /var/lib/postgresql/data
     volumes:

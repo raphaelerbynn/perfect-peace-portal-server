@@ -15,7 +15,7 @@
  * a bcrypt hash, so the script is idempotent and safe to re-run.
  *
  * Run with:  npm run backfill-password-hash
- * (Requires DB access — uses the existing Sequelize config / .env.)
+ * (Requires DB access - uses the existing Sequelize config / .env.)
  */
 import bcrypt from "bcrypt";
 import { DataTypes } from "sequelize";
@@ -69,7 +69,7 @@ const backfill = async (qi, qg, { Model, label, idColumn }) => {
   for (const row of rows) {
     const { id, pw, pwh } = row;
 
-    // Already backfilled — leave it.
+    // Already backfilled - leave it.
     if (isBcryptHash(pwh)) {
       skipped++;
       continue;
@@ -83,7 +83,7 @@ const backfill = async (qi, qg, { Model, label, idColumn }) => {
 
     let newHash;
     if (isBcryptHash(pw)) {
-      // `password` was already hashed by a prior in-place run — just copy it
+      // `password` was already hashed by a prior in-place run - just copy it
       // across so passwordHash is populated; we can't recover the plaintext.
       newHash = pw;
       copied++;
@@ -97,7 +97,7 @@ const backfill = async (qi, qg, { Model, label, idColumn }) => {
   }
 
   console.log(
-    `[${label}] done — hashed: ${hashed}, copied-existing-hash: ${copied}, skipped (already hashed/empty): ${skipped}`
+    `[${label}] done - hashed: ${hashed}, copied-existing-hash: ${copied}, skipped (already hashed/empty): ${skipped}`
   );
 };
 

@@ -43,6 +43,22 @@ const validateTermDates = async ({ startDate, endDate }, excludeTermId = null, t
     }
 };
 
+// A5a: "next term begins" is optional; when given it must be a real date after
+// the term ends (it's printed on the report cards). Returns the value to store.
+const validateNextTermBegins = ({ nextTermBegins, endDate }) => {
+    if (nextTermBegins == null || nextTermBegins === "") return null;
+    const next = String(nextTermBegins).slice(0, 10);
+    const d = new Date(`${next}T00:00:00Z`);
+    // Round-trip so impossible dates (2027-02-30 rolls over to 2 March) are refused, not a Postgres 500.
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(next) || Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== next) {
+        throw new AppError("nextTermBegins must be a valid date", 400);
+    }
+    if (endDate && next <= String(endDate).slice(0, 10)) {
+        throw new AppError("Next term must begin after this term ends", 400);
+    }
+    return next;
+};
+
 const getTerm = async () => {
     const response = await Term.findOne({ 
         where: {
@@ -54,6 +70,16 @@ const getTerm = async () => {
     return response;
 }
 
+// For new features: the active term, or a clear 409 when the school has not
+// opened one yet (instead of each caller null-checking getTerm()).
+const requireActiveTerm = async ({ transaction = null } = {}) => {
+    const term = await Term.findOne({ where: { active: true }, raw: true, transaction });
+    if (!term) {
+        throw new AppError("No term is open. Open a term in Settings first.", 409);
+    }
+    return term;
+}
+
 const getTerms = async () => {
     const response = await Term.findAll({ raw: true });
     return response;
@@ -62,6 +88,7 @@ const getTerms = async () => {
 const setTerm = async (data) => {
     // BE-D5: validate dates / overlap BEFORE mutating anything.
     await validateTermDates(data);
+    const nextTermBegins = validateNextTermBegins(data);
 
     // BE-D5: deactivate-then-create must be atomic. Previously a failed create
     // left ZERO active terms (the update had already committed), which breaks
@@ -75,11 +102,12 @@ const setTerm = async (data) => {
                 startDate: data.startDate,
                 endDate: data.endDate,
                 // BE-D14: autoCloseDate is INFORMATIONAL ONLY. There is deliberately
-                // NO scheduler that auto-promotes/closes on this date — auto-promoting
+                // NO scheduler that auto-promotes/closes on this date - auto-promoting
                 // students unattended is too risky. Term closing is MANUAL via
                 // POST /close-term (see inactivateTerms below). We still persist the
                 // value so the UI can display/remind on it.
                 autoCloseDate: data.autoCloseDate || null,
+                nextTermBegins,
                 active: true,
             },
             { transaction: t }
@@ -95,12 +123,22 @@ const setTerm = async (data) => {
 // single transaction and let errors propagate (no swallowing) so the controller
 // forwards them to the error handler.
 //
-// BE-D14: this is the ONLY way a term is closed — it is a deliberate, MANUAL,
+// BE-D14: this is the ONLY way a term is closed - it is a deliberate, MANUAL,
 // admin-triggered action (POST /close-term). It is never run automatically off
 // `autoCloseDate`.
 const inactivateTerms = async (data) => {
     await sequelize.transaction(async (t) => {
-        await promoteStudents(t);
+        // Claim the open term first (row lock): a second "Close term" at the
+        // same moment waits here, then finds no open term (409) instead of
+        // promoting, and billing, everyone a second time.
+        const term = await Term.findOne({
+            where: { active: true },
+            raw: true,
+            transaction: t,
+            ...(t?.LOCK ? { lock: t.LOCK.UPDATE } : {}),
+        });
+        if (!term) throw new AppError("No term is open", 409);
+        await promoteStudents(t, term);
         await Term.update({ active: false }, { where: {}, transaction: t });
     });
     return { message: "Term closed and students promoted successfully" };
@@ -110,6 +148,7 @@ const inactivateTerms = async (data) => {
 const editTerm = async (data, id) => {
     // BE-D5: validate the edited window and ensure it doesn't overlap OTHER terms.
     await validateTermDates(data, id);
+    const nextTermBegins = validateNextTermBegins(data);
 
     return await sequelize.transaction(async (t) => {
         const existing = await Term.findOne({ where: { termId: id }, transaction: t });
@@ -129,9 +168,13 @@ const editTerm = async (data, id) => {
             term: data.term,
             startDate: data.startDate,
             endDate: data.endDate,
-            // BE-D14: see note in setTerm — informational only.
+            // BE-D14: see note in setTerm - informational only.
             autoCloseDate: data.autoCloseDate || null,
         };
+        // Only change it when the request carries the field (older clients don't send it).
+        if (Object.prototype.hasOwnProperty.call(data, "nextTermBegins")) {
+            updatePayload.nextTermBegins = nextTermBegins;
+        }
         if (wantsActive) {
             updatePayload.active = true;
         }
@@ -145,6 +188,8 @@ const editTerm = async (data, id) => {
 }
 
 export {
+    validateNextTermBegins,
+    requireActiveTerm,
     getTerm,
     setTerm,
     editTerm,

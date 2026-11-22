@@ -7,11 +7,10 @@ WORKDIR /app
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
-# package-lock.json is gitignored, so it may be absent in CI checkouts. The glob
-# copies package.json always and the lock only if present (npm install handles
-# either case) — avoids "package-lock.json: not found" on the GitHub runner.
-COPY package*.json ./
-RUN npm install
+# package-lock.json is committed: `npm ci` installs exactly the tested versions
+# (and fails if package.json and the lock disagree) instead of whatever is newest.
+COPY package.json package-lock.json ./
+RUN npm ci
 COPY .babelrc ./
 COPY src ./src
 RUN npm run build
@@ -25,6 +24,8 @@ ENV NODE_ENV=production
 COPY package.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+# The SQL migrations: `node dist/scripts/migrate.js` (run from /app) reads db/migrations.
+COPY db ./db
 EXPOSE 5050
 USER node
 CMD ["node", "dist/index.js"]

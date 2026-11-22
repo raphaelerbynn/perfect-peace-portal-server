@@ -35,12 +35,18 @@ const term = sequelize.define('term', {
       // and there is no guaranteed single active term). New rows default to
       // inactive; setTerm()/editTerm() flip exactly one row to active inside a
       // transaction. NOTE: there is NO import-time sequelize.sync(), so this only
-      // governs new INSERTs from the ORM — the live DB column must be migrated
+      // governs new INSERTs from the ORM - the live DB column must be migrated
       // separately (see report: ALTER TABLE Term ... NOT NULL DEFAULT 0).
       type: DataTypes.BOOLEAN,
       allowNull: false,
       defaultValue: false,
       field: 'active'
+    },
+    nextTermBegins: {
+      // Migration 013 (A5a): printed on report cards as "NEXT TERM BEGINS".
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+      field: 'next_term_begins'
     }
   }, {
     sequelize,

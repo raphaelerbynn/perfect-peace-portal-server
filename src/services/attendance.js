@@ -1,3 +1,4 @@
+import { Op } from "sequelize";
 import sequelize from "../config/database.js";
 import { Attendance, Class, Student, TotalAttendance } from "../models/index.js";
 import { getTerm } from "./term.js";
@@ -37,11 +38,44 @@ const assertClassAccess = async (user, className) => {
     }
 };
 
+// Security review: assertClassAccess only checks the class NAME in the body.
+// For a Class Teacher login also check that every pupil written to is in that
+// class (else a false "absent" SMS could go to any parent, or marks be filed
+// for another class's pupil) and that the write is for the open term (closed
+// terms' results, e.g. after promotion, are office-only). Administrators are
+// unchanged.
+const assertClassWrite = async (user, className, studentIds = [], termId = null) => {
+    await assertClassAccess(user, className);
+    if (!user || user.category === "Administrator") return;
+    const term = await getTerm();
+    if (termId != null && termId !== "" && Number(termId) !== Number(term?.termId)) {
+        throw new AppError("Class Teachers can only change the open term. Ask the administrator.", 403);
+    }
+    const ids = [...new Set(studentIds.filter((x) => x != null).map(Number))];
+    if (!ids.length) return;
+    // The teacher's own class record (assertClassAccess already matched the
+    // name leniently): live has names like " NURSERY 2", so an exact name
+    // lookup missed the class and refused every pupil in it.
+    const klass = await Class.findOne({ where: { teacherId: user.teacherId, isDeleted: false }, attributes: ["classId", "name"], raw: true });
+    const pupils = await Student.findAll({
+        where: {
+            studentId: { [Op.in]: ids },
+            isDeleted: false,
+            [Op.or]: [{ classId: klass?.classId ?? -1 }, { classId: null, class: klass?.name ?? className }],
+        },
+        attributes: ["studentId"],
+        raw: true,
+    });
+    if (pupils.length !== ids.length) {
+        throw new AppError("A pupil in this list is not in your class. Reload and try again.", 403);
+    }
+};
+
 // BE-1/BE-2/BE-4: mark a whole class's attendance for one day, ATOMICALLY.
 // The old code fired the inserts (inside .map) concurrently with the delete,
 // so a re-mark could delete the rows it had just inserted (silent data loss),
 // and nothing was transactional. Here we delete the class+day's existing rows
-// FIRST and then insert the new ones, all inside ONE transaction — so a partial
+// FIRST and then insert the new ones, all inside ONE transaction - so a partial
 // failure rolls everything back and a re-mark is last-write-wins with no dupes.
 // The composite UNIQUE index (student_id, date_marked, term_id) backs this at
 // the DB level against concurrent callers.
@@ -83,6 +117,8 @@ const markClassAttendance = async ({ className, dateMarked, dateEnd, studentAtte
 // days that have any attendance recorded. (Shape preserved for the admin FE,
 // which reads `.length`.)
 const totalAttendanceMarked = async (data) => {
+    // Sequelize throws (500) on an undefined where value; say what's missing.
+    if (!data?.class) throw new AppError("class is required", 400);
     const term = await getTerm();
     const totalCount = await Attendance.count({
         where: {
@@ -154,14 +190,14 @@ const getTotalStudentAttendance = async (data) => {
 //   - blindly `create`d, so re-running duplicated every TotalAttendance row.
 // Now it is scoped to the active term, grouped by (studentId, termId), upserted
 // on the (studentId, termId) unique index, and only the active term's source
-// rows are deleted — all in ONE transaction.
+// rows are deleted - all in ONE transaction.
 const addTermAttendance = async () => {
     const term = await getTerm();
     if (!term?.termId) {
         throw new AppError("No active term is set", 400);
     }
 
-    // valid (non-deleted) student IDs — drop attendance for students that no
+    // valid (non-deleted) student IDs - drop attendance for students that no
     // longer exist / were archived.
     const validStudents = await Student.findAll({
         attributes: ["studentId"],
@@ -171,16 +207,18 @@ const addTermAttendance = async () => {
     const validStudentIds = new Set(validStudents.map((s) => s.studentId));
 
     return await sequelize.transaction(async (t) => {
+        // Select ONLY the grouped columns + aggregates. The old version selected
+        // every other column too (class, date_end…): MySQL allowed that, but
+        // Postgres refuses it, so closing a term failed on Postgres.
         const attendances = await Attendance.findAll({
-            attributes: {
-                include: [
-                    [sequelize.fn("SUM", sequelize.literal(`CASE WHEN status = 'Present' THEN 1 ELSE 0 END`)), "present"],
-                    [sequelize.fn("SUM", sequelize.literal(`CASE WHEN status = 'Sick' THEN 1 ELSE 0 END`)), "sick"],
-                    [sequelize.fn("SUM", sequelize.literal(`CASE WHEN status = 'Absent' THEN 1 ELSE 0 END`)), "absent"],
-                    [sequelize.fn("COUNT", sequelize.col("status")), "attendance"],
-                ],
-                exclude: ["attendanceId", "status", "dateMarked", "dateEnd"],
-            },
+            attributes: [
+                "studentId",
+                "termId",
+                [sequelize.fn("SUM", sequelize.literal(`CASE WHEN TRIM(status) = 'Present' THEN 1 ELSE 0 END`)), "present"],
+                [sequelize.fn("SUM", sequelize.literal(`CASE WHEN TRIM(status) = 'Sick' THEN 1 ELSE 0 END`)), "sick"],
+                [sequelize.fn("SUM", sequelize.literal(`CASE WHEN TRIM(status) = 'Absent' THEN 1 ELSE 0 END`)), "absent"],
+                [sequelize.fn("COUNT", sequelize.col("status")), "attendance"],
+            ],
             where: { termId: term.termId },
             raw: true,
             group: ["studentId", "termId"],
@@ -191,7 +229,7 @@ const addTermAttendance = async () => {
 
         const results = [];
         for (const attendance of validAttendances) {
-            // BE-11: `absent` is intentionally NOT stored — TotalAttendance has
+            // BE-11: `absent` is intentionally NOT stored - TotalAttendance has
             // no absent column. Consumers derive it as
             // (attendance - present - sick). We persist the three that have columns.
             const [row] = await TotalAttendance.upsert(
@@ -220,6 +258,7 @@ const addTermAttendance = async () => {
 export {
     markClassAttendance,
     assertClassAccess,
+    assertClassWrite,
     getTeacherClassName,
     VALID_STATUSES,
     removeAttendance,
