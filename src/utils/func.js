@@ -60,7 +60,7 @@ export function transformReturningKGResult(data) {
   return result;
 }
 
-// BE-9: interpolate {{key}} placeholders, but SANITIZE the substituted values —
+// BE-9: interpolate {{key}} placeholders, but SANITIZE the substituted values -
 // they can include client-supplied names. Strip newlines and braces (so a value
 // can't inject another {{token}} or distort the body) and clamp length so a
 // crafted value can't inflate the billable segment count.

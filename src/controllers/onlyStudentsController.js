@@ -69,7 +69,7 @@ const fetchResultDetails = async (req, res, next) => {
 const fetchFeeCheck = async (req, res, next) => {
     // BE-8: forward the error (was swallowed, so a DB failure hung the request
     // until timeout). Shape/scoping of getFeeCheck intentionally unchanged
-    // (parent-app back-compat — see cutover notes).
+    // (parent-app back-compat - see cutover notes).
     try {
         const data = await getFeeCheck();
         res.json(data);

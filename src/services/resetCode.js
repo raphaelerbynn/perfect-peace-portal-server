@@ -11,7 +11,7 @@ import { AppError } from "../utils/errorHandling.js";
 //
 // Properties:
 //   - Codes are generated with crypto.randomInt (CSPRNG), exactly 6 digits.
-//   - Only the bcrypt hash is persisted — never plaintext, never in a JWT.
+//   - Only the bcrypt hash is persisted - never plaintext, never in a JWT.
 //   - On verify: load the latest non-consumed, non-expired code for the user,
 //     bcrypt.compare, increment attempts, lock after MAX_ATTEMPTS, single-use
 //     on success. Expiry enforced server-side (no per-process timers/GC).
@@ -73,7 +73,7 @@ const enforceResendLimits = async ({ identifier, userType }) => {
 const issueResetCode = async ({ identifier, userType }) => {
   await enforceResendLimits({ identifier, userType });
 
-  // Invalidate older outstanding codes for this user (defence in depth — verify
+  // Invalidate older outstanding codes for this user (defence in depth - verify
   // only looks at the latest anyway, but this keeps the table tidy & safe).
   await PasswordResetCode.update(
     { consumed: true },
@@ -103,7 +103,7 @@ const issueResetCode = async ({ identifier, userType }) => {
 //
 // `consume` controls single-use semantics:
 //   - true  (default): a successful match burns the code (admin reset, parent
-//            /update-pin — the password-changing step).
+//            /update-pin - the password-changing step).
 //   - false: a non-destructive "peek" used by the parent-app /verify-pin step,
 //            which is followed by a separate /update-pin call that re-verifies
 //            and consumes. Failed attempts are still counted/locked either way.

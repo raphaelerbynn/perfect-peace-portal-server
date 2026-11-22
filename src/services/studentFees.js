@@ -49,7 +49,7 @@ const ensureStudentExists = async (studentId, transaction = null) => {
 const createStudentFee = async (data) => {
   // BE-S6: VALIDATE-BEFORE-WRITE. Run every validation that does not require a
   // DB write first, then verify the student exists, then (and only then) create
-  // the row — all inside one transaction so owing recompute stays consistent.
+  // the row - all inside one transaction so owing recompute stays consistent.
   validateAmount(data?.amount);
   validateName(data?.name);
   if (data?.studentId == null || data?.studentId === "") {

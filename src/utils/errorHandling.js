@@ -1,6 +1,6 @@
 // Application error that explicitly carries an HTTP status code. Prefer throwing
 // `new AppError("message", 400)` over the older pattern of mutating
-// `res.statusCode` before throwing — it makes the intended status obvious at the
+// `res.statusCode` before throwing - it makes the intended status obvious at the
 // throw site and survives any later middleware that touches res.
 class AppError extends Error {
     constructor(message, statusCode = 500) {
@@ -15,7 +15,7 @@ class AppError extends Error {
 // Resolve the HTTP status for an error, in priority order:
 //   1. An explicit `err.statusCode` (AppError or any error carrying the field).
 //   2. A status the upstream middleware set via `res.status(...)` before
-//      throwing (this is how the auth layer signals 401/403 — keep compat).
+//      throwing (this is how the auth layer signals 401/403 - keep compat).
 //   3. Fall back to 500.
 // Errors must NEVER resolve to a 2xx status.
 const resolveStatusCode = (err, res) => {

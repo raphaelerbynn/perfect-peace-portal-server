@@ -21,7 +21,7 @@ const _ = sequelize.define('salary', {
       type: DataTypes.DECIMAL(18,0),
       allowNull: true
     },
-    // BE-4: soft delete — a salary structure that has been paid is archived,
+    // BE-4: soft delete - a salary structure that has been paid is archived,
     // never destroyed, so historical payslips keep resolving. `is_deleted`
     // added by a manual migration.
     isDeleted: {

@@ -58,7 +58,7 @@ const createSubject = async (data) => {
 
   // --- case-insensitive duplicate check (global, incl. archived) ------
   // The DB unique index on `name` is global, so we must check archived rows
-  // too — otherwise an archived duplicate would cause an opaque DB 500.
+  // too - otherwise an archived duplicate would cause an opaque DB 500.
   const existing = await Subject.findOne({
     where: sequelizeWhere(fn("lower", col("name")), name.toLowerCase()),
     attributes: ["subjectId"],

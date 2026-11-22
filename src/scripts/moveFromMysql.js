@@ -370,7 +370,7 @@ const main = async () => {
       log(`! Duplicates block migration 001 in: ${report.duplicates.map((d) => d.index).join(", ")}`);
       log("  Clean these up before running `npm run migrate`.");
     } else {
-      log("✓ No duplicates — `npm run migrate` can create the unique indexes.");
+      log("✓ No duplicates - `npm run migrate` can create the unique indexes.");
     }
     log(`Report: ${file}`);
     process.exitCode = report.countMismatches?.length ? 1 : 0;

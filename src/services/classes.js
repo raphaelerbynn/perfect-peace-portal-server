@@ -6,7 +6,7 @@ import { AppError } from "../utils/errorHandling.js";
 import { recomputeStudentOwing } from "./fee.js";
 import { isPesewaAmount } from "../utils/money.js";
 
-// Recompute cached owing for EVERY (non-archived) student in a class — a class
+// Recompute cached owing for EVERY (non-archived) student in a class - a class
 // fee change shifts the bill for the whole class (parity with the studentFees
 // hardening from Feature #4). Runs inside the caller's transaction.
 const recomputeClassStudentsOwing = async (classId, transaction = null) => {
@@ -38,7 +38,8 @@ const assignedClassIds = async (teacherId) => {
 };
 
 // `user`: a Class Teacher office login sees only the classes assigned to them
-// (the Classes page and every class picker). Other callers: every class.
+// (every class picker). Other callers, and GET /class?scope=all (the read-only
+// Classes page list), get every class.
 const classes = async (user = null) => {
   const classFeeList = await ClassFee.findAll({ raw: true });
 
@@ -87,6 +88,16 @@ const classes = async (user = null) => {
     classItem.dataValues.feeList = feeList;
     return classItem;
   });
+
+  // The class teacher's name, so the Classes page can show it without the staff
+  // list (Administrator-only). Name only, nothing else from the staff record.
+  const teacherOf = (c) => c.dataValues.teacherId ?? c.teacherId;
+  const teacherIds = [...new Set(classData.map(teacherOf).filter((id) => id != null))];
+  const named = teacherIds.length
+    ? await Teacher.findAll({ where: { teacherId: { [Op.in]: teacherIds } }, attributes: ["teacherId", "fName", "lName"], raw: true })
+    : [];
+  const nameOf = new Map((Array.isArray(named) ? named : []).map((t) => [t.teacherId, [t.fName, t.lName].filter(Boolean).join(" ").trim()]));
+  for (const c of classData) c.dataValues.teacherName = nameOf.get(teacherOf(c)) || null;
 
   return classData;
 };

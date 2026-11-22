@@ -31,7 +31,7 @@ const _ = sequelize.define('income', {
       type: DataTypes.DATEONLY,
       allowNull: true
     },
-    // BE-4: soft delete — archived ledger rows are hidden from reads but kept
+    // BE-4: soft delete - archived ledger rows are hidden from reads but kept
     // for audit. The `is_deleted` column is added by a manual migration.
     isDeleted: {
       type: DataTypes.BOOLEAN,

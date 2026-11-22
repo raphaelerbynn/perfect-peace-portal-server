@@ -143,7 +143,7 @@ router.get("/subject", can("subjects.view"), fetchSubject);               // Sub
 router.get("/events", can("news.view"), fetchNews);
 router.get("/active-term", can("terms.view"), fetchActiveTerm);       // term metadata: shared
 router.get("/terms", can("terms.view"), fetchTerms);
-// BE-D4: close-term deactivates the active term (B5: it no longer promotes) — a
+// BE-D4: close-term deactivates the active term (B5: it no longer promotes) - a
 // state-mutating, non-idempotent operation that must NOT be a GET. Frontend
 // already calls POST and expects { message } on success.
 router.post("/close-term", can("terms.manage"), closeTerm);
@@ -220,7 +220,7 @@ router.post("/add-salary-payment", can("payroll.manage"), addSalaryPayment);
 router.post("/add-feeding", can("fees.other_collections"), addFeeding);
 router.post("/add-bus-fee", can("fees.other_collections"), addBusFee);
 router.post("/add-extra-classes", can("fees.other_collections"), addExtraClasses);
-router.post("/add-class-fee", can("fees.setup"), addClassFee);       // BE-4: finance op (A Acc) — Accountant manages fee amounts
+router.post("/add-class-fee", can("fees.setup"), addClassFee);       // BE-4: finance op (A Acc) - Accountant manages fee amounts
 router.post("/add-student-fee", can("fees.setup"), addStudentFee);   // BE-4: finance op (A Acc)
 router.post("/add-term", can("terms.manage"), addTerm);
 router.post("/add-news", can("news.manage"), addEvent);               // Events add: Administrator
@@ -287,7 +287,7 @@ router.delete("/delete-bus-fee/:busfee_id", can("fees.other_collections"), delet
 router.delete("/delete-news/:news_id", can("news.manage"), deleteEvent);
 
 
-//graph routes — Data Visualization accounting charts hidden for Class Teacher
+//graph routes - Data Visualization accounting charts hidden for Class Teacher
 router.get("/expense-graph", can("accounting.view"), fetchExpenseGraph);
 router.get("/income-graph", can("accounting.view"), fetchIncomeGraph);
 router.get("/fees-graph", can("accounting.view"), fetchFeesGraph);

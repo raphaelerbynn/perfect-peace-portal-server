@@ -10,7 +10,7 @@ import { clearAccessCache } from "./officeAccess.js";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // BE-T6: validate required/format fields and surface clean 400s instead of raw
-// Sequelize 500s / DB truncation errors. On edit we validate "partially" — only
+// Sequelize 500s / DB truncation errors. On edit we validate "partially" - only
 // the fields actually present in the payload are checked.
 const validateStaffInput = (data, { partial = false } = {}) => {
   const present = (k) =>
@@ -63,7 +63,7 @@ const guardSensitiveInput = (data, actor) => {
 const RELINK_REFUSED = "Changing a staff member's class needs “Every class”. Ask the administrator.";
 
 export const getStaff = async (options = {}) => {
-  // BE-D6: do NOT swallow DB errors — let them propagate to the central
+  // BE-D6: do NOT swallow DB errors - let them propagate to the central
   // errorHandler. Success-path shape is unchanged.
   const { page, limit, user = null } = options;
   const withPayroll = hasPermission(user, P.STAFF_VIEW_SENSITIVE);
@@ -116,7 +116,7 @@ export const getStaff = async (options = {}) => {
 };
 
 // Public, minimal staff list for the PRE-LOGIN signup picker only.
-// Returns id + name exclusively — never password, contact, bank or other PII —
+// Returns id + name exclusively - never password, contact, bank or other PII -
 // so it is safe to expose unauthenticated. Throws on error so the controller
 // can forward via next(). Excludes archived staff.
 export const getStaffForSignup = async () => {
@@ -189,7 +189,7 @@ export const removeStaff = async (id, actor) => {
 };
 
 // BE-T1/BE-T5/BE-T2: createStaff now accepts the same keys the edit path uses
-// (`class`, `salaryId`) — previously it read `data.class_id` and never read
+// (`class`, `salaryId`) - previously it read `data.class_id` and never read
 // salaryId, so class assignment and salary/rank were silently dropped on add.
 // Wrapped in a transaction; maintains the Class.teacherId back-link; validates;
 // detects duplicates; does not swallow errors.
@@ -268,7 +268,7 @@ export const createStaff = async (input, actor) => {
 };
 
 // BE-T2/BE-T4/BE-T8/BE-T9: transactional; only updates fields actually present
-// (so an edit that omits a field no longer nulls it — salaryId in particular was
+// (so an edit that omits a field no longer nulls it - salaryId in particular was
 // being wiped on every edit); rejects an already-assigned class with a real 409;
 // errors propagate.
 export const editStaff = async (input, id, actor) => {

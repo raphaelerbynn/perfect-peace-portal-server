@@ -8,13 +8,13 @@ const router = Router();
 // Google OAuth setup endpoints must stay public (Google redirects to the callback).
 router.get("/auth/google", redirectToAuth);
 router.get("/oauth/callback", authCallback);
-// BE-2: these were fully PUBLIC — anyone could upload to Drive, list every file,
+// BE-2: these were fully PUBLIC - anyone could upload to Drive, list every file,
 // and download any file by id. Require a valid token (matches get-assignment /
 // delete-file). authenticateUser accepts both portal and management tokens.
 //
 // Security review: these are portal routes. Pupils (STU) may read and download
 // their class's assignments; only teachers (STAFF) may list Drive, upload or
-// delete — and the handlers check the file is an assignment (and, to delete,
+// delete - and the handlers check the file is an assignment (and, to delete,
 // the teacher's own). Office (management) tokens are refused.
 const portalRole = (...roles) => (req, res, next) =>
   authenticateUser(req, res, (err) => {

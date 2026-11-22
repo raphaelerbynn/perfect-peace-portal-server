@@ -6,7 +6,7 @@ import { AppError } from "./errorHandling.js";
 
 const PORTAL_ROLES = ["STU", "STAFF"];
 const PASSWORD_MIN_LENGTH = 8;
-// Pragmatic email check — not RFC-perfect, just enough to reject obvious junk.
+// Pragmatic email check - not RFC-perfect, just enough to reject obvious junk.
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Parse + validate a portal index number of the form `ROLE/ID` where ROLE is

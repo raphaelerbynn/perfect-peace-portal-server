@@ -6,7 +6,7 @@
  * (starts with "$2") or is empty/null, so the script is safe to re-run.
  *
  * Run with:  npm run hash-passwords
- * (Requires DB access — uses the existing Sequelize config / .env.)
+ * (Requires DB access - uses the existing Sequelize config / .env.)
  */
 import bcrypt from "bcrypt";
 import sequelize from "../config/database.js";
@@ -28,7 +28,7 @@ const backfillModel = async (Model, label, idField) => {
     const rowId = row[idField];
 
     if (!current) {
-      // Null / empty password (e.g. account never set up) — nothing to hash.
+      // Null / empty password (e.g. account never set up) - nothing to hash.
       skipped++;
       continue;
     }
@@ -44,7 +44,7 @@ const backfillModel = async (Model, label, idField) => {
     hashed++;
   }
 
-  console.log(`[${label}] done — hashed: ${hashed}, skipped (already hashed/empty): ${skipped}`);
+  console.log(`[${label}] done - hashed: ${hashed}, skipped (already hashed/empty): ${skipped}`);
 };
 
 const run = async () => {
