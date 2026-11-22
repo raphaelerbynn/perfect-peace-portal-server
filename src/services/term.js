@@ -102,7 +102,7 @@ const setTerm = async (data) => {
                 startDate: data.startDate,
                 endDate: data.endDate,
                 // BE-D14: autoCloseDate is INFORMATIONAL ONLY. There is deliberately
-                // NO scheduler that auto-promotes/closes on this date — auto-promoting
+                // NO scheduler that auto-promotes/closes on this date - auto-promoting
                 // students unattended is too risky. Term closing is MANUAL via
                 // POST /close-term (see inactivateTerms below). We still persist the
                 // value so the UI can display/remind on it.
@@ -123,7 +123,7 @@ const setTerm = async (data) => {
 // single transaction and let errors propagate (no swallowing) so the controller
 // forwards them to the error handler.
 //
-// BE-D14: this is the ONLY way a term is closed — it is a deliberate, MANUAL,
+// BE-D14: this is the ONLY way a term is closed - it is a deliberate, MANUAL,
 // admin-triggered action (POST /close-term). It is never run automatically off
 // `autoCloseDate`.
 const inactivateTerms = async (data) => {
@@ -168,7 +168,7 @@ const editTerm = async (data, id) => {
             term: data.term,
             startDate: data.startDate,
             endDate: data.endDate,
-            // BE-D14: see note in setTerm — informational only.
+            // BE-D14: see note in setTerm - informational only.
             autoCloseDate: data.autoCloseDate || null,
         };
         // Only change it when the request carries the field (older clients don't send it).

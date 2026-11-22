@@ -5,7 +5,7 @@ import { AppError } from "../utils/errorHandling.js";
 import { recomputeStudentOwing } from "./fee.js";
 import { isPesewaAmount } from "../utils/money.js";
 
-// Recompute cached owing for EVERY (non-archived) student in a class — a class
+// Recompute cached owing for EVERY (non-archived) student in a class - a class
 // fee change shifts the bill for the whole class (parity with the studentFees
 // hardening from Feature #4). Runs inside the caller's transaction.
 const recomputeClassStudentsOwing = async (classId, transaction = null) => {

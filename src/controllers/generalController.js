@@ -161,7 +161,7 @@ const fetchAllStudents = async (req, res, next) => {
       gender,
       minAge,
       maxAge,
-      // BE-S1: authoritative scoping source — a Class Teacher is constrained to
+      // BE-S1: authoritative scoping source - a Class Teacher is constrained to
       // their own class regardless of any client-supplied classId/search.
       requester: {
         role: req.user?.category || req.user?.role,
@@ -653,7 +653,7 @@ const addSalary = async (req, res, next) => {
   try {
     // BE-2: salary + allowances + deductions created atomically (transactional).
     const salary = await createFullSalary(values);
-    // Return the server-computed structure (net now includes tax — BE-1).
+    // Return the server-computed structure (net now includes tax - BE-1).
     const st = await getSalaryStructure(salary.salaryId);
     res.status(201).json({
       ...(salary?.dataValues || salary),
@@ -688,7 +688,7 @@ const addResult = async (req, res, next) => {
     await assertClassWrite(req.user, values.class, [values.studentId], values.termId);
 
     // BE-W2: marks + observations are saved in ONE transaction (saveResult),
-    // as non-destructive upserts — a partial submit never wipes other subjects.
+    // as non-destructive upserts - a partial submit never wipes other subjects.
     const result = await saveResult(values);
 
     res.json(result);

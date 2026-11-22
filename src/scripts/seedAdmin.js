@@ -1,4 +1,4 @@
-// TEST-CLIENT seed — creates EXACTLY ONE user: the Administrator management
+// TEST-CLIENT seed - creates EXACTLY ONE user: the Administrator management
 // account used to log into the admin portal. Nothing else is seeded (the client
 // adds classes/staff/students through the UI). Idempotent: re-running updates the
 // admin's password instead of failing.
@@ -6,7 +6,7 @@
 // Credentials come from the environment so they can be supplied at deploy time
 // (GitHub secrets) or interactively by scripts/run-test-client.sh:
 //   ADMIN_USERNAME  (default "admin")
-//   ADMIN_PASSWORD  (REQUIRED in real deploys — a default is used only for local)
+//   ADMIN_PASSWORD  (REQUIRED in real deploys - a default is used only for local)
 //   ADMIN_EMAIL     (optional)
 //   ADMIN_NAME      (optional, display name)
 //
@@ -26,13 +26,13 @@ const run = async () => {
 
   if (!process.env.ADMIN_PASSWORD) {
     console.warn(
-      "⚠️  ADMIN_PASSWORD not set — using the insecure default 'ChangeMe@5040'. " +
+      "⚠️  ADMIN_PASSWORD not set - using the insecure default 'ChangeMe@5040'. " +
         "Set ADMIN_PASSWORD for any real deployment."
     );
   }
 
   await sequelize.authenticate();
-  console.log(`Connected to ${sequelize.getDatabaseName()} — seeding admin '${username}'…`);
+  console.log(`Connected to ${sequelize.getDatabaseName()} - seeding admin '${username}'…`);
 
   const hash = await bcrypt.hash(password, ROUNDS);
 

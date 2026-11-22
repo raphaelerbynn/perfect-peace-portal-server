@@ -109,7 +109,7 @@ const getProfitLoss = async (data) => {
   const whereFee = {};
   const whereExpense = { isDeleted: false };
 
-  // `all` may arrive as a string ('true'/'false') from query params — coerce to boolean
+  // `all` may arrive as a string ('true'/'false') from query params - coerce to boolean
   const allFlag = all === true || all === 'true' || all === '1' || all === 1;
 
   // BE-9: a single bound without the other previously fell through and summed

@@ -5,7 +5,7 @@ const arkesel_key = process.env.ARKESEL_KEY;
 const ARKESEL_URL = "https://sms.arkesel.com/api/v2/sms/send";
 
 // BE-3: ONE registered sender ID, env-backed, used by every SMS path (the code
-// previously hardcoded "PPeace Sch" in two places and "P Peace" in resetPin —
+// previously hardcoded "PPeace Sch" in two places and "P Peace" in resetPin -
 // an unregistered sender ID causes silent non-delivery). Set SMS_SENDER_ID in
 // prod to the exact value registered with Arkesel.
 export const SMS_SENDER_ID = process.env.SMS_SENDER_ID || "PPeace Sch";
@@ -24,7 +24,7 @@ export const normalizeContact = (raw) => {
 //  - BE-5: de-duplicates recipients (no double-charge / double-text).
 //  - BE-7: 10s timeout so a hung provider can't hang the request.
 //  - BE-6: THROWS on provider failure / no valid recipients (callers that want
-//    best-effort behaviour — fee/attendance/payroll — already wrap this in
+//    best-effort behaviour - fee/attendance/payroll - already wrap this in
 //    try/catch; the bulk endpoint lets it propagate to the error handler).
 //  - BE-10: never logs the provider response or axios config (recipient PII /
 //    the api-key header).

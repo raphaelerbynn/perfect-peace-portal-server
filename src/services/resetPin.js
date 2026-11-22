@@ -90,7 +90,7 @@ const sendResetPin = async (contact, indexNumber) => {
     return result
 }
 
-// Async now (bcrypt.compare + DB lookup). Returns a boolean — the controllers
+// Async now (bcrypt.compare + DB lookup). Returns a boolean - the controllers
 // keep returning `{ valid }` so the parent app contract is unchanged.
 //
 // The parent app verifies the pin twice: once at the /verify-pin step (to

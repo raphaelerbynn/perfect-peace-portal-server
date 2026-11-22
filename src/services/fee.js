@@ -97,7 +97,7 @@ export const recomputeStudentOwing = async (studentId, { transaction = null } = 
 /**
  * Start a new fee period (promotion / start of a new year): what is still owed
  * carries over as arrears, the new class's bill is then added in full, and
- * "paid" counts from now — the live system's behaviour on a class change, but
+ * "paid" counts from now - the live system's behaviour on a class change, but
  * keeping arrears instead of dropping them. Call BEFORE moving the pupil, then
  * recomputeStudentOwing after the move.
  */
@@ -172,11 +172,11 @@ const createFee = async (data) => {
 
 const removeFee = async (id) => {
   // BE-D3: deleting a payment must RESTORE the balance. Read the row first to
-  // know which student to reconcile, delete, then recompute — all atomically.
+  // know which student to reconcile, delete, then recompute - all atomically.
   if (!/^\d+$/.test(String(id ?? ""))) throw new AppError("Fee payment not found", 404);
   return await sequelize.transaction(async (t) => {
     const existing = await Fee.findOne({ where: { feeId: id }, transaction: t });
-    // BE-5: distinguish "deleted" from "didn't exist" — 404 instead of a silent
+    // BE-5: distinguish "deleted" from "didn't exist" - 404 instead of a silent
     // 200/0 with no recompute.
     if (!existing) {
       throw new AppError("Fee payment not found", 404);

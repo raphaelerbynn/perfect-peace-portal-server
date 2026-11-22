@@ -175,7 +175,7 @@ export const getStudents = async (options = {}) => {
         ];
 
     // NOT raw: with raw rows every hasMany include (class fee items, the
-    // pupil's own fees) repeated the pupil once per fee row — live has several
+    // pupil's own fees) repeated the pupil once per fee row - live has several
     // fee items per class, so page 1 of 50 rows held 2 pupils and the roster
     // had 5,819 rows for 451 pupils. Nested objects are also the shape the
     // office app reads (student.parent.fName, student.class_.classFee).
@@ -200,7 +200,7 @@ export const getStudents = async (options = {}) => {
 
 
     const addAge = (rows) => {
-        // calculate age for each student (real date diff — BE-25)
+        // calculate age for each student (real date diff - BE-25)
         rows.forEach((student) => {
             student.age = calculateAge(student?.dob);
         });
@@ -265,7 +265,7 @@ export const getStudents = async (options = {}) => {
 
 export const getParentContact = async (id, forAttendance=false, status="") => {
     // BE-S4: do NOT swallow errors generally, but this runs inside an attendance
-    // Promise.all loop — a single student with a missing/invalid parent contact
+    // Promise.all loop - a single student with a missing/invalid parent contact
     // must NOT abort the whole batch. So we guard nulls and console.warn instead
     // of throwing, and exclude archived students.
     const student = await Student.findOne({
@@ -309,7 +309,7 @@ export const getParentContact = async (id, forAttendance=false, status="") => {
 }
 
 // BE-D4: promote every eligible student for the active term. Runs as part of
-// the atomic close-term transaction — accepts an optional `transaction` and
+// the atomic close-term transaction - accepts an optional `transaction` and
 // threads it through every read/write so a failure rolls the whole close back.
 //
 // Errors are NO LONGER swallowed: previously per-student failures were logged
@@ -521,7 +521,7 @@ export const editStudent = async (data, id) => {
         const newClassId = _class[0]?.dataValues?.classId ?? _class[0]?.dataValues?.class_id;
         const classChanged = currentStudent && newClassId != null && Number(currentStudent.classId) !== Number(newClassId);
 
-        // Build update payload — only touch fees when class actually changes.
+        // Build update payload - only touch fees when class actually changes.
         const studentUpdate = {
             fName: data.fName,
             mName: data.mName,

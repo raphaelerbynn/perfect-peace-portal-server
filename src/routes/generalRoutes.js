@@ -104,7 +104,7 @@ router.get("/subject", ACADEMIC, fetchSubject);               // Subjects view: 
 router.get("/events", ALL_ROLES, fetchNews);
 router.get("/active-term", ALL_ROLES, fetchActiveTerm);       // term metadata: shared
 router.get("/terms", ALL_ROLES, fetchTerms);
-// BE-D4: close-term promotes students AND deactivates the active term — a
+// BE-D4: close-term promotes students AND deactivates the active term - a
 // state-mutating, non-idempotent operation that must NOT be a GET. Frontend
 // already calls POST and expects { message } on success.
 router.post("/close-term", ADMIN_ONLY, closeTerm);            // mutating term state: Administrator
@@ -161,7 +161,7 @@ router.post("/add-salary-payment", FINANCE, addSalaryPayment);
 router.post("/add-feeding", FINANCE, addFeeding);
 router.post("/add-bus-fee", FINANCE, addBusFee);
 router.post("/add-extra-classes", FINANCE, addExtraClasses);
-router.post("/add-class-fee", FINANCE, addClassFee);       // BE-4: finance op (was ADMIN_ONLY) — Accountant manages fee amounts
+router.post("/add-class-fee", FINANCE, addClassFee);       // BE-4: finance op (was ADMIN_ONLY) - Accountant manages fee amounts
 router.post("/add-student-fee", FINANCE, addStudentFee);   // BE-4: finance op (was ADMIN_ONLY)
 router.post("/add-term", ADMIN_ONLY, addTerm);
 router.post("/add-news", ADMIN_ONLY, addEvent);               // Events add: Administrator
@@ -197,7 +197,7 @@ router.delete("/delete-bus-fee/:busfee_id", FINANCE, deleteBusFee);
 router.delete("/delete-news/:news_id", ADMIN_ONLY, deleteEvent);
 
 
-//graph routes — Data Visualization accounting charts hidden for Class Teacher
+//graph routes - Data Visualization accounting charts hidden for Class Teacher
 router.get("/expense-graph", FINANCE, fetchExpenseGraph);
 router.get("/income-graph", FINANCE, fetchIncomeGraph);
 router.get("/fees-graph", FINANCE, fetchFeesGraph);

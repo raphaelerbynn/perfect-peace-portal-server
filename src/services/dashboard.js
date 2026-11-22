@@ -55,7 +55,7 @@ export const getDashboardSummary = async ({ include } = {}) => {
 };
 
 // BE-D9: students with an outstanding balance only. Filter (feesOwing > 0),
-// sort (feesOwing DESC) and field selection are all done in SQL — the resolved
+// sort (feesOwing DESC) and field selection are all done in SQL - the resolved
 // class name comes from the Class association. NOTE: this reads the existing
 // `Student.feesOwing` column as-is; reconciling that column's accuracy is owned
 // by another agent and intentionally not touched here.

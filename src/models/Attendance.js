@@ -55,7 +55,7 @@ const attendance = sequelize.define('attendance', {
     // this array is documentation only (model .sync() is disabled).
     indexes: [
       {
-        // BE-4: backs the non-destructive upsert — one mark per student per day per term.
+        // BE-4: backs the non-destructive upsert - one mark per student per day per term.
         name: "uniq_attendance",
         unique: true,
         fields: [{ name: "student_id" }, { name: "date_marked" }, { name: "term_id" }],

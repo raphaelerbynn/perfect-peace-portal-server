@@ -36,7 +36,7 @@ const validateEventFields = (data, { partial = false } = {}) => {
 // behaviour and shape (full array). limit/offset only applied when supplied.
 //
 // BE-21: both `/news` and `/events` map here (Event.findAll). In this system
-// "news" and "events" are the SAME underlying concept — a single `Event` table
+// "news" and "events" are the SAME underlying concept - a single `Event` table
 // backs both the parent-app news feed and the admin events list. There is no
 // separate News model. The two route paths are kept as aliases for frontend
 // compatibility (the portal app calls /news, the admin portal uses events).
@@ -92,7 +92,7 @@ const createEvent = async (data) => {
 }
 
 const editEvent = async (data, eventId) => {
-    // BE-D7: validate (partial — only enforce fields that are present), then
+    // BE-D7: validate (partial - only enforce fields that are present), then
     // explicitly whitelist the updatable columns instead of spreading the whole
     // request body (prevents mass-assignment of eventId / created_at / etc.).
     validateEventFields(data, { partial: true });

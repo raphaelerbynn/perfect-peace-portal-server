@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Spin up the TEST-CLIENT stack: a temporary (ephemeral) Postgres + the backend
-# API on port 5040, seeded with EXACTLY ONE user — the admin.
+# API on port 5040, seeded with EXACTLY ONE user - the admin.
 #
 # Usage:
 #   ./scripts/run-test-client.sh              # build locally + run on :5040
@@ -36,7 +36,7 @@ if [ ! -f "$ENV_FILE" ]; then
 fi
 
 # 2. Collect the single admin's credentials.
-set_env() { # key value  — upsert KEY=value into $ENV_FILE
+set_env() { # key value  - upsert KEY=value into $ENV_FILE
   local k="$1" v="$2"
   if grep -q "^${k}=" "$ENV_FILE"; then
     # portable in-place edit (BSD + GNU sed)
@@ -71,7 +71,7 @@ fi
 echo -n "→ waiting for API on :$PORT "
 for _ in $(seq 1 40); do
   if curl -fs -m 3 "http://localhost:${PORT}/" >/dev/null 2>&1; then
-    echo "— up!"
+    echo "- up!"
     ADMIN_U=$(grep '^ADMIN_USERNAME=' "$ENV_FILE" | cut -d= -f2-)
     echo ""
     echo "✅ Test-client API: http://localhost:${PORT}"

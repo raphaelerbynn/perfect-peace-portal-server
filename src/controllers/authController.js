@@ -31,7 +31,7 @@ const SELF_SIGNUP_CATEGORIES = ["Class Teacher", "Accountant"];
 const MANAGEMENT_USER_TYPE = "MANAGEMENT";
 
 // Public endpoint backing the pre-login signup "Select Staff" picker. Exposes
-// only id + name (no PII) — see getStaffForSignup.
+// only id + name (no PII) - see getStaffForSignup.
 const fetchStaffForSignup = async (req, res, next) => {
   try {
     const staff = await getStaffForSignup();
@@ -50,7 +50,7 @@ const signup = async (req, res, next) => {
 
     // studentSignUp/teacherSignUp set the password only WHERE password IS NULL,
     // so [0] === 0 means either no matching row OR the account is already
-    // signed up. BE-A15: don't conflate those internally — but keep the
+    // signed up. BE-A15: don't conflate those internally - but keep the
     // external response non-enumerating with a single generic message.
     const data =
       role === "STU"
@@ -106,7 +106,7 @@ const signin = async (req, res, next) => {
 const signinManagement = async (req, res, next) => {
   const data = req.body;
   try {
-    // getManagementUser returns a sanitized object (no password hash) — BE-A13.
+    // getManagementUser returns a sanitized object (no password hash) - BE-A13.
     const user = await getManagementUser(data);
 
     // BE-A9: same status (401) + generic message as the portal /signin so the
@@ -150,7 +150,7 @@ const signupManagement = async (req, res, next) => {
 
     // BE-A8 (privilege escalation): only the two non-privileged roles may be
     // self-registered. Administrator (or any other value) must be provisioned
-    // by an existing admin — never via public self-signup.
+    // by an existing admin - never via public self-signup.
     if (!SELF_SIGNUP_CATEGORIES.includes(data.category)) {
       throw new AppError(
         "You are not permitted to self-register for this role.",
@@ -177,10 +177,10 @@ const signupManagement = async (req, res, next) => {
 // BE-A1 + BE-A9: admin-portal forgot-password for the MANAGEMENT UserAccount.
 // Verifies a management UserAccount exists for the staff id (the Teacher record
 // is used ONLY to fetch the phone number). To avoid account enumeration the
-// HTTP response is ALWAYS a generic 200 — an SMS is only actually sent when an
+// HTTP response is ALWAYS a generic 200 - an SMS is only actually sent when an
 // account truly exists and has a contact. The reset code is generated/stored
 // via the unified secure store (CSPRNG, bcrypt-hashed, single-use, attempt &
-// resend capped) — never embedded in a JWT.
+// resend capped) - never embedded in a JWT.
 const GENERIC_OTP_MESSAGE =
   "If an account exists, a reset code has been sent.";
 
@@ -200,7 +200,7 @@ const sendStaffPasswordOTP = async (req, res, next) => {
 
       if (teacherContact) {
         // issueResetCode enforces the per-user cooldown + daily cap and throws
-        // AppError(429) when exceeded — surface that (it is not enumeration,
+        // AppError(429) when exceeded - surface that (it is not enumeration,
         // it's abuse protection).
         const code = await issueResetCode({
           identifier: String(staffId),
@@ -217,7 +217,7 @@ const sendStaffPasswordOTP = async (req, res, next) => {
   }
 };
 
-// BE-A1: new contract — body { staffId, code, password }. No JWT token. The
+// BE-A1: new contract - body { staffId, code, password }. No JWT token. The
 // code is verified against the unified store (attempts/expiry/single-use) and
 // the management UserAccount password is reset with bcrypt.
 const resetForgottenPassword = async (req, res, next) => {

@@ -75,7 +75,7 @@ const assertClassWrite = async (user, className, studentIds = [], termId = null)
 // The old code fired the inserts (inside .map) concurrently with the delete,
 // so a re-mark could delete the rows it had just inserted (silent data loss),
 // and nothing was transactional. Here we delete the class+day's existing rows
-// FIRST and then insert the new ones, all inside ONE transaction — so a partial
+// FIRST and then insert the new ones, all inside ONE transaction - so a partial
 // failure rolls everything back and a re-mark is last-write-wins with no dupes.
 // The composite UNIQUE index (student_id, date_marked, term_id) backs this at
 // the DB level against concurrent callers.
@@ -190,14 +190,14 @@ const getTotalStudentAttendance = async (data) => {
 //   - blindly `create`d, so re-running duplicated every TotalAttendance row.
 // Now it is scoped to the active term, grouped by (studentId, termId), upserted
 // on the (studentId, termId) unique index, and only the active term's source
-// rows are deleted — all in ONE transaction.
+// rows are deleted - all in ONE transaction.
 const addTermAttendance = async () => {
     const term = await getTerm();
     if (!term?.termId) {
         throw new AppError("No active term is set", 400);
     }
 
-    // valid (non-deleted) student IDs — drop attendance for students that no
+    // valid (non-deleted) student IDs - drop attendance for students that no
     // longer exist / were archived.
     const validStudents = await Student.findAll({
         attributes: ["studentId"],
@@ -229,7 +229,7 @@ const addTermAttendance = async () => {
 
         const results = [];
         for (const attendance of validAttendances) {
-            // BE-11: `absent` is intentionally NOT stored — TotalAttendance has
+            // BE-11: `absent` is intentionally NOT stored - TotalAttendance has
             // no absent column. Consumers derive it as
             // (attendance - present - sick). We persist the three that have columns.
             const [row] = await TotalAttendance.upsert(

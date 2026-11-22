@@ -108,12 +108,12 @@ app.get("/", async (req, res) => {
 // ordered so that authenticated routers are NOT shadowed by unauthenticated ones.
 
 // --- Unauthenticated / self-authenticating routers ---
-// authRouter: public login/signup/OTP/reset endpoints — rate limited (BE-14).
+// authRouter: public login/signup/OTP/reset endpoints - rate limited (BE-14).
 // studentRouter & fileRouter authenticate per-route internally (portal tokens).
 // BE-14 FIX: scope authLimiter to the auth ENDPOINTS only. Mounting it as
 // `app.use("/", authLimiter, authRouter)` ran the limiter for EVERY request
 // (path "/" matches all), throttling normal authenticated app traffic at
-// 20 req/10min/IP — the opposite of the documented intent. Listing the auth
+// 20 req/10min/IP - the opposite of the documented intent. Listing the auth
 // paths keeps the limiter on signin/signup/OTP/reset while leaving the rest of
 // the API unthrottled. (app.use prefix-matches, so "/send-otp" covers
 // "/send-otp/:userId".)
@@ -139,7 +139,7 @@ app.use("/", portalRouter);
 
 // --- Management (admin portal) routers: token required at mount time ---
 // NOTE: the standalone unauthenticated `app.get("/staff", fetchAllStaff)` route
-// was removed previously — it leaked all staff records. The authenticated,
+// was removed previously - it leaked all staff records. The authenticated,
 // Administrator-only `/staff` route is wired into generalRouter below.
 app.use("/", authenticateManagementUser, generalRouter);
 // Accounting/Fees domain: hidden for Class Teacher (Administrator + Accountant only).

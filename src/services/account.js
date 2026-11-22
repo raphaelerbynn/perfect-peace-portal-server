@@ -207,7 +207,7 @@ export const createAccountCategory = async (data) => {
 };
 
 export const removeAccountCategory = async (accountCategoryId) => {
-  // BE-5: refuse to delete a category that still has income/expense rows — that
+  // BE-5: refuse to delete a category that still has income/expense rows - that
   // would orphan them (their `include` would resolve to a null category and
   // by-category reporting would break). 409 instead of silent orphaning.
   const existing = await AccountCategory.findByPk(accountCategoryId);
