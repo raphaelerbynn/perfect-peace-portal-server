@@ -3,6 +3,7 @@ import sequelize from "../config/database.js";
 import { Attendance, Class, Student, TotalAttendance } from "../models/index.js";
 import { getTerm } from "./term.js";
 import { AppError } from "../utils/errorHandling.js";
+import { hasPermission, P } from "../utils/permissions.js";
 
 // BE-7: the term roll-up (addTermAttendance) only sums these statuses. A mark
 // with any other value is silently dropped from every count, so reject it at
@@ -11,11 +12,19 @@ const VALID_STATUSES = ["Present", "Sick", "Absent"];
 
 const normName = (s) => String(s ?? "").trim().toLowerCase();
 
+// B10: a login works on every class only with academics.all_classes; without
+// it, only on the class linked to it (as a Class Teacher always was).
+const everyClass = (user) => hasPermission(user, P.ALL_CLASSES);
+// ...and changes closed terms (and any day's register) only with
+// academics.edit_closed_terms (the Administrator).
+const editsClosedTerms = (user) => hasPermission(user, P.EDIT_CLOSED_TERMS);
+
 // BE-5: resolve the class NAME a Class Teacher is assigned to. Attendance rows
 // key on the denormalized class-name string (not classId), so we compare names.
-// Administrators are never class-scoped (returns null = no restriction).
+// A login with academics.all_classes is never class-scoped (returns null = no
+// restriction).
 const getTeacherClassName = async (user) => {
-    if (!user || user.category === "Administrator") return null;
+    if (!user || everyClass(user)) return null;
     if (!user.teacherId) {
         throw new AppError("Your account is not linked to a class", 403);
     }
@@ -26,12 +35,13 @@ const getTeacherClassName = async (user) => {
     return klass ? klass.name : null;
 };
 
-// BE-5: throw 403 unless `user` may act on `className`. Administrator bypasses;
-// a Class Teacher may only touch the class they are assigned to. Used by every
-// attendance read/write so a Class Teacher can no longer pass an arbitrary
-// `class` and reach another class via the API.
+// BE-5: throw 403 unless `user` may act on `className`. academics.all_classes
+// (the Administrator) bypasses: every class; anyone else may only touch the
+// class they are assigned to. Used by every attendance read/write so a Class
+// Teacher can no longer pass an arbitrary `class` and reach another class via
+// the API.
 const assertClassAccess = async (user, className) => {
-    if (!user || user.category === "Administrator") return;
+    if (!user || everyClass(user)) return;
     const own = await getTeacherClassName(user);
     if (!own || normName(own) !== normName(className)) {
         throw new AppError("You can only manage attendance for your own class", 403);
@@ -42,15 +52,19 @@ const assertClassAccess = async (user, className) => {
 // For a Class Teacher login also check that every pupil written to is in that
 // class (else a false "absent" SMS could go to any parent, or marks be filed
 // for another class's pupil) and that the write is for the open term (closed
-// terms' results, e.g. after promotion, are office-only). Administrators are
-// unchanged.
+// terms' results, e.g. after promotion, are office-only). B10: the open-term
+// rule is lifted by academics.edit_closed_terms, the pupil check by
+// academics.all_classes (the Administrator holds both; a Class Teacher neither).
 const assertClassWrite = async (user, className, studentIds = [], termId = null) => {
     await assertClassAccess(user, className);
-    if (!user || user.category === "Administrator") return;
-    const term = await getTerm();
-    if (termId != null && termId !== "" && Number(termId) !== Number(term?.termId)) {
-        throw new AppError("Class Teachers can only change the open term. Ask the administrator.", 403);
+    if (!user) return;
+    if (!editsClosedTerms(user)) {
+        const term = await getTerm();
+        if (termId != null && termId !== "" && Number(termId) !== Number(term?.termId)) {
+            throw new AppError("You can only change the open term. Ask the administrator.", 403);
+        }
     }
+    if (everyClass(user)) return; // every class: no own-class pupil check
     const ids = [...new Set(studentIds.filter((x) => x != null).map(Number))];
     if (!ids.length) return;
     // The teacher's own class record (assertClassAccess already matched the
@@ -79,7 +93,16 @@ const assertClassWrite = async (user, className, studentIds = [], termId = null)
 // failure rolls everything back and a re-mark is last-write-wins with no dupes.
 // The composite UNIQUE index (student_id, date_marked, term_id) backs this at
 // the DB level against concurrent callers.
-const markClassAttendance = async ({ className, dateMarked, dateEnd, studentAttendance }) => {
+// B2: `enteredBy` / `enteredByTeacherId` record who took the register (set by
+// the server from the token).
+const markClassAttendance = async ({
+    className,
+    dateMarked,
+    dateEnd,
+    studentAttendance,
+    enteredBy = null,
+    enteredByTeacherId = null,
+}) => {
     const term = await getTerm();
     const termId = term ? term.termId : null;
 
@@ -103,6 +126,8 @@ const markClassAttendance = async ({ className, dateMarked, dateEnd, studentAtte
                     // was always null. Read the plain field instead.
                     dateEnd: dateEnd ?? (term ? term.endDate : null),
                     termId,
+                    enteredBy,
+                    enteredByTeacherId,
                 },
                 { transaction: t }
             );
@@ -149,6 +174,30 @@ const removeAttendance = async (data, { transaction } = {}) => {
     return response;
 };
 
+// B10 review: a register can only be marked or cleared on a day of the open
+// term without academics.edit_closed_terms. Past terms' registers are office
+// (Administrator) only. A bound the term doesn't have (live terms with no
+// dates) isn't checked.
+const isoDay = (d) => {
+    if (d == null || d === "") return null;
+    if (d instanceof Date) return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+    const m = /^(\d{4}-\d{2}-\d{2})/.exec(String(d).trim());
+    return m ? m[1] : null;
+};
+
+const assertAttendanceDateOpen = async (user, dateMarked) => {
+    if (!user || editsClosedTerms(user)) return;
+    const day = isoDay(dateMarked);
+    if (!day) throw new AppError("A valid date (YYYY-MM-DD) is required", 400);
+    const term = await getTerm();
+    if (!term) throw new AppError("No term is open. Ask the administrator.", 403);
+    const start = isoDay(term.startDate);
+    const end = isoDay(term.endDate);
+    if ((start && day < start) || (end && day > end)) {
+        throw new AppError("You can only change attendance for days in the open term. Ask the administrator.", 403);
+    }
+};
+
 const getAttendance = async (data) => {
     if (!data?.class || !data?.date) {
         throw new AppError("class and date are required", 400);
@@ -177,8 +226,25 @@ const getTotalStudentAttendance = async (data) => {
         raw: true,
         order: [["totalAttendanceId", "DESC"]],
     });
+    if (response) return response;
 
-    return response;
+    // B4: the term hasn't been closed (rolled up) yet, so count the daily
+    // register live; the report card then shows attendance so far.
+    const rows = await Attendance.findAll({
+        where: { studentId: data.studentId, termId: data.termId },
+        attributes: ["status"],
+        raw: true,
+    });
+    if (!rows.length) return null;
+    // status is CHAR(10) in Postgres: values come back space-padded.
+    const status = (r) => String(r.status ?? "").trim();
+    return {
+        studentId: Number(data.studentId),
+        termId: Number(data.termId),
+        present: rows.filter((r) => status(r) === "Present").length,
+        sick: rows.filter((r) => status(r) === "Sick").length,
+        attendance: rows.length,
+    };
 };
 
 // BE-3/BE-17: roll the active term's daily attendance into TotalAttendance.
@@ -208,7 +274,7 @@ const addTermAttendance = async () => {
 
     return await sequelize.transaction(async (t) => {
         // Select ONLY the grouped columns + aggregates. The old version selected
-        // every other column too (class, date_end…): MySQL allowed that, but
+        // every other column too (class, entered_by…): MySQL allowed that, but
         // Postgres refuses it, so closing a term failed on Postgres.
         const attendances = await Attendance.findAll({
             attributes: [
@@ -259,6 +325,7 @@ export {
     markClassAttendance,
     assertClassAccess,
     assertClassWrite,
+    assertAttendanceDateOpen,
     getTeacherClassName,
     VALID_STATUSES,
     removeAttendance,

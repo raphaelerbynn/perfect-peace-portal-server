@@ -57,7 +57,8 @@ const getIncomeGraph = (data) =>
   buildTimeSeries(Income, data, { dateCol: "date", sumCol: "amount", baseWhere: { isDeleted: false } });
 
 const getFeesGraph = (data) =>
-  buildTimeSeries(Fee, data, { dateCol: "date_paid", sumCol: "paid" });
+  // B13: reversed payments are not income.
+  buildTimeSeries(Fee, data, { dateCol: "date_paid", sumCol: "paid", baseWhere: { reversedAt: null } });
 
 export { getExpenseGraph, getFeesGraph, getIncomeGraph };
 
@@ -106,7 +107,7 @@ const getProfitLoss = async (data) => {
   const { startDate, endDate, all } = data || {};
   // BE-4: soft-deleted ledger rows must NOT count toward profit/loss.
   const whereIncome = { isDeleted: false };
-  const whereFee = {};
+  const whereFee = { reversedAt: null }; // B13: reversed payments are not income
   const whereExpense = { isDeleted: false };
 
   // `all` may arrive as a string ('true'/'false') from query params - coerce to boolean

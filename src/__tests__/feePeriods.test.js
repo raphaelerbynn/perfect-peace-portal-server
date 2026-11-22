@@ -6,18 +6,21 @@ jest.mock("../models/index.js", () => ({
   Class: { findOne: jest.fn() },
   ClassFee: { findAll: jest.fn() },
   StudentFee: { findAll: jest.fn() },
-  Fee: { findAll: jest.fn(), findOne: jest.fn(), destroy: jest.fn(), create: jest.fn() },
+  Fee: { findAll: jest.fn(), findOne: jest.fn(), update: jest.fn(), create: jest.fn() },
   FeeCheck: { findAll: jest.fn() },
   Student: { findOne: jest.fn(), update: jest.fn() },
+  // B14: no invoices or credit notes in these tests.
+  Invoice: { findAll: jest.fn(async () => []) },
+  CreditNote: { findAll: jest.fn(async () => []) },
 }));
 
 import sequelize from "../config/database.js";
 import { ClassFee, Fee, Student, StudentFee } from "../models/index.js";
-import { recomputeStudentOwing, removeFee, startFeePeriod } from "../services/fee.js";
+import { recomputeStudentOwing, reverseFee, startFeePeriod } from "../services/fee.js";
 
 let pupil;
 let classFees; // classId -> [amount]
-let payments; // [{ feeId, studentId, paid }]
+let payments; // [{ feeId, paid, reversedAt }]
 
 beforeEach(() => {
   jest.resetAllMocks();
@@ -26,8 +29,8 @@ beforeEach(() => {
   pupil = { studentId: 1, classId: 1, feesOwing: 400, feesPaid: 500, feesOpeningBalance: 400, feesBillAtStart: 900, feesPaidAtStart: 500, feesPeriodAfterFeeId: 10 };
   classFees = { 1: [900], 2: [1200] };
   payments = [
-    { feeId: 3, studentId: 1, paid: 300 }, // live years ago
-    { feeId: 9, studentId: 1, paid: 500 }, // live this year
+    { feeId: 3, studentId: 1, paid: 300, reversedAt: null, receiptNo: "PPS-1" }, // live years ago
+    { feeId: 9, studentId: 1, paid: 500, reversedAt: null, receiptNo: "PPS-2" }, // live this year
   ];
   sequelize.transaction.mockImplementation(async (cb) => cb({ LOCK: { UPDATE: "UPDATE" } }));
   sequelize.query.mockImplementation(async () => [[{ maxId: Math.max(0, ...payments.map((p) => p.feeId)) }]]);
@@ -37,13 +40,14 @@ beforeEach(() => {
   StudentFee.findAll.mockResolvedValue([]);
   Fee.findAll.mockImplementation(async ({ where }) => {
     const after = Object.getOwnPropertySymbols(where.feeId).map((s) => where.feeId[s])[0];
-    return payments.filter((p) => p.studentId === where.studentId && p.feeId > after);
+    return payments.filter((p) => p.studentId === where.studentId && !p.reversedAt && p.feeId > after);
   });
   Fee.findOne.mockImplementation(async ({ where }) => payments.find((p) => p.feeId === Number(where.feeId)) || null);
-  Fee.destroy.mockImplementation(async ({ where }) => {
-    const before = payments.length;
-    payments = payments.filter((x) => x.feeId !== Number(where.feeId));
-    return before - payments.length;
+  Fee.update.mockImplementation(async (patch, { where }) => {
+    const p = payments.find((x) => x.feeId === Number(where.feeId) && !x.reversedAt);
+    if (!p) return [0];
+    Object.assign(p, patch);
+    return [1];
   });
 });
 
@@ -53,7 +57,7 @@ it("go-live changes nobody's balance (old payments are NOT credited again)", asy
 });
 
 it("a new payment lowers the balance; paid keeps the live figure plus new payments", async () => {
-  payments.push({ feeId: 11, studentId: 1, paid: 150 });
+  payments.push({ feeId: 11, studentId: 1, paid: 150, reversedAt: null });
   expect(await recomputeStudentOwing(1)).toEqual({ billed: 900, paid: 650, owing: 250 });
 });
 
@@ -67,15 +71,15 @@ it("correcting the pupil's class swaps the old bill for the new one (same period
   expect((await recomputeStudentOwing(1)).owing).toBe(700);
 });
 
-it("deleting a payment made before go-live puts it back on the balance", async () => {
-  await removeFee(9);
+it("reversing a payment made before go-live puts it back on the balance", async () => {
+  await reverseFee(9, { reason: "Wrong pupil" });
   expect(pupil).toMatchObject({ feesOpeningBalance: 900, feesPaidAtStart: 0, feesOwing: 900, feesPaid: 0 });
 });
 
-it("deleting a new payment takes it out of the period's payments", async () => {
-  payments.push({ feeId: 11, studentId: 1, paid: 150 });
+it("reversing a new payment takes it out of the period's payments", async () => {
+  payments.push({ feeId: 11, studentId: 1, paid: 150, reversedAt: null });
   await recomputeStudentOwing(1);
-  await removeFee(11);
+  await reverseFee(11, { reason: "Wrong pupil" });
   expect(pupil).toMatchObject({ feesOpeningBalance: 400, feesOwing: 400, feesPaid: 500 });
 });
 
@@ -86,13 +90,13 @@ it("promotion starts a new period: arrears carry over, then the new class's bill
   pupil.classId = 2; // moved up
   expect(await recomputeStudentOwing(1)).toEqual({ billed: 1200, paid: 0, owing: 1600 });
   // a payment in the new year
-  payments.push({ feeId: 12, studentId: 1, paid: 600 });
+  payments.push({ feeId: 12, studentId: 1, paid: 600, reversedAt: null });
   expect(await recomputeStudentOwing(1)).toEqual({ billed: 1200, paid: 600, owing: 1000 });
 });
 
 it("a new pupil (no period set up) is simply bill - payments", async () => {
   pupil = { studentId: 1, classId: 1, feesOpeningBalance: 0, feesBillAtStart: 0, feesPaidAtStart: 0, feesPeriodAfterFeeId: 0 };
-  payments = [{ feeId: 20, studentId: 1, paid: 200 }];
+  payments = [{ feeId: 20, studentId: 1, paid: 200, reversedAt: null }];
   expect(await recomputeStudentOwing(1)).toEqual({ billed: 900, paid: 200, owing: 700 });
 });
 
@@ -104,17 +108,4 @@ it("a pupil in credit at go-live keeps the credit, and it comes off next year's 
   await startFeePeriod(1);
   pupil.classId = 2; // GH₵1200 class
   expect((await recomputeStudentOwing(1)).owing).toBe(262);
-});
-
-it("deleting a payment that doesn't exist is a 404 and changes nothing", async () => {
-  await expect(removeFee(99)).rejects.toMatchObject({ statusCode: 404 });
-  await expect(removeFee("abc")).rejects.toMatchObject({ statusCode: 404 });
-  expect(Fee.destroy).not.toHaveBeenCalled();
-});
-
-it("deleting the same old payment twice (double click) puts it back on the balance only once", async () => {
-  Fee.findOne.mockResolvedValue({ feeId: 9, studentId: 1, paid: 500 }); // both requests read it
-  await removeFee(9);
-  await expect(removeFee(9)).rejects.toMatchObject({ statusCode: 404 }); // the second deletes nothing
-  expect(pupil).toMatchObject({ feesOpeningBalance: 900, feesOwing: 900 });
 });

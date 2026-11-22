@@ -2,9 +2,6 @@ import { Op } from "sequelize";
 import sequelize from "../config/database.js";
 import { Class, Student, Teacher } from "../models/index.js";
 
-// The old system's graduated / left classes ("Guaduants", "Students Left").
-export const ALUMNI_CLASS_IDS = [39, 40];
-
 const idList = (v) =>
   String(v ?? "")
     .split(",")
@@ -12,7 +9,7 @@ const idList = (v) =>
     .filter(Number.isInteger);
 
 // Pupils "on the books": not archived, and not in a graduated / left class
-// (ALUMNI_CLASS_IDS) unless that class is ticked (`include`). A pupil with no
+// (Class.is_alumni) unless that class is ticked (`include`). A pupil with no
 // class counts.
 const countedWhere = (alumniIds, include) => {
   const hidden = alumniIds.filter((id) => !include.includes(id));
@@ -27,7 +24,7 @@ const countedWhere = (alumniIds, include) => {
 //   classCounts: [{ classId, name, totalStudents, isAlumni }] }
 //   students / boys / girls = active + the ticked graduated / left classes.
 export const getDashboardSummary = async ({ include } = {}) => {
-  const alumni = await Class.findAll({ where: { classId: ALUMNI_CLASS_IDS, isDeleted: { [Op.not]: true } }, attributes: ["classId", "name"], raw: true });
+  const alumni = await Class.findAll({ where: { isAlumni: true, isDeleted: { [Op.not]: true } }, attributes: ["classId", "name"], raw: true });
   const alumniIds = alumni.map((c) => c.classId);
   const ticked = idList(include).filter((id) => alumniIds.includes(id));
   const where = countedWhere(alumniIds, ticked);
@@ -65,7 +62,8 @@ export const getStudentsOwing = async ({ include } = {}) => {
   // argument at all (other callers) everyone who owes is listed, as before.
   let where = { feesOwing: { [Op.gt]: 0 }, isDeleted: false };
   if (include !== undefined) {
-    where = { ...countedWhere(ALUMNI_CLASS_IDS, idList(include)), feesOwing: { [Op.gt]: 0 } };
+    const alumni = await Class.findAll({ where: { isAlumni: true }, attributes: ["classId"], raw: true });
+    where = { ...countedWhere(alumni.map((c) => c.classId), idList(include)), feesOwing: { [Op.gt]: 0 } };
   }
   const rows = await Student.findAll({
     attributes: ["studentId", "fName", "mName", "lName", "feesOwing"],

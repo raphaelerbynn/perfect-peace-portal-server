@@ -1,14 +1,24 @@
-import { Class, ClassFee, KgAssessment, Parent, Student, StudentResult, StudentFee, Teacher } from "../models/index.js";
+import { Class, ClassFee, Parent, Student, StudentFee, Teacher } from "../models/index.js";
 import { Op } from "sequelize";
 import sequelize from "../config/database.js";
 import { isValidPhoneNumber, calculateAge } from "../utils/func.js";
 import { AppError } from "../utils/errorHandling.js";
-import { getTerm } from "./term.js";
-// BE-D4: getClassIdByName was previously USED here but never imported, so the
-// original per-student promotion threw a (swallowed) ReferenceError and likely
-// never promoted anyone. Import it properly now that errors propagate.
-import { getClassIdByName } from "./classes.js";
-import { recomputeStudentOwing, startFeePeriod } from "./fee.js";
+import { recomputeStudentOwing } from "./fee.js";
+import { tieAdmissionToOpenTerm } from "./termBilling.js";
+import { assertAdmissionNoFree, normaliseAdmissionNo, resolveNewAdmissionNo } from "./admission.js";
+import { getSchoolSettings } from "./school.js";
+import { isEmail } from "./mailer.js";
+
+// B16: the parent's email (for email notifications). Optional. undefined = not
+// sent (an older form: leave it as it is), "" = remove it.
+export const cleanParentEmail = (value) => {
+    if (value === undefined) return undefined;
+    const v = value === null ? "" : String(value).trim();
+    if (!v) return null;
+    if (v.length > 50) throw new AppError("Parent email can be at most 50 characters", 400);
+    if (!isEmail(v)) throw new AppError("Parent email is not a valid email address", 400);
+    return v;
+};
 
 // BE-20: optional, backward-compatible pagination + lazy-loading.
 // Calling `getStudents()` with no options returns EXACTLY what it returned
@@ -43,7 +53,7 @@ export const getStudents = async (options = {}) => {
     // classId from the Teacher row and FORCE it, ignoring any client-supplied
     // classId/className. If they have no class assigned, return empty (no throw).
     let scopedToEmpty = false;
-    if (requester?.role === "Class Teacher") {
+    if (requester?.ownClassOnly) {
         // The class record names its teacher (Class.teacher_id); live keeps the
         // link there, Teacher.class_id is empty for most staff. Fall back to it.
         const klass = requester.teacherId
@@ -83,6 +93,7 @@ export const getStudents = async (options = {}) => {
                         { fName: like },
                         { mName: like },
                         { lName: like },
+                        { admissionNo: like }, // B18
                     ],
                 };
             });
@@ -181,7 +192,7 @@ export const getStudents = async (options = {}) => {
     // office app reads (student.parent.fName, student.class_.classFee).
     const order = [["fName", "ASC"], ["lName", "ASC"], ["studentId", "ASC"]];
     const queryOptions = {
-        attributes: { exclude: ['password'] },
+        attributes: { exclude: ['password', 'photoKey', 'photoThumbKey'] }, // B17: no storage keys
         where,
         include,
         order,
@@ -317,75 +328,6 @@ export const getParentContact = async (id, forAttendance=false, status="") => {
 // when nothing (or only some students) were promoted, leaving inconsistent
 // state. We now let any failure propagate so the surrounding transaction aborts
 // and the controller's next(error) fires.
-export const promoteStudents = async (transaction = null, term = null) => {
-    term = term ?? (await getTerm());
-    if (!term) {
-        throw new Error("No active term found; cannot promote students");
-    }
-
-    // Every "promoted to" decision of the term: basic classes (StudentResult)
-    // and KG (KgAssessment, one category carries it).
-    const basic = await StudentResult.findAll({
-        attributes: ["studentId", "promotedTo", "class"],
-        where: { termId: term.termId, term: "3" },
-        raw: true,
-        transaction
-    });
-    const kg = await KgAssessment.findAll({
-        attributes: ["studentId", "promoted", "class"],
-        where: {
-            termId: term.termId,
-            term: "3",
-            category: "Language Development (Reading, Listening and Oral Skills)"
-        },
-        raw: true,
-        transaction
-    });
-    const byPupil = new Map();
-    const add = (studentId, to, fromClass, kind) => {
-        if (studentId == null || !to || !String(to).trim()) return;
-        if (!byPupil.has(studentId)) byPupil.set(studentId, []);
-        byPupil.get(studentId).push({ to: String(to).trim(), fromClass, kind });
-    };
-    basic.forEach((r) => add(r.studentId, r.promotedTo, r.class, "basic"));
-    kg.forEach((r) => add(r.studentId, r.promoted, r.class, "kg"));
-
-    const same = (a, b) => String(a ?? "").trim().toLowerCase() === String(b ?? "").trim().toLowerCase();
-    const counts = { basic: 0, kg: 0 };
-    // Each pupil ONCE, in id order (the same lock order as everywhere else).
-    for (const studentId of [...byPupil.keys()].sort((a, b) => Number(a) - Number(b))) {
-        const pupil = await Student.findOne({
-            where: { studentId },
-            attributes: ["studentId", "class", "isDeleted"],
-            raw: true,
-            transaction,
-            ...(transaction?.LOCK ? { lock: transaction.LOCK.UPDATE } : {}),
-        });
-        if (!pupil || pupil.isDeleted) continue;
-        // Only the decision made in the class the pupil is still in: a pupil
-        // already moved (closing again, or a second results row from a class
-        // correction) is not moved, or billed, a second time.
-        const decision = byPupil.get(studentId).find((d) => same(d.fromClass, pupil.class));
-        if (!decision || same(decision.to, pupil.class)) continue;
-        const newClassId = await getClassIdByName(decision.to, transaction);
-        if (newClassId == null) {
-            console.warn(`⚠️ Class "${decision.to}" not found for student ${studentId}, skipping`);
-            continue;
-        }
-        // Fee periods (migration 008): what is still owed carries over as
-        // arrears and the new class's bill is added in full.
-        await startFeePeriod(studentId, { transaction });
-        await Student.update(
-            { classId: newClassId, class: decision.to },
-            { where: { studentId }, transaction }
-        );
-        await recomputeStudentOwing(studentId, { transaction });
-        counts[decision.kind] += 1;
-    }
-    console.log(`🥳 Promoted ${counts.basic} basic-class and ${counts.kg} KG students`);
-    return counts;
-}
-
 export const createStudent = async (data) => {
     // BE-S4: validate-then-write inside ONE transaction. Errors propagate as
     // AppError so the central errorHandler maps clean status codes (no SQL leak).
@@ -454,6 +396,13 @@ export const createStudent = async (data) => {
             throw new AppError("A student with the same name and date of birth already exists", 409);
         }
 
+        // B18: the typed admission number, else the next from the school's
+        // format (counter row locked until this transaction commits).
+        const admissionNo = await resolveNewAdmissionNo(data?.admissionNo, {
+            format: (await getSchoolSettings({ fresh: true })).admissionFormat,
+            transaction: t,
+        });
+
         // --- Create Parent FIRST, read its PK from the create result ------
         const parent = await Parent.create(
             {
@@ -464,6 +413,7 @@ export const createStudent = async (data) => {
                 contact1: data.contact1,
                 relationship: data.relationship,
                 occupation: data.occupation,
+                email: cleanParentEmail(data.parentEmail) ?? null, // B16
             },
             { transaction: t }
         );
@@ -480,6 +430,7 @@ export const createStudent = async (data) => {
                 class: data.class,
                 classId: resolvedClassId,
                 parentId,
+                admissionNo,
                 feesPaid: 0,
                 address: data.address,
                 dateRegistered: new Date(),
@@ -490,8 +441,12 @@ export const createStudent = async (data) => {
 
         const newStudentId = newStudent.dataValues.student_id ?? newStudent.dataValues.studentId;
 
-        // Reconcile cached fees columns from the underlying rows.
-        await recomputeStudentOwing(newStudentId, { transaction: t });
+        // B12: the class bill on the new pupil's first fee period is the open
+        // term's bill: tie the period to that term (ADOPTED term bill row) so
+        // discounts apply now and the next term bills them, not adopts this
+        // bill. No open term: the next term billed takes it over. Recomputes
+        // the cached fees columns from the underlying rows.
+        await tieAdmissionToOpenTerm(newStudentId, { transaction: t });
 
         return newStudent;
     });
@@ -538,7 +493,17 @@ export const editStudent = async (data, id) => {
         // reconcile) in ONE transaction instead of Promise.allSettled, which
         // silently ignored a failed half. The Student row (incl. new classId)
         // must be persisted BEFORE recomputeStudentOwing reads it.
+        // B18: change the admission number only when one is sent. Blank
+        // (empty, spaces, null, or not sent by older forms) KEEPS the current
+        // number: a number can be changed but never removed, so it is never
+        // handed out twice. The edit form says so. Another pupil's number is a 409.
+        const admissionNo = normaliseAdmissionNo(data?.admissionNo);
+        if (admissionNo && admissionNo.toLowerCase() !== String(currentStudent.admissionNo ?? "").toLowerCase()) {
+            await assertAdmissionNoFree(admissionNo, { exceptStudentId: Number(id) });
+        }
+        if (admissionNo) studentUpdate.admissionNo = admissionNo;
 
+        const parentEmail = cleanParentEmail(data.parentEmail); // B16 (400 before any write)
         const response = await sequelize.transaction(async (t) => {
             const studentRes = await Student.update(studentUpdate, {
                 where: { studentId: id },
@@ -554,6 +519,7 @@ export const editStudent = async (data, id) => {
                     contact1: data.contact1,
                     relationship: data.relationship,
                     occupation: data.occupation,
+                    ...(parentEmail !== undefined && { email: parentEmail }), // B16
                 },
                 {
                     where: { parent_id: parent_id },

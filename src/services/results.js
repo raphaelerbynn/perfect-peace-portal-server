@@ -10,6 +10,7 @@ import {
 import { AppError } from "../utils/errorHandling.js";
 import { getTerm } from "./term.js";
 import { round2 } from "../utils/money.js";
+import { DEFAULT_PRIMARY_BANDS, makeGrader, resolveGrade } from "./grading.js";
 
 // ---------------------------------------------------------------------------
 // Feature #8 - authoritative, non-destructive results engine.
@@ -29,16 +30,9 @@ import { round2 } from "../utils/money.js";
 
 const isBlank = (v) => v === "" || v === null || v === undefined;
 
-const gradeRemark = (mark) => {
-  const m = Number(mark);
-  if (!Number.isFinite(m)) return "---";
-  if (m < 40) return "Fail";
-  if (m < 50) return "Pass";
-  if (m < 60) return "Credit";
-  if (m < 70) return "Good";
-  if (m < 80) return "Very Good";
-  return "Excellent"; // <= 100
-};
+// The built-in remark (B8: saves use the class's grading scale instead, see
+// upsertOneMark; with the seeded scales the result is the same).
+const gradeRemark = (mark) => resolveGrade(mark, DEFAULT_PRIMARY_BANDS)?.remark ?? "---";
 
 // Recompute the per-subject weighted percentages + total from the subject config.
 // Authoritative: divides the raw score by the subject's actual total marks (the
@@ -91,7 +85,9 @@ const computeMarkFields = (subject, classScoreRaw, examScoreRaw) => {
 };
 
 // Upsert ONE subject mark (recomputed server-side). Returns the persisted row.
-const upsertOneMark = async (data, termId, t) => {
+// B8: the grade and remark come from the class's grading scale and are stamped
+// on the row (`grader` caches the scales for the whole save).
+const upsertOneMark = async (data, termId, t, grader = makeGrader({ transaction: t })) => {
   if (isBlank(data?.classMark) && isBlank(data?.examMark)) {
     return null; // nothing entered for this subject - skip, don't wipe
   }
@@ -110,6 +106,7 @@ const upsertOneMark = async (data, termId, t) => {
   if (!subject) throw new AppError("Subject not found", 404);
 
   const computed = computeMarkFields(subject, data.classMark, data.examMark);
+  const graded = await grader(computed.totalScore, data.class);
 
   const where = {
     studentId: data.studentId,
@@ -125,8 +122,14 @@ const upsertOneMark = async (data, termId, t) => {
     classScorePercentage: computed.classScorePercentage,
     examScorePercentage: computed.examScorePercentage,
     totalScore: computed.totalScore,
-    remarks: computed.remarks,
+    remarks: graded.remark,
+    grade: graded.grade,
     date: new Date(),
+    // B2: who typed it. Set by the server from the token, never from the body.
+    ...(data.enteredBy !== undefined && {
+      enteredBy: data.enteredBy,
+      enteredByTeacherId: data.enteredByTeacherId ?? null,
+    }),
   };
 
   const existing = await StudentMarks.findOne({ where, transaction: t });
@@ -252,6 +255,7 @@ const bulkCreateMarksResult = async (marksData, studentInfo) => {
   const termId = studentInfo?.termId || (await getTerm())?.termId;
   return await sequelize.transaction(async (t) => {
     const saved = [];
+    const grader = makeGrader({ transaction: t });
     for (const mark of marksData || []) {
       const row = await upsertOneMark(
         {
@@ -262,7 +266,8 @@ const bulkCreateMarksResult = async (marksData, studentInfo) => {
           termId,
         },
         termId,
-        t
+        t,
+        grader
       );
       if (row) saved.push(row);
     }
@@ -299,11 +304,21 @@ const createResult = async (data) => {
 const saveResult = async (data) => {
   const termId = await resolveTermId(data);
   return await sequelize.transaction(async (t) => {
+    const grader = makeGrader({ transaction: t });
     for (const mark of data?.results || []) {
       await upsertOneMark(
-        { ...mark, studentId: data.studentId, class: data.class, term: data.term, termId },
+        {
+          ...mark,
+          studentId: data.studentId,
+          class: data.class,
+          term: data.term,
+          termId,
+          enteredBy: data.enteredBy,
+          enteredByTeacherId: data.enteredByTeacherId,
+        },
         termId,
-        t
+        t,
+        grader
       );
     }
     return recomputeStudentResult(
@@ -383,6 +398,53 @@ const removeResult = async (data) => {
   });
 };
 
+// B2: one subject for a whole class (the teacher's score sheet), in ONE
+// transaction. Each entered row is upserted and that pupil's aggregate
+// recomputed; a row with both scores blank is skipped (never deletes a mark).
+// Caller has already checked the teacher's scope and that every studentId is
+// in the class. `checkBefore(t)` (optional; B6's office sheet uses it) runs
+// first inside the same transaction, e.g. to refuse a stale sheet.
+const saveClassSubjectScores = async ({
+  className,
+  subjectId,
+  term,
+  termId,
+  scores,
+  enteredBy,
+  enteredByTeacherId = null,
+  checkBefore = null,
+}) => {
+  if (termId == null) throw new AppError("No term is open", 409);
+  return await sequelize.transaction(async (t) => {
+    if (checkBefore) await checkBefore(t);
+    let saved = 0;
+    const grader = makeGrader({ transaction: t });
+    // Same order in every save, so two sheets locking pupils can't deadlock.
+    const ordered = [...(scores || [])].sort((a, b) => Number(a.studentId) - Number(b.studentId));
+    for (const row of ordered) {
+      const mark = await upsertOneMark(
+        {
+          studentId: row.studentId,
+          subjectId,
+          class: className,
+          term,
+          classMark: row.classScore,
+          examMark: row.examScore,
+          enteredBy,
+          enteredByTeacherId,
+        },
+        termId,
+        t,
+        grader
+      );
+      if (!mark) continue;
+      saved += 1;
+      await recomputeStudentResult({ studentId: row.studentId, class: className, term, termId }, null, t);
+    }
+    return { saved, skipped: (scores?.length || 0) - saved };
+  });
+};
+
 // --------------------------- reads (unchanged shapes) ----------------------
 
 const getClassMarks = async (data) => {
@@ -398,8 +460,10 @@ const getClassMarks = async (data) => {
       total_score AS "totalScore",
       class,
       remarks,
+      grade,
       term_id AS "termId",
       date,
+      entered_by AS "enteredBy",
       (
         SELECT COUNT(*) + 1
         FROM "dbo"."Student_marks" s
@@ -481,9 +545,11 @@ const getOneStudentMarks = async (data) => {
       total_score AS "totalScore",
       class,
       remarks,
+      grade,
       term,
       term_id AS "termId",
       date,
+      entered_by AS "enteredBy",
       (
         SELECT COUNT(*) + 1
         FROM "dbo"."Student_marks" s
@@ -521,6 +587,7 @@ const getResults = async (indexNumber) => {
         sm.class_score_percentage,
         sm.total_score,
         sm.remarks,
+        sm.grade,
         sm.term,
         sm.class,
         to_char(sm.date, 'YYYY') AS year,
@@ -602,5 +669,6 @@ export {
   bulkCreateMarksResult,
   upsertMarksResult,
   saveResult,
+  saveClassSubjectScores,
   computeMarkFields,
 };

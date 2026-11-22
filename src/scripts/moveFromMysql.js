@@ -254,7 +254,7 @@ const feeDrift = async () => {
         GREATEST(0,
           COALESCE((SELECT SUM(amount) FROM ${pgTable("ClassFee")} cf WHERE cf.class_id = s.class_id), 0)
         + COALESCE((SELECT SUM(amount) FROM ${pgTable("StudentFee")} sf WHERE sf.student_id = s.student_id), 0)
-        - COALESCE((SELECT SUM(paid) FROM ${pgTable("Fee")} f WHERE f.student_id = s.student_id), 0)) AS recomputed
+        - COALESCE((SELECT SUM(paid) FROM ${pgTable("Fee")} f WHERE f.student_id = s.student_id AND f.reversed_at IS NULL), 0)) AS recomputed
       FROM ${pgTable("Student")} s WHERE s.is_deleted IS NOT TRUE)
     SELECT COUNT(*)::int AS pupils, COALESCE(SUM(ABS(cached - recomputed)), 0)::numeric AS total_difference
     FROM billed WHERE COALESCE(cached, 0) <> recomputed`);

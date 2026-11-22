@@ -3,6 +3,7 @@ import { formatGhs, round2, sumMoney, toNum } from "../utils/money.js";
 import { paginatedResponse, parsePagination } from "../utils/pagination.js";
 
 jest.mock("../models/index.js", () => ({ Term: { findOne: jest.fn() } }));
+jest.mock("../services/promotion.js", () => ({ getStatus: jest.fn() }));
 jest.mock("../config/database.js", () => ({ transaction: jest.fn() }));
 const { Term } = require("../models/index.js");
 const { requireActiveTerm } = require("../services/term.js");

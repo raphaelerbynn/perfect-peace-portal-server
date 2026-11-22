@@ -81,7 +81,8 @@ export const dedupeSqls = (target, pk, columns) => [
   { step: "existing newer row wins over a live row", sql: logRemoved(CAND, "c", `${keyMatchSql(columns, "c", "t")} AND t.${q(pk)} > c.${q(pk)}`, `${target} t`) },
 ];
 
-// Payments are inserted in date order (their ids are live's anyway).
+// Payments are inserted in date order, so their receipt numbers follow the
+// same order migration 023 gave the old payments.
 export const insertSql = (target, pk, cols, table) =>
   `INSERT INTO ${target} (${cols.map(q).join(", ")})
    SELECT ${cols.map(q).join(", ")} FROM ${CAND}
@@ -116,8 +117,44 @@ export const identityClashSql = (target, pk, columns) =>
     ORDER BY 1 LIMIT 20`;
 
 // The sync is for BEFORE go-live: the new system is loaded but nobody uses it.
-// Part A has no "entered by" or receipt columns to tell new-system rows apart,
-// so the move and every sync record, per table, the highest id live had
+// Any of these means it has been used, and "live wins" would lose that work.
+export const NEW_SYSTEM_ACTIVITY = [
+  { what: "payments recorded or reversed in the new system", table: "Fee", sql: `SELECT COUNT(*)::int AS n FROM "dbo"."Fee" WHERE recorded_by IS NOT NULL OR reversed_at IS NOT NULL` },
+  { what: "terms billed in the new system", table: "Student_term_bill", sql: `SELECT COUNT(*)::int AS n FROM "dbo"."Student_term_bill"` },
+  { what: "discounts given in the new system", table: "Student_discount", sql: `SELECT COUNT(*)::int AS n FROM "dbo"."Student_discount"` },
+  { what: "promotions accepted in the new system", table: "Student_promotion", sql: `SELECT COUNT(*)::int AS n FROM "dbo"."Student_promotion"` },
+  { what: "marks entered in the new system", table: "Student_marks", sql: `SELECT COUNT(*)::int AS n FROM "dbo"."Student_marks" WHERE entered_by IS NOT NULL OR entered_by_teacher_id IS NOT NULL` },
+  { what: "registers taken in the new system", table: "Attendance", sql: `SELECT COUNT(*)::int AS n FROM "dbo"."Attendance" WHERE entered_by IS NOT NULL OR entered_by_teacher_id IS NOT NULL` },
+  { what: "salaries paid in the new system", table: "Salary_payment", sql: `SELECT COUNT(*)::int AS n FROM "dbo"."Salary_payment" WHERE salary_snapshot IS NOT NULL` },
+  // B15 (037): posts written in the new system, and likes, comments, votes.
+  // A --mirror-deletes would remove such a post with its children left behind
+  // (keys are off during the sync), and "live wins" could retitle it.
+  // Keyed on Post_like so a database without 037 skips it. (Not by id like
+  // NEW_ROW_TABLES: live deletes news rows, so its highest id goes down.)
+  // Every post made in the new system has created_by (also the old /add-news).
+  {
+    what: "news posts, likes, comments or votes made in the new system",
+    table: "Post_like",
+    sql: `SELECT ((SELECT COUNT(*) FROM "dbo"."Event" WHERE created_by IS NOT NULL OR post_type <> 'NEWS' OR status <> 'PUBLISHED')
+      + (SELECT COUNT(*) FROM "dbo"."Post_like") + (SELECT COUNT(*) FROM "dbo"."Post_comment") + (SELECT COUNT(*) FROM "dbo"."Poll_vote"))::int AS n`,
+  },
+  // B14 (042): invoices / credit notes exist only in the new system.
+  { what: "invoices or credit notes made in the new system", table: "Invoice", sql: `SELECT ((SELECT COUNT(*) FROM "dbo"."Invoice") + (SELECT COUNT(*) FROM "dbo"."Credit_note"))::int AS n` },
+];
+
+// 037: published_at for news rows the sync adds (live stores Date.now() as
+// text); otherwise the event date. Only rows still without one.
+export const EVENT_PUBLISHED_AT_SQL = `UPDATE "dbo"."Event" SET published_at = CASE
+    WHEN TRIM(created_at) ~ '^[0-9]{13}$' THEN to_timestamp(TRIM(created_at)::BIGINT / 1000.0)
+    WHEN TRIM(created_at) ~ '^[0-9]{10}$' THEN to_timestamp(TRIM(created_at)::BIGINT)
+    ELSE "date"::timestamptz END
+  WHERE published_at IS NULL AND (TRIM(created_at) ~ '^[0-9]{10}([0-9]{3})?$' OR "date" IS NOT NULL)
+  RETURNING event_id`;
+
+export const activityProblems = (counts) =>
+  NEW_SYSTEM_ACTIVITY.map((a, i) => ({ what: a.what, rows: Number(counts[i] || 0) })).filter((a) => a.rows > 0);
+
+// Besides the activity checks above, the move and every sync record, per table, the highest id live had
 // (dbo._sync_state). A row above that id was not copied from live: it was
 // typed into the new system (even if live has since used the same id, which
 // would otherwise let "live wins" overwrite it silently). If there is one, the
@@ -167,6 +204,13 @@ export const resolvePassword = async (live, existingHash, compare) => {
 // What the migrations computed from the data at the time they ran, redone for
 // the rows this sync added or changed. :ids is the list of changed ids.
 
+// 002: inserted payments got the column default (this year); give them the
+// year they were paid, keeping the sequence number.
+export const FEE_RECEIPT_YEAR_SQL = `
+UPDATE "dbo"."Fee"
+   SET receipt_no = 'PPS-' || COALESCE(to_char(date_paid, 'YYYY'), '0000') || '-' || split_part(receipt_no, '-', 3)
+ WHERE fee_id IN (:ids)`;
+
 // 011: the term each payment belongs to. Same rule, for the payments this
 // sync changed and every payment still without a term (a term live created
 // since may now match it, as 011 would). Only rows whose term changes.
@@ -193,10 +237,90 @@ UPDATE "dbo"."Fee" f SET term_id = m.term_id
  WHERE f.fee_id = m.fee_id AND f.term_id IS DISTINCT FROM m.term_id
 RETURNING f.fee_id`;
 
-// 008 + 022: every pupil's fee period starts from their LIVE balance, after the
-// last live payment. This is exactly what the go-live migrations do, so
-// nobody's balance changes. Only pupils whose baseline actually moves are
-// touched (and re-dated).
+// 010: Term 3s that have ended were promoted by the old system.
+export const TERM_PROMOTED_SQL = `
+UPDATE "dbo"."Term"
+   SET promoted_by_old_system = TRUE
+ WHERE TRIM(term) = '3' AND active IS NOT TRUE AND end_date IS NOT NULL
+   AND end_date < CURRENT_DATE AND promoted_by_old_system = FALSE
+RETURNING term_id`;
+
+// 050 (B10): an office login on a system role follows live's category (a
+// login live added, or one whose category live changed); a login given a
+// custom role in the new system keeps it. Only the three system names.
+export const LOGIN_ROLE_SQL = `
+UPDATE "dbo"."User_account" u
+   SET role_id = r.role_id
+  FROM "dbo"."Role" r
+ WHERE r.is_system AND r.role_id IN (1, 2, 3) AND r.name = u.category
+   AND (u.role_id IS NULL OR u.role_id IN (1, 2, 3))
+   AND u.role_id IS DISTINCT FROM r.role_id
+RETURNING u.username`;
+
+// 014: new terms go into their school year (Aug-Jul), created if needed; years
+// stretch to cover their terms; the active term's year is the current one.
+export const TERM_YEAR_SQLS = [
+  `CREATE TEMP TABLE _sync_term_year AS
+   SELECT t.term_id,
+          CASE WHEN EXTRACT(MONTH FROM COALESCE(t.start_date, t.end_date)) >= 8
+               THEN EXTRACT(YEAR FROM COALESCE(t.start_date, t.end_date))::INT
+               ELSE EXTRACT(YEAR FROM COALESCE(t.start_date, t.end_date))::INT - 1 END AS y
+     FROM "dbo"."Term" t
+    WHERE t.academic_year_id IS NULL AND COALESCE(t.start_date, t.end_date) IS NOT NULL`,
+  `INSERT INTO "dbo"."Academic_year" (name, start_date, end_date, status, is_current)
+   SELECT DISTINCT ty.y || '/' || (ty.y + 1), make_date(ty.y, 8, 1), make_date(ty.y + 1, 7, 31), 'UPCOMING', FALSE
+     FROM _sync_term_year ty
+    WHERE NOT EXISTS (SELECT 1 FROM "dbo"."Academic_year" ay WHERE LOWER(ay.name) = LOWER(ty.y || '/' || (ty.y + 1)))`,
+  `UPDATE "dbo"."Term" t SET academic_year_id = ay.academic_year_id
+     FROM _sync_term_year ty JOIN "dbo"."Academic_year" ay ON LOWER(ay.name) = LOWER(ty.y || '/' || (ty.y + 1))
+    WHERE t.term_id = ty.term_id AND t.academic_year_id IS NULL`,
+  `DROP TABLE _sync_term_year`,
+  `UPDATE "dbo"."Academic_year" ay
+      SET start_date = LEAST(ay.start_date, x.min_start), end_date = GREATEST(ay.end_date, x.max_end)
+     FROM (SELECT academic_year_id, MIN(COALESCE(start_date, end_date)) AS min_start, MAX(COALESCE(end_date, start_date)) AS max_end
+             FROM "dbo"."Term" WHERE academic_year_id IS NOT NULL GROUP BY academic_year_id) x
+    WHERE x.academic_year_id = ay.academic_year_id
+      AND (ay.start_date > x.min_start OR ay.end_date < x.max_end)`,
+  // Clear the old current year first: the one-current index is checked row by
+  // row, so setting both in one UPDATE can fail.
+  `WITH cur AS (
+     SELECT t.academic_year_id AS id FROM "dbo"."Term" t
+      WHERE t.active IS TRUE AND t.academic_year_id IS NOT NULL
+      ORDER BY t.start_date DESC NULLS LAST, t.term_id DESC LIMIT 1)
+   UPDATE "dbo"."Academic_year" ay SET is_current = FALSE
+     FROM cur
+    WHERE ay.is_current AND ay.academic_year_id <> cur.id`,
+  `WITH cur AS (
+     SELECT t.academic_year_id AS id FROM "dbo"."Term" t
+      WHERE t.active IS TRUE AND t.academic_year_id IS NOT NULL
+      ORDER BY t.start_date DESC NULLS LAST, t.term_id DESC LIMIT 1)
+   UPDATE "dbo"."Academic_year" ay
+      SET status = CASE WHEN ay.academic_year_id = cur.id THEN 'ACTIVE'
+                        WHEN ay.end_date < CURRENT_DATE THEN 'COMPLETED' ELSE 'UPCOMING' END,
+          is_current = (ay.academic_year_id = cur.id)
+     FROM cur
+    WHERE NOT EXISTS (SELECT 1 FROM "dbo"."Academic_year" x WHERE x.academic_year_id = cur.id AND x.is_current)`,
+];
+
+// 018: JHS marks carry their BECE 1-9 grade: changed marks are re-graded, and
+// any JHS mark still without a grade gets one (a class newly made JHS).
+export const MARK_GRADE_SQLS = [
+  `UPDATE "dbo"."Student_marks" SET grade = NULL WHERE student_marks_id IN (:ids)`,
+  `UPDATE "dbo"."Student_marks" sm
+      SET grade = CASE WHEN sm.total_score >= 90 THEN '1' WHEN sm.total_score >= 80 THEN '2'
+                       WHEN sm.total_score >= 70 THEN '3' WHEN sm.total_score >= 60 THEN '4'
+                       WHEN sm.total_score >= 55 THEN '5' WHEN sm.total_score >= 50 THEN '6'
+                       WHEN sm.total_score >= 40 THEN '7' WHEN sm.total_score >= 35 THEN '8' ELSE '9' END
+     FROM "dbo"."Class" c
+    WHERE c.name = sm.class AND c.section = 'JHS' AND sm.total_score IS NOT NULL
+      AND sm.grade IS NULL
+    RETURNING sm.student_marks_id`,
+];
+
+// 008 + 015 + 022: every pupil's fee period starts from their LIVE balance,
+// after the last live payment, tied to the current term (030's rule). This is
+// exactly what the go-live migrations do, so nobody's balance changes. Only
+// pupils whose baseline actually moves are touched (and re-dated).
 export const REBASE_STUDENTS_SQL = `
 WITH base AS (
   SELECT s.student_id,
@@ -204,7 +328,13 @@ WITH base AS (
          COALESCE(s.fees_paid, 0) AS paid_start,
          COALESCE((SELECT SUM(cf.amount) FROM "dbo"."ClassFee" cf WHERE cf.class_id = s.class_id), 0)
        + COALESCE((SELECT SUM(sf.amount) FROM "dbo"."StudentFee" sf WHERE sf.student_id = s.student_id), 0) AS bill_start,
-         COALESCE((SELECT MAX(f.fee_id) FROM "dbo"."Fee" f), 0) AS after_fee
+         COALESCE((SELECT MAX(f.fee_id) FROM "dbo"."Fee" f), 0) AS after_fee,
+         COALESCE(
+           (SELECT t.term_id FROM "dbo"."Term" t WHERE t.active IS TRUE
+             ORDER BY t.start_date DESC NULLS LAST, t.term_id DESC LIMIT 1),
+           (SELECT CASE WHEN t.promoted_by_old_system THEN NULL ELSE t.term_id END FROM "dbo"."Term" t
+             WHERE t.start_date IS NOT NULL AND t.start_date <= CURRENT_DATE
+             ORDER BY t.start_date DESC, t.term_id DESC LIMIT 1)) AS period_term
     FROM "dbo"."Student" s
 )
 UPDATE "dbo"."Student" s
@@ -214,11 +344,12 @@ UPDATE "dbo"."Student" s
        fees_paid_at_start = b.paid_start,
        fees_bill_at_start = b.bill_start,
        fees_period_after_fee_id = b.after_fee,
+       fees_period_term_id = b.period_term,
        fees_period_started_at = NOW()
   FROM base b
  WHERE s.student_id = b.student_id
    AND (s.fees_owing, s.fees_paid, s.fees_opening_balance, s.fees_paid_at_start, s.fees_bill_at_start,
-        s.fees_period_after_fee_id, s.fees_period_started_at IS NULL)
+        s.fees_period_after_fee_id, s.fees_period_term_id, s.fees_period_started_at IS NULL)
        IS DISTINCT FROM
-       (b.opening, b.paid_start, b.opening, b.paid_start, b.bill_start, b.after_fee, FALSE)
+       (b.opening, b.paid_start, b.opening, b.paid_start, b.bill_start, b.after_fee, b.period_term, FALSE)
 RETURNING s.student_id`;

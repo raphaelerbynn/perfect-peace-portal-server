@@ -8,6 +8,10 @@ import ClassFee from "./ClassFee.js";
 import StudentFee from "./StudentFee.js";
 import EmployeeSalary from "./EmployeeSalary.js";
 import Event from "./Event.js";
+import PostLike from "./PostLike.js";
+import PostComment from "./PostComment.js";
+import PollOption from "./PollOption.js";
+import PollVote from "./PollVote.js";
 import AccountCategory from "./AccountCategory.js";
 import Income from "./Income.js";
 import Expense from "./Expense.js";
@@ -25,12 +29,38 @@ import StudentMarks from "./StudentMarks.js";
 import StudentResult from "./StudentResult.js";
 import Subject from "./Subject.js";
 import Teacher from "./Teacher.js";
+import StaffAttendance from "./StaffAttendance.js";
+// B16: notifications (migration 040)
+import UserNotification from "./UserNotification.js";
+import EmailLog from "./EmailLog.js";
+import NotificationSetting from "./NotificationSetting.js";
 import TotalAttendance from "./TotalAttendance.js";
 import UserAccount from "./UserAccount.js";
+import Role from "./Role.js";
+import RolePermission from "./RolePermission.js";
 import Deductions from "./Deductions.js";
 import Term from "./Term.js";
 import Tax from "./Tax.js";
 import PasswordResetCode from "./PasswordResetCode.js";
+import TeachingAssignment from "./TeachingAssignment.js";
+import TimetableEntry from "./TimetableEntry.js";
+import TimetablePeriod from "./TimetablePeriod.js";
+import PromotionRule from "./PromotionRule.js";
+import StudentPromotion from "./StudentPromotion.js";
+import AcademicYear from "./AcademicYear.js";
+import StudentTermBill from "./StudentTermBill.js";
+import DiscountType from "./DiscountType.js";
+import StudentDiscount from "./StudentDiscount.js";
+import Document from "./Document.js";
+import SchoolSettings from "./SchoolSettings.js";
+import AdmissionCounter from "./AdmissionCounter.js";
+import GradingScale from "./GradingScale.js";
+import GradeBand from "./GradeBand.js";
+import GradingScaleSection from "./GradingScaleSection.js";
+// B14: invoices and credit notes (migration 042).
+import Invoice from "./Invoice.js";
+import InvoiceLine from "./InvoiceLine.js";
+import CreditNote from "./CreditNote.js";
 
 Allowance.belongsTo(Salary, { as: "salary", foreignKey: "salaryId" });
 Salary.hasMany(Allowance, { as: "allowances", foreignKey: "salaryId" });
@@ -63,6 +93,9 @@ Income.belongsTo(AccountCategory, { foreignKey: 'accountCategoryId' });
 AccountCategory.hasMany(Income, { foreignKey: 'accountCategoryId' });
 
 Fee.belongsTo(Class, { as: "class", foreignKey: "classId" });
+// B13: payments list shows the payer's name. constraints:false = no new FK is
+// created by model sync (legacy payments may point at archived students).
+Fee.belongsTo(Student, { as: "student", foreignKey: "studentId", constraints: false });
 Class.hasMany(Fee, { as: "classFees", foreignKey: "classId" });
 
 ClassFee.belongsTo(Class, { as: "class", foreignKey: "classId" });
@@ -111,10 +144,47 @@ Student.hasMany(TotalAttendance, {
 });
 
 UserAccount.belongsTo(Teacher, { as: "teacher", foreignKey: "teacherId" });
+// B10 (050): the FKs are added by the migration, by name.
+UserAccount.belongsTo(Role, { as: "role", foreignKey: "roleId", constraints: false });
+Role.hasMany(UserAccount, { as: "accounts", foreignKey: "roleId", constraints: false });
+Role.hasMany(RolePermission, { as: "grants", foreignKey: "roleId", constraints: false });
+RolePermission.belongsTo(Role, { as: "role", foreignKey: "roleId", constraints: false });
+
+// B2: teaching assignments.
+TeachingAssignment.belongsTo(Teacher, { as: "teacher", foreignKey: "teacherId" });
+TeachingAssignment.belongsTo(Class, { as: "class", foreignKey: "classId" });
+TeachingAssignment.belongsTo(Subject, { as: "subject", foreignKey: "subjectId" });
+TeachingAssignment.belongsTo(Term, { as: "term", foreignKey: "termId" });
+
+// B3: timetable.
+TimetableEntry.belongsTo(Teacher, { as: "teacher", foreignKey: "teacherId" });
+TimetableEntry.belongsTo(Class, { as: "class", foreignKey: "classId" });
+TimetableEntry.belongsTo(Subject, { as: "subject", foreignKey: "subjectId" });
+TimetableEntry.belongsTo(Term, { as: "term", foreignKey: "termId" });
+
+// B5: promotion history.
+StudentPromotion.belongsTo(Term, { as: "term", foreignKey: "termId" });
 Teacher.hasMany(UserAccount, { as: "userAccounts", foreignKey: "teacherId" });
 
 Attendance.belongsTo(Term, { as: "term", foreignKey: "termId" });
 Term.hasMany(Attendance, { as: "attendances", foreignKey: "termId" });
+
+// B7: academic years group terms.
+Term.belongsTo(AcademicYear, { as: "academicYear", foreignKey: "academicYearId" });
+AcademicYear.hasMany(Term, { as: "terms", foreignKey: "academicYearId" });
+
+// B9: staff attendance.
+// constraints: false: the FKs (ON DELETE RESTRICT) come from migration 036 either way.
+StaffAttendance.belongsTo(Teacher, { as: "teacher", foreignKey: "teacherId", constraints: false });
+StaffAttendance.belongsTo(Term, { as: "term", foreignKey: "termId", constraints: false });
+
+// B12: term bills and discounts.
+StudentDiscount.belongsTo(DiscountType, { as: "discountType", foreignKey: "discountTypeId" });
+
+// B15: posts (the Event table), their likes, comments and polls. The keys
+// (ON DELETE CASCADE) are added by migration 037, not by these associations.
+Event.hasMany(PollOption, { as: "options", foreignKey: "postId", constraints: false });
+PollOption.belongsTo(Event, { foreignKey: "postId", constraints: false });
 
 Student.hasMany(Fee, {
   foreignKey: "studentId",
@@ -129,6 +199,10 @@ export {
   Class,
   EmployeeSalary,
   Event,
+  PostLike,
+  PostComment,
+  PollOption,
+  PollVote,
   Expense,
   Income,
   AccountCategory,
@@ -146,12 +220,37 @@ export {
   StudentFee,
   Subject,
   Teacher,
+  TeachingAssignment,
+  TimetableEntry,
+  TimetablePeriod,
+  PromotionRule,
+  StudentPromotion,
+  GradingScale,
+  GradeBand,
+  GradingScaleSection,
   TotalAttendance,
   UserAccount,
+  Role,
+  RolePermission,
   FeeCheck,
   Deductions,
   Term,
   Tax,
   ClassFee,
   PasswordResetCode,
+  AcademicYear,
+  StudentTermBill,
+  DiscountType,
+  StudentDiscount,
+  Document,
+  SchoolSettings,
+  AdmissionCounter,
+  StaffAttendance,
+  UserNotification,
+  EmailLog,
+  NotificationSetting,
+  // B14
+  Invoice,
+  InvoiceLine,
+  CreditNote,
 };

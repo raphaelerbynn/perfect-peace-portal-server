@@ -13,6 +13,9 @@ docker compose up -d --build
 - API:      http://localhost:5050  (override with `SERVER_PORT`)
 - pgAdmin:  http://localhost:5051  (login from `PGADMIN_EMAIL` / `PGADMIN_PASSWORD`)
 - Postgres: localhost:5432 from the host; `db:5432` from inside the compose network
+- MinIO (B17 files): console http://localhost:9001, S3 API localhost:9000 (both bound to 127.0.0.1; login `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`, dev defaults `ppminio` / `ppminio-dev-password`). The API creates the private bucket `perfect-peace` on start. Use `STORAGE_DRIVER=local` to keep files on disk instead.
+  The official `minio/minio` image can no longer be pulled, so compose uses `cgr.dev/chainguard/minio:latest` (`MINIO_IMAGE` to change it).
+  Check against a real MinIO: `PP_MINIO_LIVE=1 S3_ENDPOINT=http://127.0.0.1:9000 npx jest src/__tests__/live/minio.live.test.js`.
 
 The `.env` file is used BOTH for compose `${VAR}` interpolation AND as the backend
 container's env. Compose overrides `DB_HOST=db`, `DB_PORT=5432`, `SERVER_PORT=5050`
@@ -60,6 +63,17 @@ The tool:
 - reports orphan rows, duplicates and row-count mismatches, and writes a JSON report to `db/move-reports/`
 
 Use Node 20 (`.nvmrc`). On Node ≥ 25, `jsonwebtoken` fails to load.
+
+## After the move: office logins' roles (B10, migration 050)
+
+After `npm run migrate`, check every office login got a role:
+
+```sql
+SELECT category, count(*) FROM "dbo"."User_account" GROUP BY 1 ORDER BY 1;
+SELECT username, category FROM "dbo"."User_account" WHERE role_id IS NULL;
+```
+
+Only categories that are exactly `Administrator`, `Class Teacher` or `Accountant` get a role. Anything else (other case, trailing spaces, `Head Teacher` from rehearsals) reaches no office page until it is given a role on People → Office logins. With more than one API process, role changes reach the other processes within 60 s (restart to apply at once). See `db/migrations/README.md`.
 
 ## ⚠️ What your data-move script MUST produce (so the ORM + raw queries work)
 

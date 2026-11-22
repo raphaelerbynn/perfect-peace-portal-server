@@ -11,8 +11,8 @@
 # dry run -> real move -> clean-up SQL (fixture: the planted duplicates) ->
 # npm run migrate (MUST apply every file; any failure stops the rehearsal) ->
 # migrate again (MUST be a no-op) -> checks: every migration recorded, the
-# Part A columns, the 001 unique indexes, every pupil's fees_owing equal to
-# the source -> devSync over
+# 020 settings row, Admission_counter and its defaults, the named constraints
+# of 029-035, every pupil's fees_owing equal to the source -> devSync over
 # the migrated database (tables already there) -> a second move is refused.
 # Any failed step or check exits non-zero with "REHEARSAL FAILED".
 #
@@ -89,20 +89,81 @@ APPLIED=$(psql_q 'SELECT name FROM dbo."_migrations" ORDER BY name')
 $(diff <(echo "$FILES") <(echo "$APPLIED"))"
 echo "✓ all $(echo "$APPLIED" | wc -l | tr -d ' ') migration files applied: $(echo "$APPLIED" | sed 's/_.*//' | tr '\n' ' ')"
 
-# Part A columns the migrations add (fee periods 008, payment term 011,
-# next term begins 013) and the defaults 022 sets.
-for col in Student.fees_opening_balance Student.fees_period_after_fee_id Fee.term_id Term.next_term_begins; do
+[ "$(psql_q "SELECT admission_format FROM dbo.\"School_settings\" WHERE school_settings_id = 1")" = "PPS/{YYYY}/{0000}" ] \
+  || fail "the 020 School_settings seed row is missing"
+echo "✓ School_settings row 1 seeded (034)"
+[ "$(psql_q "SELECT to_regclass('dbo.\"Admission_counter\"') IS NOT NULL")" = "t" ] || fail "Admission_counter is missing"
+echo "✓ Admission_counter exists"
+
+# Defaults a table made by the model's sync would not have.
+for col in School_settings.updated_at Document.created_at Admission_counter.updated_at Admission_counter.last_value Grading_scale.is_default Post_like.created_at Post_comment.created_at Post_comment.status Poll_vote.created_at Poll_option.position Event.post_type Event.status Event.audience; do
   t=${col%.*}; c=${col#*.}
-  [ "$(psql_q "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='dbo' AND table_name='$t' AND column_name='$c'")" = "1" ] \
-    || fail "column $t.$c is missing"
+  d=$(psql_q "SELECT column_default FROM information_schema.columns WHERE table_schema='dbo' AND table_name='$t' AND column_name='$c'")
+  [ -n "$d" ] || fail "no database default on $t.$c"
 done
-[ -n "$(psql_q "SELECT column_default FROM information_schema.columns WHERE table_schema='dbo' AND table_name='Student' AND column_name='fees_owing'")" ] \
-  || fail "no database default on Student.fees_owing (022)"
-echo "✓ Part A columns present (008, 011, 013) and Student.fees_owing defaults to 0 (022)"
-for i in uniq_marks uniq_result uniq_kg uniq_attendance uniq_total_attendance uniq_subject_name; do
-  [ "$(psql_q "SELECT to_regclass('dbo.$i') IS NOT NULL")" = "t" ] || fail "unique index $i (001) is missing"
+echo "✓ database defaults present (updated_at / created_at / last_value / is_default)"
+# The service's insert, and an insert that leaves the defaults to the database.
+psql_q "BEGIN; INSERT INTO dbo.\"Admission_counter\" (scope) VALUES ('rehearsal'); ROLLBACK;" >/dev/null \
+  || fail "Admission_counter insert relying on defaults failed"
+
+EXPECTED_CONSTRAINTS="academic_year_status_chk academic_year_dates_chk Term_academic_year_id_fkey
+Student_fees_period_term_id_fkey Student_term_bill_term_id_fkey student_term_bill_kind_chk
+discount_type_kind_chk discount_type_value_chk student_discount_source_chk Student_discount_discount_type_id_fkey
+Student_discount_from_term_id_fkey Student_discount_to_term_id_fkey
+ck_grade_band_range Grade_band_grading_scale_id_fkey Grading_scale_section_grading_scale_id_fkey
+document_owner_type_chk document_size_bytes_chk Document_storage_key_key
+school_settings_one_row_chk school_settings_primary_color_chk school_settings_accent_color_chk
+admission_counter_last_value_chk
+chk_event_post_type chk_event_status chk_event_audience chk_event_end_after_start chk_post_like_actor
+chk_post_comment_actor chk_post_comment_status chk_poll_vote_actor fk_post_like_post fk_post_comment_post
+fk_poll_option_post fk_poll_vote_post fk_poll_vote_option"
+EXPECTED_INDEXES="academic_year_name_uq academic_year_one_current_uq student_term_bill_uq discount_type_name_uq
+ux_grading_scale_name ux_grading_scale_one_default idx_grade_band_scale idx_document_owner uniq_student_admission_no
+idx_event_feed idx_event_date uniq_post_like idx_post_comment_post idx_poll_option_post uniq_poll_vote_voter idx_poll_vote_option"
+missing=""
+for c in $EXPECTED_CONSTRAINTS; do
+  [ "$(psql_q "SELECT COUNT(*) FROM pg_constraint WHERE conname = '$c'")" = "1" ] || missing="$missing $c"
 done
-echo "✓ the 6 unique indexes from 001 exist"
+for i in $EXPECTED_INDEXES; do
+  [ "$(psql_q "SELECT to_regclass('dbo.$i') IS NOT NULL")" = "t" ] || missing="$missing $i"
+done
+[ -z "$missing" ] || fail "missing constraints/indexes:$missing"
+# B14 (042): invoices and credit notes.
+for c in invoice_status_chk invoice_issued_number_chk invoice_void_reason_chk Invoice_student_id_fkey Invoice_term_id_fkey \
+  Invoice_line_invoice_id_fkey invoice_line_kind_chk Credit_note_invoice_id_fkey Credit_note_student_id_fkey credit_note_amount_chk; do
+  [ "$(psql_q "SELECT COUNT(*) FROM pg_constraint WHERE conname = '$c'")" = "1" ] || fail "042: missing constraint $c"
+done
+for i in invoice_one_live_uq invoice_no_uq credit_note_no_uq credit_note_period_idx; do
+  [ "$(psql_q "SELECT to_regclass('dbo.$i') IS NOT NULL")" = "t" ] || fail "042: missing index $i"
+done
+[ -n "$(psql_q "SELECT column_default FROM information_schema.columns WHERE table_schema='dbo' AND table_name='Credit_note' AND column_name='credit_note_no'")" ] \
+  || fail "042: Credit_note.credit_note_no has no default (numbering)"
+echo "✓ 042 invoices / credit notes: constraints, indexes, numbering default"
+echo "✓ $(echo $EXPECTED_CONSTRAINTS | wc -w | tr -d ' ') named constraints and $(echo $EXPECTED_INDEXES | wc -w | tr -d ' ') named indexes (029-037) exist"
+# 037: the old news row is a published NEWS post for everyone, with its publish time.
+[ "$(psql_q "SELECT post_type||'/'||status||'/'||audience||'/'||is_pinned||'/'||comments_enabled||'/'||to_char(published_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') FROM dbo.\"Event\" WHERE event_id = 1")" = "NEWS/PUBLISHED/ALL/false/true/2026-02-01 08:00" ] \
+  || fail "037 did not turn the old news row into a published post"
+echo "✓ 037: old news row is NEWS / PUBLISHED / ALL, published_at from the old created_at"
+[ "$(psql_q "SELECT COUNT(*) FROM dbo.\"Grade_band\"")" = "15" ] || fail "018 grade band seed incomplete"
+echo "✓ 018 grading scales seeded (15 bands)"
+
+# 040 (B16): the notification tables, made by move-data from the models first.
+for col in User_notification.created_at Email_log.created_at Notification_setting.in_app Notification_setting.email Notification_setting.updated_at; do
+  t=${col%.*}; c=${col#*.}
+  [ -n "$(psql_q "SELECT column_default FROM information_schema.columns WHERE table_schema='dbo' AND table_name='$t' AND column_name='$c'")" ] || fail "no database default on $t.$c (040)"
+done
+missing=""
+for c in user_notification_recipient_type_check email_log_status_check; do
+  [ "$(psql_q "SELECT COUNT(*) FROM pg_constraint WHERE conname = '$c'")" = "1" ] || missing="$missing $c"
+done
+for i in idx_user_notification_unread idx_user_notification_recent idx_user_notification_entity idx_email_log_created; do
+  [ "$(psql_q "SELECT to_regclass('dbo.$i') IS NOT NULL")" = "t" ] || missing="$missing $i"
+done
+[ -z "$missing" ] || fail "040 missing constraints/indexes:$missing"
+[ "$(psql_q "SELECT COUNT(*) FROM dbo.\"Notification_setting\"")" = "6" ] || fail "040 Notification_setting seed incomplete"
+psql_q "BEGIN; INSERT INTO dbo.\"User_notification\" (recipient_type, recipient_id, type, title) VALUES ('STUDENT', '1', 'NEWS_POST', 'x'); ROLLBACK;" >/dev/null \
+  || fail "040 User_notification insert relying on defaults failed"
+echo "✓ 040: notification tables, defaults, 2 checks, 4 indexes, 6 settings rows"
 
 # Every pupil's fees_owing after move + migrate equals the source.
 SRC_STUDENT=$(docker exec "$MY" mysql -uroot -prootpw -N dbo -e "SHOW TABLES" 2>/dev/null | grep -ix student | head -1)

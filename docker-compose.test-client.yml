@@ -38,6 +38,23 @@ services:
       timeout: 5s
       retries: 12
 
+  # B17: object store for uploads, in RAM like the database (wiped on restart).
+  minio:
+    image: ${MINIO_IMAGE:-cgr.dev/chainguard/minio:latest}
+    container_name: pp-test-minio
+    restart: unless-stopped
+    command: ["server", "/data"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-ppminio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-ppminio-test-password}
+    tmpfs:
+      - /data:uid=65532,gid=65532
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /minio/health/live HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && read -r l <&3 && [[ $$l == *' 200 '* ]]"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
   backend:
     # Registry image produced by .github/workflows/deploy-test-client.yml.
     # `build: .` lets `--build` rebuild it locally from source.
@@ -52,10 +69,17 @@ services:
       DB_HOST: db
       DB_PORT: "5432"
       SERVER_PORT: "5040"
+      STORAGE_DRIVER: s3
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: perfect-peace
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER:-ppminio}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-ppminio-test-password}
     # Boot sequence (idempotent): create tables -> seed the single admin -> serve.
     command: ["sh", "-c", "node dist/scripts/devSync.js && node dist/scripts/seedAdmin.js && node dist/index.js"]
     ports:
       - "${SERVER_PORT:-5040}:5040"
     depends_on:
       db:
+        condition: service_healthy
+      minio:
         condition: service_healthy

@@ -26,6 +26,11 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 # The SQL migrations: `node dist/scripts/migrate.js` (run from /app) reads db/migrations.
 COPY db ./db
+# B17: with STORAGE_DRIVER=local, uploaded photos/documents go here (mount a
+# volume; owned by the app user). Compose runs MinIO instead (STORAGE_DRIVER=s3).
+# sharp (photo resizing) installs a prebuilt linux binary via npm ci: no apt deps.
+RUN mkdir -p /app/uploads && chown node:node /app/uploads
+ENV UPLOAD_DIR=/app/uploads
 EXPOSE 5050
 USER node
 CMD ["node", "dist/index.js"]

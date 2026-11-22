@@ -75,7 +75,7 @@ describe("getStudents (paged)", () => {
 
   it("a Class Teacher is scoped by the class record's teacher (live), not only Teacher.class_id", async () => {
     Class.findOne.mockResolvedValue({ classId: 3 });
-    await getStudents({ page: 1, limit: 50, requester: { role: "Class Teacher", teacherId: 54 } });
+    await getStudents({ page: 1, limit: 50, requester: { ownClassOnly: true, teacherId: 54 } });
     expect(Class.findOne.mock.calls[0][0].where.teacherId).toBe(54);
     expect(Student.count.mock.calls[0][0].where.classId).toBe(3);
     expect(Teacher.findOne).not.toHaveBeenCalled();

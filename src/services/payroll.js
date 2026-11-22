@@ -82,7 +82,7 @@ const getSalaryPayment = async (data) => {
         return await SalaryPayment.findAll({ order: [["datePaid", "DESC"]] });
     } else if (data.query) {
         const teachers = await Teacher.findAll({
-            attributes: { exclude: ["password"] },
+            attributes: { exclude: ["password", "photoKey", "photoThumbKey"] }, // B17: no storage keys
             where: {
                 [Op.or]: [
                     { fName: { [Op.iLike]: `%${data.query}%` } },
@@ -137,7 +137,7 @@ const createSalaryPayment = async (data) => {
 
     const committed = await sequelize.transaction(async (t) => {
         const teacher = await Teacher.findOne({
-            attributes: { exclude: ["password"] },
+            attributes: { exclude: ["password", "photoKey", "photoThumbKey"] }, // B17: no storage keys
             where: { teacherId: data.teacherId, isDeleted: false },
             transaction: t,
         });

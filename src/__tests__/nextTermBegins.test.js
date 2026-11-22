@@ -1,10 +1,16 @@
 // A5a: "next term begins" is stored per term and printed on report cards.
-// Close term (old behaviour: promotes, then closes) is tested in closeTerm.test.js.
 jest.mock("../config/database.js", () => ({ __esModule: true, default: { transaction: jest.fn(async (cb) => cb({ id: "t" })) } }));
 jest.mock("../models/index.js", () => ({
   __esModule: true,
   Term: { findOne: jest.fn(), update: jest.fn(), create: jest.fn() },
+  // B7: terms sit in an academic year.
+  AcademicYear: {
+    findOne: jest.fn(async () => ({ academicYearId: 1, name: "2026/2027", startDate: "2026-08-01", endDate: "2027-07-31" })),
+    findAll: jest.fn(async () => []),
+    update: jest.fn(async () => [1]),
+  },
 }));
+jest.mock("../services/promotion.js", () => ({ __esModule: true, getStatus: jest.fn() }));
 
 import { Term } from "../models/index.js";
 import { setTerm, editTerm, validateNextTermBegins } from "../services/term.js";

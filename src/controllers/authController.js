@@ -10,22 +10,21 @@ import {
   studentSignUp,
   teacherSignUp,
 } from "../services/user.js";
+import { notifyPasswordChanged } from "../services/notify.js";
 import jwt from "jsonwebtoken";
 import { sendPasswordConfirmationCode } from "../services/auth.js";
 import { getStaffForSignup } from "../services/staff.js";
 import { JWT_SECRET, JWT_ALGORITHM } from "../config/auth.js";
 import { issueResetCode, verifyResetCode } from "../services/resetCode.js";
 import { AppError } from "../utils/errorHandling.js";
+import { roleToGive } from "../services/roles.js";
+import { accessSummary, attachOfficeAccess } from "../services/officeAccess.js";
 import {
   parseIndexNumber,
   assertRequiredString,
   assertPassword,
   assertEmail,
 } from "../utils/validate.js";
-
-// Categories a user is allowed to self-register (BE-A8). Administrator and
-// anything else must be provisioned by an existing admin, never self-signup.
-const SELF_SIGNUP_CATEGORIES = ["Class Teacher", "Accountant"];
 
 // Discriminator stored alongside the reset code for management accounts.
 const MANAGEMENT_USER_TYPE = "MANAGEMENT";
@@ -115,10 +114,22 @@ const signinManagement = async (req, res, next) => {
       throw new AppError("Incorrect credentials", 401);
     }
 
+    // B10: the role and its permissions, worked out as every request will
+    // (officeAccess). A login with no role (its category is none of the
+    // system roles and it has no role_id) reaches no office page.
+    const access = await attachOfficeAccess({ username: user.username, category: user.category, roleId: user.roleId ?? null });
+    const category = access.roleName || user.category;
+    if (!category) {
+      throw new AppError("Incorrect credentials", 401);
+    }
+
+    // The token names the login and its role. Permissions are never in it:
+    // the server loads them per request. category stays for older code.
     const payload = {
-      category: user.category,
+      category,
       username: user.username,
       teacherId: user.teacherId,
+      roleId: access.roleId,
     };
 
     // BE-A12: pin the algorithm on every jwt.sign.
@@ -130,8 +141,9 @@ const signinManagement = async (req, res, next) => {
       token: token,
       username: user.username,
       email: user.email,
-      category: user.category,
-      teacherId: user.teacherId
+      category,
+      teacherId: user.teacherId,
+      ...accessSummary(access),
     });
   } catch (err) {
     next(err);
@@ -144,28 +156,29 @@ const signupManagement = async (req, res, next) => {
     // BE-A10: required-field + type + password-length + email-shape validation.
     assertRequiredString(data?.username, "Username");
     assertRequiredString(data?.staffId, "Staff");
-    assertRequiredString(data?.category, "Category");
+    if (data?.roleId == null || data.roleId === "") assertRequiredString(data?.category, "Role");
     assertPassword(data?.password);
     assertEmail(data?.email);
 
-    // BE-A8 (privilege escalation): only the two non-privileged roles may be
-    // self-registered. Administrator (or any other value) must be provisioned
-    // by an existing admin - never via public self-signup.
-    if (!SELF_SIGNUP_CATEGORIES.includes(data.category)) {
-      throw new AppError(
-        "You are not permitted to self-register for this role.",
-        403
-      );
+    // B10: the new login's role, by roleId (or, from the old form, a system
+    // role's exact name). The caller (users.manage) can only give a role
+    // whose permissions they hold themselves (BE-A8: no privilege escalation).
+    let role;
+    try {
+      role = await roleToGive({ roleId: data.roleId, category: data.category }, req.user);
+    } catch (e) {
+      if (e.statusCode === 400) throw new AppError("You are not permitted to create a login with this role.", 403);
+      throw e;
     }
 
     // BE-A15: look the row up first so "already signed up" is handled distinctly
     // from "no such user" internally. The response stays generic.
-    const existing = await findManagementUser(data);
+    const existing = await findManagementUser({ ...data, category: role.name });
     if (existing) {
       throw new AppError("An account already exists for this user.", 409);
     }
 
-    const result = await signUpManagementUser(data);
+    const result = await signUpManagementUser({ ...data, category: role.name, roleId: role.roleId });
     // Never send the password hash back (it used to be in the response).
     const { password, ...account } = typeof result?.get === "function" ? result.get({ plain: true }) : result || {};
     res.status(200).json({ message: "Login created", account });
@@ -242,6 +255,8 @@ const resetForgottenPassword = async (req, res, next) => {
       throw new AppError("Unable to reset password.", 400);
     }
 
+    // B16: tell the office login holder (in-app + email); never throws.
+    await notifyPasswordChanged({ type: "OFFICE", teacherId: staffId });
     res.status(200).json({ message: "Password reset successful" });
   } catch (err) {
     next(err);

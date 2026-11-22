@@ -6,13 +6,27 @@ import { studentRouter } from "./routes/onlyStudentRoutes.js";
 import { authRouter } from "./routes/authRoutes.js";
 import { fileRouter } from "./routes/fileRoutes.js";
 import { portalRouter } from "./routes/portalRoutes.js";
+import { teacherRouter } from "./routes/teacherRoutes.js";
 import { errorHandler } from "./utils/errorHandling.js";
-import { authenticateManagementUser, authorizeRoles, undefinedEndpoint } from "./utils/middlewares.js";
+import { authenticateManagementUser, undefinedEndpoint } from "./utils/middlewares.js";
 import dotenv from "dotenv";
 import cors from "cors";
 import sequelize from "./config/database.js";
 import { accountRouter } from "./routes/accountRoutes.js";
 import { communicationRouter } from "./routes/communicationRoutes.js";
+import { academicYearRouter } from "./routes/academicYearRoutes.js";
+import { feeBillingRouter } from "./routes/feeBillingRoutes.js";
+import { mediaRouter } from "./routes/mediaRoutes.js";
+import { initStorage } from "./services/storage.js";
+import { schoolRouter } from "./routes/schoolRoutes.js";
+import { staffAttendanceRouter } from "./routes/staffAttendanceRoutes.js";
+import { newsRouter } from "./routes/newsRoutes.js";
+import { academicReportRouter } from "./routes/academicReportRoutes.js"; // B11
+import { notificationRouter } from "./routes/notificationRoutes.js";
+// B14
+import { invoicePortalRouter, invoiceRouter } from "./routes/invoiceRoutes.js";
+// B10
+import { roleRouter } from "./routes/roleRoutes.js";
 
 dotenv.config();
 const app = express();
@@ -131,22 +145,51 @@ const AUTH_LIMITED_PATHS = [
 ];
 app.use(AUTH_LIMITED_PATHS, authIpCeiling, authLimiter); // body already parsed (express.json above)
 app.use("/", authRouter);
+// B18: GET /school and /school/logo are public; the rest authenticate per route.
+app.use("/", schoolRouter);
 app.use("/", studentRouter);
 app.use("/", fileRouter);
 // Portal (STU/STAFF) reads on paths shared with generalRouter. Must be mounted
 // BEFORE the management router; management tokens fall through untouched.
 app.use("/", portalRouter);
+// B15: news feed, polls, events calendar (/posts*, /events?month=), for portal
+// AND office tokens; audience-filtered per caller. A plain /events falls through.
+app.use("/", newsRouter);
+// B16: notifications (/notifications*, /notification-settings) for portal AND
+// office tokens; each caller sees only their own. Office actions role-checked per route.
+app.use("/", notificationRouter);
+// B2: teacher portal tools (/teacher/*, STAFF tokens only).
+app.use("/", teacherRouter);
+// B14: a pupil's own invoices (STU tokens only; parents use the pupil login).
+app.use("/portal/invoices", invoicePortalRouter);
 
 // --- Management (admin portal) routers: token required at mount time ---
+// B10: authenticateManagementUser loads the login's role and permissions from
+// the database; every route below checks a permission (requirePermission),
+// never a role name. src/__tests__/roleAccess.test.js walks them all.
 // NOTE: the standalone unauthenticated `app.get("/staff", fetchAllStaff)` route
 // was removed previously - it leaked all staff records. The authenticated,
-// Administrator-only `/staff` route is wired into generalRouter below.
+// authenticated `/staff` route (staff.view) is wired into generalRouter below.
 app.use("/", authenticateManagementUser, generalRouter);
-// Accounting/Fees domain: hidden for Class Teacher (Administrator + Accountant only).
-app.use("/", authenticateManagementUser, authorizeRoles("Administrator", "Accountant"), accountRouter);
+// B7: academic years (reads: all office roles; changes: Administrator).
+app.use("/", authenticateManagementUser, academicYearRouter);
+// B12: discounts, term billing and statements (roles per route).
+app.use("/", authenticateManagementUser, feeBillingRouter);
+// B17: pupil / staff photos and documents (office tokens, role + class scoped).
+app.use("/", authenticateManagementUser, mediaRouter);
+// B9: staff attendance.
+app.use("/", authenticateManagementUser, staffAttendanceRouter);
+// B11: academic reports (school-wide, or one class: own class without academics.all_classes).
+app.use("/", authenticateManagementUser, academicReportRouter);
+// B14: invoices and credit notes (roles per route).
+app.use("/", authenticateManagementUser, invoiceRouter);
+// B10: roles and permissions, office logins' roles, the caller's own access.
+app.use("/", authenticateManagementUser, roleRouter);
+// Accounting (income, expenses): accounting.view / accounting.manage per route.
+app.use("/", authenticateManagementUser, accountRouter);
 
-// Messaging (SMS): Administrator only.
-app.use("/communication", authenticateManagementUser, authorizeRoles("Administrator"), communicationRouter);
+// Messaging (SMS): sms.send.
+app.use("/communication", authenticateManagementUser, communicationRouter);
 
 // BE-23: debug routes `/test` (dumped student list unauthenticated) and
 // `/requestCount` have been removed.
@@ -161,12 +204,15 @@ const start = async () => {
   try {
     await sequelize.authenticate();
     console.log("Connection has been established successfully.");
+    // B17: local disk or the object store (MinIO); a bad STORAGE_DRIVER
+    // setting stops the start, an object store still booting is retried.
+    await initStorage();
 
     app.listen(PORT, () =>
       console.log(`📡 server running on port ${PORT}`)
     );
   } catch (err) {
-    console.error("Unable to connect to the database. Refusing to start:", err);
+    console.error("Unable to start (database or storage setting). Refusing to start:", err);
     process.exit(1);
   }
 };
