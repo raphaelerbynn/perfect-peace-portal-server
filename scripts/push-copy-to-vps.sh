@@ -24,7 +24,8 @@
 # Fresh data first:  YES=1 ./scripts/copy-live-to-local.sh  (then run this)
 #
 # The test site is reachable from the internet and holds real names, marks and
-# balances, so VPS_TEST_PASSWORD must be 12+ characters (admin123 is refused).
+# balances, so VPS_TEST_PASSWORD must be 8+ characters, the API's own minimum
+# (admin123 is refused).
 # Give it to the school's testers separately; never put it in the manual.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -36,8 +37,8 @@ API_CT="${API_CT:-pp-test-backend}"
 
 : "${VPS_SSH:?Set VPS_SSH=user@host (the test-client VPS)}"
 PW="${VPS_TEST_PASSWORD:-}"
-if [ "${#PW}" -lt 12 ] || [ "$PW" = "admin123" ]; then
-  echo "Set VPS_TEST_PASSWORD to 12 or more characters (not admin123): the test site is on the internet."
+if [ "${#PW}" -lt 8 ] || [ "$PW" = "admin123" ]; then
+  echo "Set VPS_TEST_PASSWORD to 8 or more characters (not admin123): the test site is on the internet."
   exit 1
 fi
 
