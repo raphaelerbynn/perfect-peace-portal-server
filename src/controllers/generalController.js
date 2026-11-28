@@ -1,3 +1,4 @@
+import { assertPassword } from "../utils/validate.js";
 import { viewerFromUser } from "../services/posts.js";
 import {
   createFeeding,
@@ -1400,6 +1401,8 @@ const updatePassword = async (req, res, next) => {
     if (!userRole) {
       throw new Error("Invalid index number");
     }
+    // Checked before the code is used, so a bad password doesn't waste it.
+    assertPassword(password);
 
     // Re-verify AND consume the code here (single-use). The password is only
     // changed if the code is valid/unexpired/not-locked.
