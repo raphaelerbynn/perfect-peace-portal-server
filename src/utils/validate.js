@@ -5,7 +5,10 @@ import { AppError } from "./errorHandling.js";
 // turning into a 500.
 
 const PORTAL_ROLES = ["STU", "STAFF"];
-const PASSWORD_MIN_LENGTH = 8;
+// The school's rule for a NEW password (sign-up, reset, office logins). Sign-in
+// never checks length, so a password set before this rule still works.
+const PASSWORD_MIN_LENGTH = 4;
+const PASSWORD_MAX_LENGTH = 16;
 // Pragmatic email check - not RFC-perfect, just enough to reject obvious junk.
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -40,9 +43,13 @@ const assertRequiredString = (value, fieldLabel) => {
 };
 
 const assertPassword = (password) => {
-  if (typeof password !== "string" || password.length < PASSWORD_MIN_LENGTH) {
+  if (
+    typeof password !== "string" ||
+    password.length < PASSWORD_MIN_LENGTH ||
+    password.length > PASSWORD_MAX_LENGTH
+  ) {
     throw new AppError(
-      `Password must be at least ${PASSWORD_MIN_LENGTH} characters.`,
+      `Password must be ${PASSWORD_MIN_LENGTH} to ${PASSWORD_MAX_LENGTH} characters.`,
       400
     );
   }
@@ -65,4 +72,5 @@ export {
   assertEmail,
   PORTAL_ROLES,
   PASSWORD_MIN_LENGTH,
+  PASSWORD_MAX_LENGTH,
 };

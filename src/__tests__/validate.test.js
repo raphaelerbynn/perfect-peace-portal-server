@@ -8,6 +8,7 @@ import {
   assertEmail,
   PORTAL_ROLES,
   PASSWORD_MIN_LENGTH,
+  PASSWORD_MAX_LENGTH,
 } from "../utils/validate.js";
 
 describe("parseIndexNumber", () => {
@@ -72,13 +73,17 @@ describe("assertRequiredString", () => {
 });
 
 describe("assertPassword", () => {
-  it(`accepts a password of at least ${PASSWORD_MIN_LENGTH} chars`, () => {
-    expect(() => assertPassword("a".repeat(PASSWORD_MIN_LENGTH))).not.toThrow();
+  it.each([PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH])("accepts a %i-character password", (n) => {
+    expect(() => assertPassword("a".repeat(n))).not.toThrow();
   });
 
-  it("rejects a short password with 400", () => {
-    expect(() => assertPassword("short")).toThrow(
-      expect.objectContaining({ statusCode: 400 })
+  it("uses 4 to 16 characters", () => {
+    expect([PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH]).toEqual([4, 16]);
+  });
+
+  it.each(["abc", "a".repeat(17)])("rejects %p with 400", (bad) => {
+    expect(() => assertPassword(bad)).toThrow(
+      expect.objectContaining({ statusCode: 400, message: "Password must be 4 to 16 characters." })
     );
   });
 
