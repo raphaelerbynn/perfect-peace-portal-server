@@ -1,10 +1,14 @@
-# TEST-CLIENT stack - a throwaway environment for a client to try the API.
+# TEST-CLIENT stack - the environment the school tests on.
 #
-#   * Temp PostgreSQL: data lives in tmpfs (RAM), so every restart is a CLEAN
-#     slate - there is NO persistent volume. This is intentional ("temp db").
+#   * PostgreSQL keeps its data in the Docker volume pp_test_pgdata, so it
+#     survives restarts and deploys. scripts/push-copy-to-vps.sh (run on the
+#     developer's Mac) replaces it with the local copy of the live data (phone
+#     numbers blanked, test passwords set).
 #   * Backend: pulled from the registry image built by CI (GitHub Actions), or
-#     built locally with `--build`. On boot it creates the schema and seeds
-#     EXACTLY ONE user (the admin), then starts the API on port 5040.
+#     built locally with `--build`. On every start src/scripts/testClientStart.js
+#     applies pending migrations to a live copy, or creates the tables and the
+#     single admin on an empty database; then the API starts on port 5040.
+#   * To wipe the data: docker compose ... down -v (removes the volume).
 #
 # Local:   ./scripts/run-test-client.sh            (builds + runs on :5040)
 # VPS:     lives in /opt/projects/perfect_peace; the GitHub Action deploys there
@@ -26,11 +30,10 @@ services:
       POSTGRES_DB: ${DB_NAME:-perfectpeace_test}
       POSTGRES_USER: ${DB_USERNAME:-perfectpeace}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-perfectpeace_test_pw}
-    # Ephemeral storage - wiped on every container recreation ("temp" DB).
-    tmpfs:
-      - /var/lib/postgresql/data
     volumes:
-      # Creates the `dbo` schema on every fresh init (tmpfs => runs each start).
+      # Kept across restarts and deploys (the copy of the live data lives here).
+      - pp_test_pgdata:/var/lib/postgresql/data
+      # Creates the `dbo` schema when the volume is new (first start only).
       - ./db/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-perfectpeace} -d ${DB_NAME:-perfectpeace_test}"]
@@ -38,17 +41,20 @@ services:
       timeout: 5s
       retries: 12
 
-  # B17: object store for uploads, in RAM like the database (wiped on restart).
+  # B17: object store for uploads (photos, documents, logo), kept in the
+  # pp_test_minio volume like the database, so stored files match its records.
   minio:
     image: ${MINIO_IMAGE:-cgr.dev/chainguard/minio:latest}
     container_name: pp-test-minio
     restart: unless-stopped
+    # A new named volume is owned by root; the image's own user can't write it.
+    user: "0:0"
     command: ["server", "/data"]
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-ppminio}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-ppminio-test-password}
-    tmpfs:
-      - /data:uid=65532,gid=65532
+    volumes:
+      - pp_test_minio:/data
     healthcheck:
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /minio/health/live HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && read -r l <&3 && [[ $$l == *' 200 '* ]]"]
       interval: 5s
@@ -74,8 +80,10 @@ services:
       S3_BUCKET: perfect-peace
       S3_ACCESS_KEY: ${MINIO_ROOT_USER:-ppminio}
       S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-ppminio-test-password}
-    # Boot sequence (idempotent): create tables -> seed the single admin -> serve.
-    command: ["sh", "-c", "node dist/scripts/devSync.js && node dist/scripts/seedAdmin.js && node dist/index.js"]
+    # Boot: migrations for a live copy, or tables + the single admin on an empty
+    # database (src/scripts/testClientStart.js), then serve. A failed migration
+    # stops here, so the API never runs on a half-migrated copy.
+    command: ["sh", "-c", "node dist/scripts/testClientStart.js && node dist/index.js"]
     ports:
       - "${SERVER_PORT:-5040}:5040"
     depends_on:
@@ -83,3 +91,7 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+
+volumes:
+  pp_test_pgdata:
+  pp_test_minio:
